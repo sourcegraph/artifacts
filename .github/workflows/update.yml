@@ -1,0 +1,15 @@
+name: Check for new artifacts
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # https://crontab.guru/#0_22_*_*_6
+    # Every saturday at 10pm
+    - cron: '0 22 * * 6'
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4 
