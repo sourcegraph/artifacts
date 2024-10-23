@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
 
   schedule:
-    # https://crontab.guru/#0_22_*_*_6
-    # Every saturday at 10pm
-    - cron: '0 22 * * 6'
+    # https://crontab.guru/#0_7_*_*_*
+    # Every saturday at 7am
+    - cron: '0 7 * * *'
 
 jobs:
     check:
