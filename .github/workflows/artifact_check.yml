@@ -58,14 +58,30 @@ jobs:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
         run: echo "$latest_release_tag" > TAG
 
+      - name: Pull graphql schemas
+        env:
+          latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
+        run: |
+          # TODO(@BolajiOlajide): Remove this when we start pushing schemas on every releaase.
+          normalized_version=$(echo "$latest_release_tag" | awk -F. '{print $1"."$2".0"}' | sed 's/^v//; s/^/v/')
+          file_name="gql_schema_${normalized_version}.tar.gz"
+
+          # Download the tar file using curl
+          curl -O "https://storage.googleapis.com/graphql_schema/$file_name"
+          
+          # extract tar file
+          tar -xvf "$file_name" -C gql
+
+          # delete the tar
+          rm -rf "$file_name"
+
       - name: Pull database migrations
         env:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
         run: |
-          # TODO: Remove this when we start pushing schemas on every releaase.
+          # TODO(@BolajiOlajide): Remove this when we start pushing schemas on every releaase.
           normalized_version=$(echo "$latest_release_tag" | awk -F. '{print $1"."$2".0"}' | sed 's/^v//; s/^/v/')
           file_name="migrations-${normalized_version}.tar.gz"
-          echo "$file_name"
 
           # Download the tar file using curl
           curl -O "https://storage.googleapis.com/schemas-migrations/migrations/$file_name"
@@ -82,13 +98,16 @@ jobs:
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
+
           git add migrations
           git add TAG
+          git add gql
+          
           git commit -m "Add artifacts for $latest_release_tag"
   
-      # - name: Push changes
-      #   run: |
-      #     git push origin main
+      - name: Push changes
+        run: |
+          git push origin main
 
       # - name: Create new tag
       #   env:
