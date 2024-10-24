@@ -80,9 +80,10 @@ jobs:
         env:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
         run: |
-          git config user.name "GitHub Action"
-          git config user.email "action@github.com"
+          git config user.name github-actions
+          git config user.email github-actions@github.com
           git add migrations
+          git add TAG
           git commit -m "Add artifacts for $latest_release_tag"
   
       - name: Push changes
