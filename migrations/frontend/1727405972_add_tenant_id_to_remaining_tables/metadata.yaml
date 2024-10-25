@@ -1,0 +1,3 @@
+name: Add tenant_id to remaining tables
+parents: [1727383981]
+bestEffortTerminateBlockingTransactions: true

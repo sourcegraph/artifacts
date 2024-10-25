@@ -1,0 +1,3 @@
+name: Tenant ID defaults to 1
+parents: [1726149999]
+bestEffortTerminateBlockingTransactions: true

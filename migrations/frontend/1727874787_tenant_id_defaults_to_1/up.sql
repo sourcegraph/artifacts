@@ -1,0 +1,343 @@
+ALTER TABLE access_requests ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE access_tokens ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE aggregated_user_statistics ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE assigned_owners ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE assigned_teams ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_changes_site_credentials ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_spec_execution_cache_entries ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_spec_resolution_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_spec_workspace_execution_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_spec_workspace_execution_last_dequeues ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_spec_workspace_files ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_spec_workspaces ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE batch_specs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cached_available_indexers ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE changeset_events ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE changeset_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE changeset_specs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE changesets ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_action_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_emails ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_last_searched ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_monitors ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_queries ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_recipients ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_slack_webhooks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_trigger_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE cm_webhooks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE code_hosts ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_autoindex_queue ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_autoindexing_exceptions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_commit_dates ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_inference_scripts ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_initial_path_ranks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_initial_path_ranks_processed ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_langugage_support_requests ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_path_ranks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_definitions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_exports ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_graph_keys ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_path_counts_inputs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_progress ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_references ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeintel_ranking_references_processed ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeowners ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeowners_individual_stats ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE codeowners_owners ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE commit_authors ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE configuration_policies_audit_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE context_detection_embedding_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE discussion_comments ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE discussion_threads ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE discussion_threads_target_repo ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE event_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE event_logs_export_allowlist ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE event_logs_scrape_state ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE event_logs_scrape_state_own ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE executor_heartbeats ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE executor_job_tokens ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE executor_secret_access_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE executor_secrets ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE exhaustive_search_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE exhaustive_search_repo_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE exhaustive_search_repo_revision_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE explicit_permissions_bitbucket_projects_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE external_service_repos ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE external_service_sync_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE external_services ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE feature_flag_overrides ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE github_app_installs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE github_apps ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE gitserver_relocator_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE gitserver_repos ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE gitserver_repos_statistics ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE gitserver_repos_sync_output ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE global_state ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE insights_query_runner_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE insights_query_runner_jobs_dependencies ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE insights_settings_migration_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_configuration_policies ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_configuration_policies_repository_pattern_lookup ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_dependency_indexing_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_dependency_repos ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_dependency_syncing_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_dirty_repositories ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_index_configuration ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_indexes ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_last_index_scan ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_last_retention_scan ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_nearest_uploads ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_nearest_uploads_links ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_packages ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_references ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_retention_configuration ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_uploads ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_uploads_audit_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_uploads_reference_counts ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_uploads_visible_at_tip ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE lsif_uploads_vulnerability_scan ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE namespace_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE notebook_stars ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE notebooks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE org_invitations ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE org_members ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE org_stats ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE orgs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE out_of_band_migrations ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE out_of_band_migrations_errors ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE outbound_webhook_event_types ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE outbound_webhook_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE outbound_webhook_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE outbound_webhooks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE own_aggregate_recent_contribution ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE own_aggregate_recent_view ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE own_background_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE own_signal_configurations ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE own_signal_recent_contribution ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE ownership_path_stats ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE package_repo_filters ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE package_repo_versions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE permission_sync_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE phabricator_repos ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE product_licenses ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE product_subscriptions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE prompts ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE query_runner_state ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE registry_extension_releases ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE registry_extensions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_commits_changelists ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_context_stats ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_context_stats_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_embedding_job_stats ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_embedding_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_kvps ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_paths ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_pending_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE repo_statistics ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE role_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE roles ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE saved_searches ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE search_context_default ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE search_context_repos ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE search_context_stars ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE search_contexts ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE security_event_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE settings ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE sub_repo_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE survey_responses ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE syntactic_scip_indexing_jobs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE team_members ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE teams ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE telemetry_events_export_queue ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE temporary_settings ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_credentials ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_emails ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_external_accounts ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_onboarding_tour ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_pending_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_public_repos ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_repo_permissions ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE user_roles ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE users ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE vulnerabilities ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE vulnerability_affected_packages ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE vulnerability_affected_symbols ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE vulnerability_matches ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE webhook_logs ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE webhooks ALTER COLUMN tenant_id SET DEFAULT 1; COMMIT AND CHAIN;
+
+ALTER TABLE zoekt_repos ALTER COLUMN tenant_id SET DEFAULT 1;

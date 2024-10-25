@@ -1,0 +1,2 @@
+name: Drop unused orgs_open_beta_stats table
+parents: [1725228711]
