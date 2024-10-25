@@ -62,9 +62,7 @@ jobs:
         env:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
         run: |
-          # TODO(@BolajiOlajide): Remove this when we start pushing schemas on every releaase.
-          normalized_version=$(echo "$latest_release_tag" | awk -F. '{print $1"."$2".0"}' | sed 's/^v//; s/^/v/')
-          file_name="gql_schema_${normalized_version}.tar.gz"
+          file_name="gql_schema_${latest_release_tag}.tar.gz"
 
           # Download the tar file using curl
           curl -O "https://storage.googleapis.com/graphql_schema/$file_name"
