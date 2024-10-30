@@ -37,7 +37,7 @@ jobs:
           LATEST_RELEASE: ${{ steps.get_latest_release.outputs.latest_release }}
           TAG: ${{ steps.read_current_tag.outputs.current_tag }}
         run: |
-          if [ "${LATEST_RELEASE}" == "${CURRENT_TAG}" ]; then
+          if [[ "${LATEST_RELEASE}" == "${CURRENT_TAG}" ]]; then
             echo "Latest release (${LATEST_RELEASE}) matches current tag (${CURRENT_TAG})."
             echo "new_release_found=false" >> $GITHUB_OUTPUT
           else
