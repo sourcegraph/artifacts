@@ -94,17 +94,15 @@ jobs:
         env:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          git config user.name sourcegraph-bot-devx
+          git config user.email 127119266+sourcegraph-bot-devx@users.noreply.github.com
 
           git add migrations
           git add TAG
           git add gql
 
           git commit -m "Add artifacts for $latest_release_tag"
-  
-      - name: Push changes
-        run: |
+          
           git push origin main
 
       - name: Create new tag
