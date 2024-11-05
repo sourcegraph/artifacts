@@ -96,6 +96,7 @@ jobs:
         run: |
           git config user.name sourcegraph-bot-devx
           git config user.email 127119266+sourcegraph-bot-devx@users.noreply.github.com
+          git remote set-url origin https://x-access-token:${{ secrets.ARTIFACTS_GH_TOKEN }}@github.com/${{ github.repository }}.git
 
           git add migrations
           git add TAG
