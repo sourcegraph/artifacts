@@ -1,0 +1,3 @@
+name: Enable RLS for regular users
+parents: [1727399817]
+bestEffortTerminateBlockingTransactions: true

@@ -1,0 +1,3 @@
+name: Extend scip symbols schema versions trigger function by tenant id
+parents: [1726091395]
+bestEffortTerminateBlockingTransactions: true

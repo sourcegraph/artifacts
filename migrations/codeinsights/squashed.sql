@@ -34,7 +34,7 @@ CREATE TABLE archived_insight_series_recording_times (
     insight_series_id integer NOT NULL,
     recording_time timestamp with time zone NOT NULL,
     snapshot boolean NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE TABLE archived_series_points (
@@ -45,7 +45,7 @@ CREATE TABLE archived_series_points (
     repo_name_id integer,
     original_repo_name_id integer,
     capture text,
-    tenant_id integer DEFAULT 1,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     CONSTRAINT check_repo_fields_specifity CHECK ((((repo_id IS NULL) AND (repo_name_id IS NULL) AND (original_repo_name_id IS NULL)) OR ((repo_id IS NOT NULL) AND (repo_name_id IS NOT NULL) AND (original_repo_name_id IS NOT NULL))))
 );
 
@@ -58,7 +58,7 @@ CREATE TABLE dashboard (
     deleted_at timestamp without time zone,
     save boolean DEFAULT false NOT NULL,
     type text DEFAULT 'standard'::text NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE dashboard IS 'Metadata for dashboards of insights';
@@ -81,7 +81,7 @@ CREATE TABLE dashboard_grants (
     user_id integer,
     org_id integer,
     global boolean,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE dashboard_grants IS 'Permission grants for dashboards. Each row should represent a unique principal (user, org, etc).';
@@ -116,7 +116,7 @@ CREATE TABLE dashboard_insight_view (
     id integer NOT NULL,
     dashboard_id integer NOT NULL,
     insight_view_id integer NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE dashboard_insight_view_id_seq
@@ -154,7 +154,7 @@ CREATE TABLE insight_series (
     supports_augmentation boolean DEFAULT true NOT NULL,
     repository_criteria text,
     query_old text,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE insight_series IS 'Data series that comprise code insights.';
@@ -189,7 +189,7 @@ CREATE TABLE insight_series_backfill (
     repo_iterator_id integer,
     estimated_cost double precision,
     state text DEFAULT 'new'::text NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE insight_series_backfill_id_seq
@@ -218,7 +218,7 @@ CREATE TABLE insight_series_incomplete_points (
     reason text NOT NULL,
     "time" timestamp without time zone NOT NULL,
     repo_id integer,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE insight_series_incomplete_points_id_seq
@@ -235,7 +235,7 @@ CREATE TABLE insight_series_recording_times (
     insight_series_id integer,
     recording_time timestamp with time zone,
     snapshot boolean,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE TABLE insight_view (
@@ -253,7 +253,7 @@ CREATE TABLE insight_view (
     series_sort_direction series_sort_direction_enum,
     series_limit integer,
     series_num_samples integer,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE insight_view IS 'Views for insight data series. An insight view is an abstraction on top of an insight data series that allows for lightweight modifications to filters or metadata without regenerating the underlying series.';
@@ -276,7 +276,7 @@ CREATE TABLE insight_view_grants (
     user_id integer,
     org_id integer,
     global boolean,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE insight_view_grants IS 'Permission grants for insight views. Each row should represent a unique principal (user, org, etc).';
@@ -312,7 +312,7 @@ CREATE TABLE insight_view_series (
     insight_series_id integer NOT NULL,
     label text,
     stroke text,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE insight_view_series IS 'Join table to correlate data series with insight views';
@@ -340,7 +340,7 @@ CREATE TABLE insights_background_jobs (
     worker_hostname text DEFAULT ''::text NOT NULL,
     cancel boolean DEFAULT false NOT NULL,
     backfill_id integer,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE insights_background_jobs_id_seq
@@ -369,7 +369,7 @@ CREATE TABLE insights_data_retention_jobs (
     cancel boolean DEFAULT false NOT NULL,
     series_id integer NOT NULL,
     series_id_string text DEFAULT ''::text NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE insights_data_retention_jobs_id_seq
@@ -428,7 +428,7 @@ CREATE VIEW insights_jobs_backfill_new AS
 CREATE TABLE metadata (
     id bigint NOT NULL,
     metadata jsonb NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE metadata IS 'Records arbitrary metadata about events. Stored in a separate table as it is often repeated for multiple events.';
@@ -458,7 +458,7 @@ CREATE TABLE repo_iterator (
     success_count integer DEFAULT 0 NOT NULL,
     repos integer[],
     repo_cursor integer DEFAULT 0,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE TABLE repo_iterator_errors (
@@ -467,7 +467,7 @@ CREATE TABLE repo_iterator_errors (
     repo_id integer NOT NULL,
     error_message text[] NOT NULL,
     failure_count integer DEFAULT 1,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE repo_iterator_errors_id_seq
@@ -493,7 +493,7 @@ ALTER SEQUENCE repo_iterator_id_seq OWNED BY repo_iterator.id;
 CREATE TABLE repo_names (
     id bigint NOT NULL,
     name citext NOT NULL,
-    tenant_id integer DEFAULT 1,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     CONSTRAINT check_name_nonempty CHECK ((name OPERATOR(<>) ''::citext))
 );
 
@@ -521,7 +521,7 @@ CREATE TABLE series_points (
     repo_name_id integer,
     original_repo_name_id integer,
     capture text,
-    tenant_id integer DEFAULT 1,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     CONSTRAINT check_repo_fields_specifity CHECK ((((repo_id IS NULL) AND (repo_name_id IS NULL) AND (original_repo_name_id IS NULL)) OR ((repo_id IS NOT NULL) AND (repo_name_id IS NOT NULL) AND (original_repo_name_id IS NOT NULL))))
 );
 
@@ -550,7 +550,7 @@ CREATE TABLE series_points_snapshots (
     repo_name_id integer,
     original_repo_name_id integer,
     capture text,
-    tenant_id integer DEFAULT 1,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     CONSTRAINT check_repo_fields_specifity CHECK ((((repo_id IS NULL) AND (repo_name_id IS NULL) AND (original_repo_name_id IS NULL)) OR ((repo_id IS NOT NULL) AND (repo_name_id IS NOT NULL) AND (original_repo_name_id IS NOT NULL))))
 );
 
@@ -561,6 +561,8 @@ CREATE TABLE tenants (
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    workspace_id uuid NOT NULL,
+    display_name text,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text))
 );
@@ -570,6 +572,10 @@ COMMENT ON TABLE tenants IS 'The table that holds all tenants known to the insta
 COMMENT ON COLUMN tenants.id IS 'The ID of the tenant. To keep tenants globally addressable, and be able to move them aronud instances more easily, the ID is NOT a serial and has to be specified explicitly. The creator of the tenant is responsible for choosing a unique ID, if it cares.';
 
 COMMENT ON COLUMN tenants.name IS 'The name of the tenant. This may be displayed to the user and must be unique.';
+
+COMMENT ON COLUMN tenants.workspace_id IS 'The ID in workspaces service of the tenant. This is used for identifying the link between tenant and workspace.';
+
+COMMENT ON COLUMN tenants.display_name IS 'An optional display name for the tenant. This is used for rendering the tenant name in the UI.';
 
 ALTER TABLE ONLY dashboard ALTER COLUMN id SET DEFAULT nextval('dashboard_id_seq'::regclass);
 
@@ -656,6 +662,9 @@ ALTER TABLE ONLY tenants
 ALTER TABLE ONLY tenants
     ADD CONSTRAINT tenants_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY tenants
+    ADD CONSTRAINT tenants_workspace_id_key UNIQUE (workspace_id);
+
 ALTER TABLE ONLY dashboard_insight_view
     ADD CONSTRAINT unique_dashboard_id_insight_view_id UNIQUE (dashboard_id, insight_view_id);
 
@@ -687,19 +696,19 @@ CREATE INDEX insight_view_grants_org_id_idx ON insight_view_grants USING btree (
 
 CREATE INDEX insight_view_grants_user_id_idx ON insight_view_grants USING btree (user_id);
 
-CREATE UNIQUE INDEX insight_view_unique_id_unique_idx ON insight_view USING btree (unique_id);
+CREATE UNIQUE INDEX insight_view_unique_id_unique_idx ON insight_view USING btree (unique_id, tenant_id);
 
 CREATE INDEX insights_jobs_state_idx ON insights_background_jobs USING btree (state);
 
 CREATE INDEX metadata_metadata_gin ON metadata USING gin (metadata);
 
-CREATE UNIQUE INDEX metadata_metadata_unique_idx ON metadata USING btree (metadata);
+CREATE UNIQUE INDEX metadata_metadata_unique_idx ON metadata USING btree (metadata, tenant_id);
 
 CREATE INDEX repo_iterator_errors_fk_idx ON repo_iterator_errors USING btree (repo_iterator_id);
 
 CREATE INDEX repo_names_name_trgm ON repo_names USING gin (lower((name)::text) gin_trgm_ops);
 
-CREATE UNIQUE INDEX repo_names_name_unique_idx ON repo_names USING btree (name);
+CREATE UNIQUE INDEX repo_names_name_unique_idx ON repo_names USING btree (name, tenant_id);
 
 CREATE INDEX series_points_original_repo_name_id_btree ON series_points USING btree (original_repo_name_id);
 
@@ -721,17 +730,8 @@ CREATE INDEX series_points_snapshots_series_id_idx ON series_points_snapshots US
 
 CREATE INDEX series_points_snapshots_series_id_repo_id_time_idx ON series_points_snapshots USING btree (series_id, repo_id, "time");
 
-ALTER TABLE ONLY archived_insight_series_recording_times
-    ADD CONSTRAINT archived_insight_series_recording_times_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY archived_series_points
-    ADD CONSTRAINT archived_series_points_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY dashboard_grants
     ADD CONSTRAINT dashboard_grants_dashboard_id_fk FOREIGN KEY (dashboard_id) REFERENCES dashboard(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY dashboard_grants
-    ADD CONSTRAINT dashboard_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 ALTER TABLE ONLY dashboard_insight_view
     ADD CONSTRAINT dashboard_insight_view_dashboard_id_fk FOREIGN KEY (dashboard_id) REFERENCES dashboard(id) ON DELETE CASCADE;
@@ -739,17 +739,8 @@ ALTER TABLE ONLY dashboard_insight_view
 ALTER TABLE ONLY dashboard_insight_view
     ADD CONSTRAINT dashboard_insight_view_insight_view_id_fk FOREIGN KEY (insight_view_id) REFERENCES insight_view(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY dashboard_insight_view
-    ADD CONSTRAINT dashboard_insight_view_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY dashboard
-    ADD CONSTRAINT dashboard_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY insight_series_backfill
     ADD CONSTRAINT insight_series_backfill_series_id_fk FOREIGN KEY (series_id) REFERENCES insight_series(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY insight_series_backfill
-    ADD CONSTRAINT insight_series_backfill_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 ALTER TABLE ONLY insight_series_recording_times
     ADD CONSTRAINT insight_series_id_fkey FOREIGN KEY (insight_series_id) REFERENCES insight_series(id) ON DELETE CASCADE;
@@ -760,23 +751,11 @@ ALTER TABLE ONLY archived_insight_series_recording_times
 ALTER TABLE ONLY insight_series_incomplete_points
     ADD CONSTRAINT insight_series_incomplete_points_series_id_fk FOREIGN KEY (series_id) REFERENCES insight_series(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY insight_series_incomplete_points
-    ADD CONSTRAINT insight_series_incomplete_points_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY insight_series_recording_times
-    ADD CONSTRAINT insight_series_recording_times_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY archived_series_points
     ADD CONSTRAINT insight_series_series_id_fkey FOREIGN KEY (series_id) REFERENCES insight_series(series_id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY insight_series
-    ADD CONSTRAINT insight_series_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY insight_view_grants
     ADD CONSTRAINT insight_view_grants_insight_view_id_fk FOREIGN KEY (insight_view_id) REFERENCES insight_view(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY insight_view_grants
-    ADD CONSTRAINT insight_view_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 ALTER TABLE ONLY insight_view_series
     ADD CONSTRAINT insight_view_series_insight_series_id_fkey FOREIGN KEY (insight_series_id) REFERENCES insight_series(id);
@@ -784,35 +763,11 @@ ALTER TABLE ONLY insight_view_series
 ALTER TABLE ONLY insight_view_series
     ADD CONSTRAINT insight_view_series_insight_view_id_fkey FOREIGN KEY (insight_view_id) REFERENCES insight_view(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY insight_view_series
-    ADD CONSTRAINT insight_view_series_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY insight_view
-    ADD CONSTRAINT insight_view_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY insights_background_jobs
     ADD CONSTRAINT insights_background_jobs_backfill_id_fkey FOREIGN KEY (backfill_id) REFERENCES insight_series_backfill(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY insights_background_jobs
-    ADD CONSTRAINT insights_background_jobs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY insights_data_retention_jobs
-    ADD CONSTRAINT insights_data_retention_jobs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY metadata
-    ADD CONSTRAINT metadata_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY repo_iterator_errors
-    ADD CONSTRAINT repo_iterator_errors_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY repo_iterator_errors
     ADD CONSTRAINT repo_iterator_fk FOREIGN KEY (repo_iterator_id) REFERENCES repo_iterator(id);
-
-ALTER TABLE ONLY repo_iterator
-    ADD CONSTRAINT repo_iterator_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY repo_names
-    ADD CONSTRAINT repo_names_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 ALTER TABLE ONLY series_points
     ADD CONSTRAINT series_points_metadata_id_fkey FOREIGN KEY (metadata_id) REFERENCES metadata(id) ON DELETE CASCADE DEFERRABLE;
@@ -823,10 +778,84 @@ ALTER TABLE ONLY series_points
 ALTER TABLE ONLY series_points
     ADD CONSTRAINT series_points_repo_name_id_fkey FOREIGN KEY (repo_name_id) REFERENCES repo_names(id) ON DELETE CASCADE DEFERRABLE;
 
-ALTER TABLE ONLY series_points_snapshots
-    ADD CONSTRAINT series_points_snapshots_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+ALTER TABLE archived_insight_series_recording_times ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE ONLY series_points
-    ADD CONSTRAINT series_points_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+CREATE POLICY archived_insight_series_recording_times_isolation_policy ON archived_insight_series_recording_times USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00');
+ALTER TABLE archived_series_points ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY archived_series_points_isolation_policy ON archived_series_points USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE dashboard ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE dashboard_grants ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY dashboard_grants_isolation_policy ON dashboard_grants USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE dashboard_insight_view ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY dashboard_insight_view_isolation_policy ON dashboard_insight_view USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY dashboard_isolation_policy ON dashboard USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insight_series ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE insight_series_backfill ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_series_backfill_isolation_policy ON insight_series_backfill USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insight_series_incomplete_points ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_series_incomplete_points_isolation_policy ON insight_series_incomplete_points USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY insight_series_isolation_policy ON insight_series USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insight_series_recording_times ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_series_recording_times_isolation_policy ON insight_series_recording_times USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insight_view ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE insight_view_grants ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_view_grants_isolation_policy ON insight_view_grants USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY insight_view_isolation_policy ON insight_view USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insight_view_series ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_view_series_isolation_policy ON insight_view_series USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insights_background_jobs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insights_background_jobs_isolation_policy ON insights_background_jobs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE insights_data_retention_jobs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insights_data_retention_jobs_isolation_policy ON insights_data_retention_jobs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE metadata ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY metadata_isolation_policy ON metadata USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE repo_iterator ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE repo_iterator_errors ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY repo_iterator_errors_isolation_policy ON repo_iterator_errors USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY repo_iterator_isolation_policy ON repo_iterator USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE repo_names ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY repo_names_isolation_policy ON repo_names USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE series_points ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY series_points_isolation_policy ON series_points USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE series_points_snapshots ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY series_points_snapshots_isolation_policy ON series_points_snapshots USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);

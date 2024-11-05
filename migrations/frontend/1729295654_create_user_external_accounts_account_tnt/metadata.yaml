@@ -1,0 +1,3 @@
+name: Create user_external_accounts_account_tnt
+parents: [1725545399, 1728893937]
+createIndexConcurrently: true

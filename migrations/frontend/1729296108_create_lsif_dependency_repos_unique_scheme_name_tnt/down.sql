@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS lsif_dependency_repos_unique_scheme_name_tnt;

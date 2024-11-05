@@ -1,0 +1,3 @@
+name: Extend document lookup schema versions trigger function by tenant id
+parents: [1729292007]
+bestEffortTerminateBlockingTransactions: true

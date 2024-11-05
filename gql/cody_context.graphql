@@ -109,7 +109,7 @@ type CodyContextList {
     """
     Name of the list
     """
-    Name: String!
+    name: String!
 
     """
     List of context items

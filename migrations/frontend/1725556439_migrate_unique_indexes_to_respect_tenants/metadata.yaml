@@ -1,0 +1,3 @@
+name: Migrate unique indexes to respect tenants
+parents: [1725545399, 1728893937, 1729295542, 1729295654, 1729295738, 1729295796, 1729296108]
+bestEffortTerminateBlockingTransactions: true

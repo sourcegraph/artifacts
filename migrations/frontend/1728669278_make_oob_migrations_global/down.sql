@@ -1,0 +1,1 @@
+ALTER TABLE out_of_band_migrations ADD COLUMN IF NOT EXISTS tenant_id integer DEFAULT 1 REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;

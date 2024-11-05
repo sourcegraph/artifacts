@@ -50,7 +50,7 @@ CREATE FUNCTION update_codeintel_scip_document_lookup_schema_versions_insert() R
     FROM newtab
     JOIN codeintel_scip_documents ON codeintel_scip_documents.id = newtab.document_id
     GROUP BY newtab.upload_id
-    ON CONFLICT (upload_id) DO UPDATE SET
+    ON CONFLICT ON CONSTRAINT codeintel_scip_document_lookup_schema_versions_pkey DO UPDATE SET
         -- Update with min(old_min, new_min) and max(old_max, new_max)
         min_schema_version = LEAST(codeintel_scip_document_lookup_schema_versions.min_schema_version, EXCLUDED.min_schema_version),
         max_schema_version = GREATEST(codeintel_scip_document_lookup_schema_versions.max_schema_version, EXCLUDED.max_schema_version);
@@ -75,7 +75,7 @@ CREATE FUNCTION update_codeintel_scip_symbols_schema_versions_insert() RETURNS t
         MAX(schema_version) as max_schema_version
     FROM newtab
     GROUP BY upload_id
-    ON CONFLICT (upload_id) DO UPDATE SET
+    ON CONFLICT ON CONSTRAINT codeintel_scip_symbols_schema_versions_pkey DO UPDATE SET
         -- Update with min(old_min, new_min) and max(old_max, new_max)
         min_schema_version = LEAST(codeintel_scip_symbols_schema_versions.min_schema_version, EXCLUDED.min_schema_version),
         max_schema_version = GREATEST(codeintel_scip_symbols_schema_versions.max_schema_version, EXCLUDED.max_schema_version);
@@ -85,7 +85,7 @@ END $$;
 CREATE TABLE codeintel_last_reconcile (
     dump_id integer NOT NULL,
     last_reconcile_at timestamp with time zone NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_last_reconcile IS 'Stores the last time processed LSIF data was reconciled with the other database.';
@@ -95,7 +95,7 @@ CREATE TABLE codeintel_scip_document_lookup (
     upload_id integer NOT NULL,
     document_path text NOT NULL,
     document_id bigint NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_document_lookup IS 'A mapping from file paths to document references within a particular SCIP index.';
@@ -121,7 +121,7 @@ CREATE TABLE codeintel_scip_document_lookup_schema_versions (
     upload_id integer NOT NULL,
     min_schema_version integer,
     max_schema_version integer,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_document_lookup_schema_versions IS 'Tracks the range of `schema_versions` values associated with each SCIP index in the [`codeintel_scip_document_lookup`](#table-publiccodeintel_scip_document_lookup) table.';
@@ -137,7 +137,7 @@ CREATE TABLE codeintel_scip_documents (
     payload_hash bytea NOT NULL,
     schema_version integer NOT NULL,
     raw_scip_payload bytea NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_documents IS 'A lookup of SCIP [Document](https://sourcegraph.com/search?q=context:%40sourcegraph/all+repo:%5Egithub%5C.com/sourcegraph/scip%24+file:%5Escip%5C.proto+message+Document&patternType=standard) payloads by their hash.';
@@ -154,7 +154,7 @@ CREATE TABLE codeintel_scip_documents_dereference_logs (
     id bigint NOT NULL,
     document_id bigint NOT NULL,
     last_removal_time timestamp with time zone DEFAULT now() NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_documents_dereference_logs IS 'A list of document rows that were recently dereferenced by the deletion of an index.';
@@ -189,7 +189,7 @@ CREATE TABLE codeintel_scip_metadata (
     tool_arguments text[] NOT NULL,
     text_document_encoding text NOT NULL,
     protocol_version integer NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_metadata IS 'Global metadatadata about a single processed upload.';
@@ -222,7 +222,7 @@ CREATE TABLE codeintel_scip_symbol_names (
     upload_id integer NOT NULL,
     name_segment text NOT NULL,
     prefix_id integer,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_symbol_names IS 'Stores a prefix tree of symbol names within a particular upload.';
@@ -244,7 +244,7 @@ CREATE TABLE codeintel_scip_symbols (
     implementation_ranges bytea,
     type_definition_ranges bytea,
     symbol_id integer NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_symbols IS 'A mapping from SCIP [Symbol names](https://sourcegraph.com/search?q=context:%40sourcegraph/all+repo:%5Egithub%5C.com/sourcegraph/scip%24+file:%5Escip%5C.proto+message+Symbol&patternType=standard) to path and ranges where that symbol occurs within a particular SCIP index.';
@@ -269,7 +269,7 @@ CREATE TABLE codeintel_scip_symbols_schema_versions (
     upload_id integer NOT NULL,
     min_schema_version integer,
     max_schema_version integer,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 COMMENT ON TABLE codeintel_scip_symbols_schema_versions IS 'Tracks the range of `schema_versions` for each index in the [`codeintel_scip_symbols`](#table-publiccodeintel_scip_symbols) table.';
@@ -286,7 +286,7 @@ CREATE TABLE rockskip_ancestry (
     commit_id character varying(40) NOT NULL,
     height integer NOT NULL,
     ancestor integer NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE rockskip_ancestry_id_seq
@@ -303,7 +303,7 @@ CREATE TABLE rockskip_repos (
     id integer NOT NULL,
     repo text NOT NULL,
     last_accessed_at timestamp with time zone NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE rockskip_repos_id_seq
@@ -323,7 +323,7 @@ CREATE TABLE rockskip_symbols (
     repo_id integer NOT NULL,
     path text NOT NULL,
     name text NOT NULL,
-    tenant_id integer DEFAULT 1
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
 CREATE SEQUENCE rockskip_symbols_id_seq
@@ -341,6 +341,8 @@ CREATE TABLE tenants (
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    workspace_id uuid NOT NULL,
+    display_name text,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text))
 );
@@ -350,6 +352,10 @@ COMMENT ON TABLE tenants IS 'The table that holds all tenants known to the insta
 COMMENT ON COLUMN tenants.id IS 'The ID of the tenant. To keep tenants globally addressable, and be able to move them aronud instances more easily, the ID is NOT a serial and has to be specified explicitly. The creator of the tenant is responsible for choosing a unique ID, if it cares.';
 
 COMMENT ON COLUMN tenants.name IS 'The name of the tenant. This may be displayed to the user and must be unique.';
+
+COMMENT ON COLUMN tenants.workspace_id IS 'The ID in workspaces service of the tenant. This is used for identifying the link between tenant and workspace.';
+
+COMMENT ON COLUMN tenants.display_name IS 'An optional display name for the tenant. This is used for rendering the tenant name in the UI.';
 
 ALTER TABLE ONLY codeintel_scip_document_lookup ALTER COLUMN id SET DEFAULT nextval('codeintel_scip_document_lookup_id_seq'::regclass);
 
@@ -381,7 +387,7 @@ ALTER TABLE ONLY codeintel_scip_documents_dereference_logs
     ADD CONSTRAINT codeintel_scip_documents_dereference_logs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY codeintel_scip_documents
-    ADD CONSTRAINT codeintel_scip_documents_payload_hash_key UNIQUE (payload_hash);
+    ADD CONSTRAINT codeintel_scip_documents_payload_hash_key UNIQUE (payload_hash, tenant_id);
 
 ALTER TABLE ONLY codeintel_scip_documents
     ADD CONSTRAINT codeintel_scip_documents_pkey PRIMARY KEY (id);
@@ -408,7 +414,7 @@ ALTER TABLE ONLY rockskip_repos
     ADD CONSTRAINT rockskip_repos_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY rockskip_repos
-    ADD CONSTRAINT rockskip_repos_repo_key UNIQUE (repo);
+    ADD CONSTRAINT rockskip_repos_repo_key UNIQUE (repo, tenant_id);
 
 ALTER TABLE ONLY rockskip_symbols
     ADD CONSTRAINT rockskip_symbols_pkey PRIMARY KEY (id);
@@ -418,6 +424,9 @@ ALTER TABLE ONLY tenants
 
 ALTER TABLE ONLY tenants
     ADD CONSTRAINT tenants_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY tenants
+    ADD CONSTRAINT tenants_workspace_id_key UNIQUE (workspace_id);
 
 CREATE INDEX codeintel_last_reconcile_last_reconcile_at_dump_id ON codeintel_last_reconcile USING btree (last_reconcile_at, dump_id);
 
@@ -445,46 +454,58 @@ CREATE TRIGGER codeintel_scip_documents_dereference_logs_insert AFTER DELETE ON 
 
 CREATE TRIGGER codeintel_scip_symbols_schema_versions_insert AFTER INSERT ON codeintel_scip_symbols REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION update_codeintel_scip_symbols_schema_versions_insert();
 
-ALTER TABLE ONLY codeintel_last_reconcile
-    ADD CONSTRAINT codeintel_last_reconcile_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
 ALTER TABLE ONLY codeintel_scip_document_lookup
     ADD CONSTRAINT codeintel_scip_document_lookup_document_id_fk FOREIGN KEY (document_id) REFERENCES codeintel_scip_documents(id);
-
-ALTER TABLE ONLY codeintel_scip_document_lookup_schema_versions
-    ADD CONSTRAINT codeintel_scip_document_lookup_schema_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY codeintel_scip_document_lookup
-    ADD CONSTRAINT codeintel_scip_document_lookup_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY codeintel_scip_documents_dereference_logs
-    ADD CONSTRAINT codeintel_scip_documents_dereference_logs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY codeintel_scip_documents
-    ADD CONSTRAINT codeintel_scip_documents_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY codeintel_scip_metadata
-    ADD CONSTRAINT codeintel_scip_metadata_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
-
-ALTER TABLE ONLY codeintel_scip_symbol_names
-    ADD CONSTRAINT codeintel_scip_symbol_names_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 ALTER TABLE ONLY codeintel_scip_symbols
     ADD CONSTRAINT codeintel_scip_symbols_document_lookup_id_fk FOREIGN KEY (document_lookup_id) REFERENCES codeintel_scip_document_lookup(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY codeintel_scip_symbols_schema_versions
-    ADD CONSTRAINT codeintel_scip_symbols_schema_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+ALTER TABLE codeintel_last_reconcile ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE ONLY codeintel_scip_symbols
-    ADD CONSTRAINT codeintel_scip_symbols_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+CREATE POLICY codeintel_last_reconcile_isolation_policy ON codeintel_last_reconcile USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-ALTER TABLE ONLY rockskip_ancestry
-    ADD CONSTRAINT rockskip_ancestry_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+ALTER TABLE codeintel_scip_document_lookup ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE ONLY rockskip_repos
-    ADD CONSTRAINT rockskip_repos_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+CREATE POLICY codeintel_scip_document_lookup_isolation_policy ON codeintel_scip_document_lookup USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-ALTER TABLE ONLY rockskip_symbols
-    ADD CONSTRAINT rockskip_symbols_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+ALTER TABLE codeintel_scip_document_lookup_schema_versions ENABLE ROW LEVEL SECURITY;
 
-INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00');
+CREATE POLICY codeintel_scip_document_lookup_schema_versions_isolation_policy ON codeintel_scip_document_lookup_schema_versions USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE codeintel_scip_documents ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE codeintel_scip_documents_dereference_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY codeintel_scip_documents_dereference_logs_isolation_policy ON codeintel_scip_documents_dereference_logs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY codeintel_scip_documents_isolation_policy ON codeintel_scip_documents USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE codeintel_scip_metadata ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY codeintel_scip_metadata_isolation_policy ON codeintel_scip_metadata USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE codeintel_scip_symbol_names ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY codeintel_scip_symbol_names_isolation_policy ON codeintel_scip_symbol_names USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE codeintel_scip_symbols ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY codeintel_scip_symbols_isolation_policy ON codeintel_scip_symbols USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE codeintel_scip_symbols_schema_versions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY codeintel_scip_symbols_schema_versions_isolation_policy ON codeintel_scip_symbols_schema_versions USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE rockskip_ancestry ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY rockskip_ancestry_isolation_policy ON rockskip_ancestry USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE rockskip_repos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY rockskip_repos_isolation_policy ON rockskip_repos USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE rockskip_symbols ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY rockskip_symbols_isolation_policy ON rockskip_symbols USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);

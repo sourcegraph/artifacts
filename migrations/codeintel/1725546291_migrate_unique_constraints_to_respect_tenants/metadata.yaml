@@ -1,0 +1,3 @@
+name: Migrate unique constraints to respect tenants
+parents: [1729292007]
+bestEffortTerminateBlockingTransactions: true

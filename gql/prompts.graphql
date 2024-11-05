@@ -56,6 +56,11 @@ extend type Query {
         includeDrafts: Boolean = true
 
         """
+        Whether to include only recommended prompts.
+        """
+        recommendedOnly: Boolean
+
+        """
         Whether to include draft prompts owned by the viewer.
         """
         includeViewerDrafts: Boolean
@@ -84,6 +89,11 @@ extend type Query {
         The field to sort by.
         """
         orderBy: PromptsOrderBy = PROMPT_UPDATED_AT
+
+        """
+        The field to sort by multiple fields.
+        """
+        orderByMultiple: [PromptsOrderBy!]
     ): PromptsConnection!
 }
 
@@ -130,6 +140,11 @@ input PromptInput {
     Whether to execute prompt as chat, edit or insert command.
     """
     mode: PromptMode!
+
+    """
+    Whether the prompt is recommended.
+    """
+    recommended: Boolean
 }
 
 """
@@ -183,6 +198,11 @@ input PromptUpdateInput {
     Whether to execute prompt as chat, edit or insert command.
     """
     mode: PromptMode!
+
+    """
+    Whether the prompt is recommended.
+    """
+    recommended: Boolean
 }
 
 """
@@ -207,6 +227,7 @@ The ways that a list of prompts can be ordered.
 enum PromptsOrderBy {
     PROMPT_NAME_WITH_OWNER
     PROMPT_UPDATED_AT
+    PROMPT_RECOMMENDED
 }
 
 """
@@ -313,6 +334,11 @@ type Prompt implements Node {
     Whether to execute prompt as chat, edit or insert command.
     """
     mode: PromptMode!
+
+    """
+    Whether the prompt is recommended.
+    """
+    recommended: Boolean!
 }
 
 """

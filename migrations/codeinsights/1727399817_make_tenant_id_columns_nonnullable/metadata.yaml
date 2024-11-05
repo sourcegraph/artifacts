@@ -1,0 +1,3 @@
+name: Make tenant_id columns non-nullable
+parents: [1723647665, 1727875004]
+bestEffortTerminateBlockingTransactions: true

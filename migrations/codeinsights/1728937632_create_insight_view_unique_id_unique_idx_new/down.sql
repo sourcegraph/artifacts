@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS insight_view_unique_id_unique_idx_new;
