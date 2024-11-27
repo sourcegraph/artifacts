@@ -1,0 +1,2 @@
+ALTER TABLE tenants DROP COLUMN IF EXISTS state;
+DROP TYPE IF EXISTS tenant_state;

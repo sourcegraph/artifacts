@@ -61,6 +61,16 @@ extend type Query {
         recommendedOnly: Boolean
 
         """
+        Whether to include only builtin prompts.
+        """
+        builtinOnly: Boolean = false
+
+        """
+        Whether to include builtin prompts.
+        """
+        includeBuiltin: Boolean = false
+
+        """
         Whether to include draft prompts owned by the viewer.
         """
         includeViewerDrafts: Boolean
@@ -281,8 +291,9 @@ type Prompt implements Node {
 
     """
     The owner of the prompt, either a user or organization.
+    The owner is null for builtin prompts.
     """
-    owner: Namespace!
+    owner: Namespace
 
     """
     The visibility state of the prompt.
@@ -339,6 +350,11 @@ type Prompt implements Node {
     Whether the prompt is recommended.
     """
     recommended: Boolean!
+
+    """
+    Whether the prompt is built-in prompt. Built-in prompts are not editable.
+    """
+    builtin: Boolean!
 }
 
 """

@@ -1,0 +1,3 @@
+name: Add repo_update_jobs dequeue index
+parents: [1729894119, 1730266481]
+createIndexConcurrently: true

@@ -1,0 +1,1 @@
+DELETE FROM roles WHERE system = true AND name = 'WORKSPACE_ADMINISTRATOR';

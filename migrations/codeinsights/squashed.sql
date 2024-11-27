@@ -22,6 +22,13 @@ CREATE TYPE series_sort_mode_enum AS ENUM (
     'DATE_ADDED'
 );
 
+CREATE TYPE tenant_state AS ENUM (
+    'active',
+    'suspended',
+    'dormant',
+    'deleted'
+);
+
 CREATE TYPE time_unit AS ENUM (
     'HOUR',
     'DAY',
@@ -561,6 +568,7 @@ CREATE TABLE tenants (
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    state tenant_state DEFAULT 'active'::tenant_state NOT NULL,
     workspace_id uuid NOT NULL,
     display_name text,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
@@ -572,6 +580,8 @@ COMMENT ON TABLE tenants IS 'The table that holds all tenants known to the insta
 COMMENT ON COLUMN tenants.id IS 'The ID of the tenant. To keep tenants globally addressable, and be able to move them aronud instances more easily, the ID is NOT a serial and has to be specified explicitly. The creator of the tenant is responsible for choosing a unique ID, if it cares.';
 
 COMMENT ON COLUMN tenants.name IS 'The name of the tenant. This may be displayed to the user and must be unique.';
+
+COMMENT ON COLUMN tenants.state IS 'The state of the tenant. Can be active, suspended, dormant or deleted.';
 
 COMMENT ON COLUMN tenants.workspace_id IS 'The ID in workspaces service of the tenant. This is used for identifying the link between tenant and workspace.';
 
@@ -858,4 +868,4 @@ ALTER TABLE series_points_snapshots ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY series_points_snapshots_isolation_policy ON series_points_snapshots USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);
+INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);

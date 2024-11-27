@@ -2636,6 +2636,7 @@ enum SearchPatternType {
     lucky
     keyword
     codycontext
+    nls
 }
 
 """
@@ -4303,10 +4304,6 @@ type UpdateSchedule {
     The index of the repo in the schedule.
     """
     index: Int!
-    """
-    The total number of repos in the schedule.
-    """
-    total: Int!
 }
 
 """
@@ -4323,10 +4320,6 @@ type UpdateQueue {
     True if the repo is currently updating.
     """
     updating: Boolean!
-    """
-    The total number of repos in the update queue (including updating repos).
-    """
-    total: Int!
 }
 
 """
@@ -6707,6 +6700,10 @@ type ExternalAccount implements Node {
     may query this field.
     """
     publicAccountData: PublicExternalAccountData
+    """
+    Whether the requesting user can remove the link to the external account.
+    """
+    viewerCanRemove: Boolean!
     """
     TEMPORARY: to debug #inc-284-plg-users-paying-for-and-being-billed-for-pro-without-being-upgrade.
     Cody Subscription associated with the external account.
@@ -10343,6 +10340,11 @@ enum PermissionNamespace {
     ❗ Product subscriptions are only available in Sourcegraph.com
     """
     PRODUCT_SUBSCRIPTIONS
+
+    """
+    Permissions related to workspace repo administration.
+    """
+    WORKSPACE_REPOSITORIES
 }
 
 """

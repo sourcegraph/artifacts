@@ -10,6 +10,13 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
 
+CREATE TYPE tenant_state AS ENUM (
+    'active',
+    'suspended',
+    'dormant',
+    'deleted'
+);
+
 CREATE FUNCTION get_file_extension(path text) RETURNS text
     LANGUAGE plpgsql IMMUTABLE
     AS $_$ BEGIN
@@ -343,6 +350,7 @@ CREATE TABLE tenants (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     workspace_id uuid NOT NULL,
     display_name text,
+    state tenant_state DEFAULT 'active'::tenant_state NOT NULL,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text))
 );
@@ -356,6 +364,8 @@ COMMENT ON COLUMN tenants.name IS 'The name of the tenant. This may be displayed
 COMMENT ON COLUMN tenants.workspace_id IS 'The ID in workspaces service of the tenant. This is used for identifying the link between tenant and workspace.';
 
 COMMENT ON COLUMN tenants.display_name IS 'An optional display name for the tenant. This is used for rendering the tenant name in the UI.';
+
+COMMENT ON COLUMN tenants.state IS 'The state of the tenant. Can be active, suspended, dormant or deleted.';
 
 ALTER TABLE ONLY codeintel_scip_document_lookup ALTER COLUMN id SET DEFAULT nextval('codeintel_scip_document_lookup_id_seq'::regclass);
 
@@ -508,4 +518,4 @@ ALTER TABLE rockskip_symbols ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY rockskip_symbols_isolation_policy ON rockskip_symbols USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);
+INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active');

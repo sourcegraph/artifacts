@@ -96,6 +96,13 @@ CREATE TYPE persistmode AS ENUM (
     'snapshot'
 );
 
+CREATE TYPE tenant_state AS ENUM (
+    'active',
+    'suspended',
+    'dormant',
+    'deleted'
+);
+
 CREATE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
@@ -1084,9 +1091,9 @@ CREATE VIEW batch_spec_workspace_execution_queue AS
           WHERE (exec.state = 'queued'::text)
           ORDER BY (rank() OVER (PARTITION BY queue.user_id ORDER BY exec.created_at, exec.id)), queue.latest_dequeue NULLS FIRST
         )
- SELECT queue_candidates.id,
+ SELECT id,
     row_number() OVER () AS place_in_global_queue,
-    queue_candidates.place_in_user_queue
+    place_in_user_queue
    FROM queue_candidates;
 
 CREATE VIEW batch_spec_workspace_execution_jobs_with_rank AS
@@ -1772,21 +1779,21 @@ COMMENT ON COLUMN lsif_configuration_policies.protected IS 'Whether or not this 
 COMMENT ON COLUMN lsif_configuration_policies.repository_patterns IS 'The name pattern matching repositories to which this configuration policy applies. If absent, all repositories are matched.';
 
 CREATE VIEW codeintel_configuration_policies AS
- SELECT lsif_configuration_policies.id,
-    lsif_configuration_policies.repository_id,
-    lsif_configuration_policies.name,
-    lsif_configuration_policies.type,
-    lsif_configuration_policies.pattern,
-    lsif_configuration_policies.retention_enabled,
-    lsif_configuration_policies.retention_duration_hours,
-    lsif_configuration_policies.retain_intermediate_commits,
-    lsif_configuration_policies.indexing_enabled,
-    lsif_configuration_policies.index_commit_max_age_hours,
-    lsif_configuration_policies.index_intermediate_commits,
-    lsif_configuration_policies.protected,
-    lsif_configuration_policies.repository_patterns,
-    lsif_configuration_policies.last_resolved_at,
-    lsif_configuration_policies.embeddings_enabled
+ SELECT id,
+    repository_id,
+    name,
+    type,
+    pattern,
+    retention_enabled,
+    retention_duration_hours,
+    retain_intermediate_commits,
+    indexing_enabled,
+    index_commit_max_age_hours,
+    index_intermediate_commits,
+    protected,
+    repository_patterns,
+    last_resolved_at,
+    embeddings_enabled
    FROM lsif_configuration_policies;
 
 CREATE TABLE lsif_configuration_policies_repository_pattern_lookup (
@@ -1802,8 +1809,8 @@ COMMENT ON COLUMN lsif_configuration_policies_repository_pattern_lookup.policy_i
 COMMENT ON COLUMN lsif_configuration_policies_repository_pattern_lookup.repo_id IS 'The repository identifier associated with the policy.';
 
 CREATE VIEW codeintel_configuration_policies_repository_pattern_lookup AS
- SELECT lsif_configuration_policies_repository_pattern_lookup.policy_id,
-    lsif_configuration_policies_repository_pattern_lookup.repo_id
+ SELECT policy_id,
+    repo_id
    FROM lsif_configuration_policies_repository_pattern_lookup;
 
 CREATE TABLE codeintel_inference_scripts (
@@ -1902,7 +1909,7 @@ CREATE UNLOGGED TABLE cody_audit_log (
 
 COMMENT ON COLUMN cody_audit_log.user_id IS 'Identifies the user who originally created this record. This is not a foreign key reference to users(id) to ensure records persist beyond the lifetime of a user account. Do not assume this can be used for JOINs with the users table.';
 
-CREATE SEQUENCE cody_audit_log_id_seq
+CREATE UNLOGGED SEQUENCE cody_audit_log_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -2662,13 +2669,15 @@ CREATE TABLE gitserver_repos (
     shard_id text NOT NULL,
     last_error text,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_fetched timestamp with time zone DEFAULT now() NOT NULL,
-    last_changed timestamp with time zone DEFAULT now() NOT NULL,
+    last_fetched timestamp with time zone,
+    last_changed timestamp with time zone,
     repo_size_bytes bigint,
     corrupted_at timestamp with time zone,
     corruption_logs jsonb DEFAULT '[]'::jsonb NOT NULL,
     cloning_progress text DEFAULT ''::text,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    last_fetch_attempt_at timestamp with time zone,
+    failed_fetch_attempts integer DEFAULT 0 NOT NULL
 );
 
 COMMENT ON COLUMN gitserver_repos.corrupted_at IS 'Timestamp of when repo corruption was detected';
@@ -3000,30 +3009,30 @@ COMMENT ON COLUMN lsif_uploads.last_traversal_scan_at IS 'The last time this upl
 COMMENT ON COLUMN lsif_uploads.content_type IS 'The content type of the upload record. For now, the default value is `application/x-ndjson+lsif` to backfill existing records. This will change as we remove LSIF support.';
 
 CREATE VIEW lsif_dumps AS
- SELECT u.id,
-    u.commit,
-    u.root,
-    u.queued_at,
-    u.uploaded_at,
-    u.state,
-    u.failure_message,
-    u.started_at,
-    u.finished_at,
-    u.repository_id,
-    u.indexer,
-    u.indexer_version,
-    u.num_parts,
-    u.uploaded_parts,
-    u.process_after,
-    u.num_resets,
-    u.upload_size,
-    u.num_failures,
-    u.associated_index_id,
-    u.expired,
-    u.last_retention_scan_at,
-    u.finished_at AS processed_at
+ SELECT id,
+    commit,
+    root,
+    queued_at,
+    uploaded_at,
+    state,
+    failure_message,
+    started_at,
+    finished_at,
+    repository_id,
+    indexer,
+    indexer_version,
+    num_parts,
+    uploaded_parts,
+    process_after,
+    num_resets,
+    upload_size,
+    num_failures,
+    associated_index_id,
+    expired,
+    last_retention_scan_at,
+    finished_at AS processed_at
    FROM lsif_uploads u
-  WHERE ((u.state = 'completed'::text) OR (u.state = 'deleting'::text));
+  WHERE ((state = 'completed'::text) OR (state = 'deleting'::text));
 
 CREATE SEQUENCE lsif_dumps_id_seq
     START WITH 1
@@ -3746,14 +3755,14 @@ CREATE SEQUENCE outbound_webhooks_id_seq
 ALTER SEQUENCE outbound_webhooks_id_seq OWNED BY outbound_webhooks.id;
 
 CREATE VIEW outbound_webhooks_with_event_types AS
- SELECT outbound_webhooks.id,
-    outbound_webhooks.created_by,
-    outbound_webhooks.created_at,
-    outbound_webhooks.updated_by,
-    outbound_webhooks.updated_at,
-    outbound_webhooks.encryption_key_id,
-    outbound_webhooks.url,
-    outbound_webhooks.secret,
+ SELECT id,
+    created_by,
+    created_at,
+    updated_by,
+    updated_at,
+    encryption_key_id,
+    url,
+    secret,
     array_to_json(ARRAY( SELECT json_build_object('id', outbound_webhook_event_types.id, 'outbound_webhook_id', outbound_webhook_event_types.outbound_webhook_id, 'event_type', outbound_webhook_event_types.event_type, 'scope', outbound_webhook_event_types.scope) AS json_build_object
            FROM outbound_webhook_event_types
           WHERE (outbound_webhook_event_types.outbound_webhook_id = outbound_webhooks.id))) AS event_types
@@ -4052,9 +4061,11 @@ CREATE TABLE prompts (
     auto_submit boolean DEFAULT false NOT NULL,
     mode character varying DEFAULT 'CHAT'::character varying NOT NULL,
     recommended boolean DEFAULT false NOT NULL,
+    deleted_at timestamp with time zone,
+    builtin boolean DEFAULT false NOT NULL,
     CONSTRAINT prompts_definition_text_max_length CHECK ((char_length(definition_text) <= (1024 * 100))),
     CONSTRAINT prompts_description_max_length CHECK ((char_length(description) <= (1024 * 50))),
-    CONSTRAINT prompts_has_valid_owner CHECK ((((owner_user_id IS NOT NULL) AND (owner_org_id IS NULL)) OR ((owner_org_id IS NOT NULL) AND (owner_user_id IS NULL)))),
+    CONSTRAINT prompts_has_valid_owner CHECK ((((owner_user_id IS NOT NULL) AND (owner_org_id IS NULL) AND (builtin IS FALSE)) OR ((owner_org_id IS NOT NULL) AND (owner_user_id IS NULL) AND (builtin IS FALSE)) OR ((builtin IS TRUE) AND (owner_user_id IS NULL) AND (owner_org_id IS NULL)))),
     CONSTRAINT prompts_name_max_length CHECK ((char_length((name)::text) <= 255)),
     CONSTRAINT prompts_name_valid_chars CHECK ((name OPERATOR(~) '^[a-zA-Z0-9](?:[a-zA-Z0-9]|[-.](?=[a-zA-Z0-9]))*-?$'::citext))
 );
@@ -4110,10 +4121,15 @@ CREATE VIEW prompts_view AS
     prompts.created_at,
     prompts.updated_by,
     prompts.updated_at,
-    (((COALESCE(users.username, orgs.name))::text || '/'::text) || (prompts.name)::text) AS name_with_owner,
+        CASE
+            WHEN (prompts.builtin IS FALSE) THEN (((COALESCE(users.username, orgs.name, ''::citext))::text || '/'::text) || (prompts.name)::text)
+            ELSE (prompts.name)::text
+        END AS name_with_owner,
     prompts.auto_submit,
     prompts.mode,
-    prompts.recommended
+    prompts.recommended,
+    prompts.deleted_at,
+    prompts.builtin
    FROM ((prompts
      LEFT JOIN users ON ((users.id = prompts.owner_user_id)))
      LEFT JOIN orgs ON ((orgs.id = prompts.owner_org_id)));
@@ -4420,6 +4436,34 @@ COMMENT ON COLUMN repo_statistics.failed_fetch IS 'Number of repositories that a
 
 COMMENT ON COLUMN repo_statistics.corrupted IS 'Number of repositories that are NOT soft-deleted and not blocked and have corrupted_at set in gitserver_repos table';
 
+CREATE TABLE repo_update_jobs (
+    id bigint NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL,
+    repository_id integer NOT NULL,
+    priority integer DEFAULT 1 NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE repo_update_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE repo_update_jobs_id_seq OWNED BY repo_update_jobs.id;
+
 CREATE TABLE role_permissions (
     role_id integer NOT NULL,
     permission_id integer NOT NULL,
@@ -4589,8 +4633,8 @@ CREATE SEQUENCE settings_id_seq
 ALTER SEQUENCE settings_id_seq OWNED BY settings.id;
 
 CREATE VIEW site_config AS
- SELECT global_state.site_id,
-    global_state.initialized
+ SELECT site_id,
+    initialized
    FROM global_state;
 
 CREATE TABLE sub_repo_permissions (
@@ -4775,6 +4819,7 @@ CREATE TABLE tenants (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     workspace_id uuid NOT NULL,
     display_name text,
+    state tenant_state DEFAULT 'active'::tenant_state NOT NULL,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text))
 );
@@ -4788,6 +4833,8 @@ COMMENT ON COLUMN tenants.name IS 'The name of the tenant. This may be displayed
 COMMENT ON COLUMN tenants.workspace_id IS 'The ID in workspaces service of the tenant. This is used for identifying the link between tenant and workspace.';
 
 COMMENT ON COLUMN tenants.display_name IS 'An optional display name for the tenant. This is used for rendering the tenant name in the UI.';
+
+COMMENT ON COLUMN tenants.state IS 'The state of the tenant. Can be active, suspended, dormant or deleted.';
 
 CREATE VIEW tracking_changeset_specs_and_changesets AS
  SELECT changeset_specs.id AS changeset_spec_id,
@@ -5320,6 +5367,8 @@ ALTER TABLE ONLY repo_embedding_jobs ALTER COLUMN id SET DEFAULT nextval('repo_e
 
 ALTER TABLE ONLY repo_paths ALTER COLUMN id SET DEFAULT nextval('repo_paths_id_seq'::regclass);
 
+ALTER TABLE ONLY repo_update_jobs ALTER COLUMN id SET DEFAULT nextval('repo_update_jobs_id_seq'::regclass);
+
 ALTER TABLE ONLY roles ALTER COLUMN id SET DEFAULT nextval('roles_id_seq'::regclass);
 
 ALTER TABLE ONLY saved_searches ALTER COLUMN id SET DEFAULT nextval('saved_searches_id_seq'::regclass);
@@ -5587,6 +5636,9 @@ ALTER TABLE ONLY github_app_installs
 ALTER TABLE ONLY github_apps
     ADD CONSTRAINT github_apps_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY github_apps
+    ADD CONSTRAINT github_apps_unique UNIQUE (app_id, client_id, base_url, tenant_id);
+
 ALTER TABLE ONLY gitserver_relocator_jobs
     ADD CONSTRAINT gitserver_relocator_jobs_pkey PRIMARY KEY (id);
 
@@ -5796,6 +5848,9 @@ ALTER TABLE ONLY repo_permissions
 
 ALTER TABLE ONLY repo
     ADD CONSTRAINT repo_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY repo_update_jobs
+    ADD CONSTRAINT repo_update_jobs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY role_permissions
     ADD CONSTRAINT role_permissions_pkey PRIMARY KEY (permission_id, role_id);
@@ -6092,8 +6147,6 @@ CREATE INDEX finished_at_insights_query_runner_jobs_idx ON insights_query_runner
 
 CREATE INDEX github_app_installs_account_login ON github_app_installs USING btree (account_login);
 
-CREATE UNIQUE INDEX github_apps_app_id_slug_base_url_unique ON github_apps USING btree (app_id, slug, base_url, tenant_id);
-
 CREATE INDEX gitserver_relocator_jobs_state ON gitserver_relocator_jobs USING btree (state);
 
 CREATE INDEX gitserver_repo_size_bytes ON gitserver_repos USING btree (repo_size_bytes);
@@ -6110,11 +6163,15 @@ CREATE INDEX gitserver_repos_not_cloned_status_idx ON gitserver_repos USING btre
 
 CREATE INDEX gitserver_repos_not_explicitly_cloned_idx ON gitserver_repos USING btree (repo_id) WHERE (clone_status <> 'cloned'::text);
 
+CREATE INDEX gitserver_repos_schedule_order_idx ON gitserver_repos USING btree (((timezone('UTC'::text, last_fetch_attempt_at) + LEAST(GREATEST((((last_fetched - last_changed) / (2)::double precision) * ((failed_fetch_attempts + 1))::double precision), '00:00:45'::interval), '08:00:00'::interval))) DESC, repo_id);
+
 CREATE INDEX gitserver_repos_shard_id ON gitserver_repos USING btree (shard_id, repo_id);
 
 CREATE INDEX gitserver_repos_statistics_shard_id ON gitserver_repos_statistics USING btree (shard_id);
 
 CREATE INDEX idx_repo_topics ON repo USING gin (topics);
+
+CREATE INDEX idx_repo_update_jobs_repository_id ON repo_update_jobs USING btree (tenant_id, repository_id);
 
 CREATE INDEX idx_user_id_created_at ON cody_audit_log USING btree (user_id, created_at);
 
@@ -6264,6 +6321,8 @@ CREATE UNIQUE INDEX permissions_unique_namespace_action ON permissions USING btr
 
 CREATE INDEX process_after_insights_query_runner_jobs_idx ON insights_query_runner_jobs USING btree (process_after);
 
+CREATE UNIQUE INDEX prompts_name_is_unique_for_builtins ON prompts USING btree (name, tenant_id) WHERE (builtin IS TRUE);
+
 CREATE UNIQUE INDEX prompts_name_is_unique_in_owner_org ON prompts USING btree (owner_org_id, name) WHERE (owner_org_id IS NOT NULL);
 
 CREATE UNIQUE INDEX prompts_name_is_unique_in_owner_user ON prompts USING btree (owner_user_id, name) WHERE (owner_user_id IS NOT NULL);
@@ -6287,8 +6346,6 @@ CREATE INDEX repo_context_stats_jobs_repo_id ON repo_context_stats_jobs USING bt
 CREATE INDEX repo_created_at ON repo USING btree (created_at);
 
 CREATE INDEX repo_description_trgm_idx ON repo USING gin (lower(description) gin_trgm_ops);
-
-CREATE INDEX repo_dotcom_indexable_repos_idx ON repo USING btree (stars DESC NULLS LAST) INCLUDE (id, name) WHERE ((deleted_at IS NULL) AND (blocked IS NULL) AND (((stars >= 5) AND (NOT COALESCE(fork, false)) AND (NOT archived)) OR (lower((name)::text) ~ '^(src\.fedoraproject\.org|maven|npm|jdk)'::text)));
 
 CREATE INDEX repo_embedding_jobs_repo ON repo_embedding_jobs USING btree (repo_id, revision);
 
@@ -6321,6 +6378,14 @@ CREATE INDEX repo_private ON repo USING btree (private);
 CREATE INDEX repo_stars_desc_id_desc_idx ON repo USING btree (stars DESC NULLS LAST, id DESC) WHERE ((deleted_at IS NULL) AND (blocked IS NULL));
 
 CREATE INDEX repo_stars_idx ON repo USING btree (stars DESC NULLS LAST);
+
+CREATE INDEX repo_update_jobs_dequeue_idx ON repo_update_jobs USING btree (state, process_after);
+
+CREATE INDEX repo_update_jobs_dequeue_optimization_idx ON repo_update_jobs USING btree (priority DESC, COALESCE(process_after, queued_at), id) INCLUDE (state, process_after) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX repo_update_jobs_dequeue_order_idx ON repo_update_jobs USING btree (priority DESC, COALESCE(process_after, queued_at), id, tenant_id);
+
+CREATE UNIQUE INDEX repo_update_jobs_one_concurrent_per_repo ON repo_update_jobs USING btree (repository_id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text]));
 
 CREATE INDEX repo_uri_idx ON repo USING btree (uri);
 
@@ -6921,6 +6986,12 @@ ALTER TABLE ONLY repo_paths
 ALTER TABLE ONLY repo_paths
     ADD CONSTRAINT repo_paths_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE DEFERRABLE;
 
+ALTER TABLE ONLY repo_update_jobs
+    ADD CONSTRAINT repo_update_jobs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY repo_update_jobs
+    ADD CONSTRAINT repo_update_jobs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
 ALTER TABLE ONLY role_permissions
     ADD CONSTRAINT role_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE DEFERRABLE;
 
@@ -7299,7 +7370,7 @@ CREATE POLICY gitserver_relocator_jobs_isolation_policy ON gitserver_relocator_j
 
 ALTER TABLE gitserver_repos ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY gitserver_repos_isolation_policy ON gitserver_repos USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+CREATE POLICY gitserver_repos_isolation_policy ON gitserver_repos USING (((current_setting('app.current_tenant'::text) = 'zoekttenant'::text) OR (tenant_id = (NULLIF(current_setting('app.current_tenant'::text), 'zoekttenant'::text))::integer)));
 
 ALTER TABLE gitserver_repos_statistics ENABLE ROW LEVEL SECURITY;
 
@@ -7539,7 +7610,7 @@ ALTER TABLE repo_embedding_jobs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY repo_embedding_jobs_isolation_policy ON repo_embedding_jobs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-CREATE POLICY repo_isolation_policy ON repo USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+CREATE POLICY repo_isolation_policy ON repo USING (((current_setting('app.current_tenant'::text) = 'zoekttenant'::text) OR (tenant_id = (NULLIF(current_setting('app.current_tenant'::text), 'zoekttenant'::text))::integer)));
 
 ALTER TABLE repo_kvps ENABLE ROW LEVEL SECURITY;
 
@@ -7560,6 +7631,10 @@ CREATE POLICY repo_permissions_isolation_policy ON repo_permissions USING ((tena
 ALTER TABLE repo_statistics ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY repo_statistics_isolation_policy ON repo_statistics USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+ALTER TABLE repo_update_jobs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY repo_update_jobs_isolation_policy ON repo_update_jobs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 
@@ -7691,23 +7766,31 @@ CREATE POLICY webhooks_isolation_policy ON webhooks USING ((tenant_id = (current
 
 ALTER TABLE zoekt_repos ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY zoekt_repos_isolation_policy ON zoekt_repos USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+CREATE POLICY zoekt_repos_isolation_policy ON zoekt_repos USING (((current_setting('app.current_tenant'::text) = 'zoekttenant'::text) OR (tenant_id = (NULLIF(current_setting('app.current_tenant'::text), 'zoekttenant'::text))::integer)));
 
-INSERT INTO lsif_configuration_policies VALUES (1, NULL, 'Default tip-of-branch retention policy', 'GIT_TREE', '*', true, 2016, false, false, 0, false, true, NULL, NULL, false, false, 1);
-INSERT INTO lsif_configuration_policies VALUES (2, NULL, 'Default tag retention policy', 'GIT_TAG', '*', true, 8064, false, false, 0, false, true, NULL, NULL, false, false, 1);
-INSERT INTO lsif_configuration_policies VALUES (3, NULL, 'Default commit retention policy', 'GIT_TREE', '*', true, 168, true, false, 0, false, true, NULL, NULL, false, false, 1);
+INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, embeddings_enabled, syntactic_indexing_enabled, tenant_id) VALUES (1, NULL, 'Default tip-of-branch retention policy', 'GIT_TREE', '*', true, 2016, false, false, 0, false, true, NULL, NULL, false, false, 1);
+INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, embeddings_enabled, syntactic_indexing_enabled, tenant_id) VALUES (2, NULL, 'Default tag retention policy', 'GIT_TAG', '*', true, 8064, false, false, 0, false, true, NULL, NULL, false, false, 1);
+INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, embeddings_enabled, syntactic_indexing_enabled, tenant_id) VALUES (3, NULL, 'Default commit retention policy', 'GIT_TREE', '*', true, 168, true, false, 0, false, true, NULL, NULL, false, false, 1);
 
 SELECT pg_catalog.setval('lsif_configuration_policies_id_seq', 3, true);
 
-INSERT INTO own_signal_configurations VALUES (1, 'recent-contributors', 'Indexes contributors in each file using repository history.', NULL, false, 1);
-INSERT INTO own_signal_configurations VALUES (2, 'recent-views', 'Indexes users that recently viewed files in Sourcegraph.', NULL, false, 1);
-INSERT INTO own_signal_configurations VALUES (3, 'analytics', 'Indexes ownership data to present in aggregated views like Admin > Analytics > Own and Repo > Ownership', NULL, false, 1);
+INSERT INTO own_signal_configurations (id, name, description, excluded_repo_patterns, enabled, tenant_id) VALUES (1, 'recent-contributors', 'Indexes contributors in each file using repository history.', NULL, false, 1);
+INSERT INTO own_signal_configurations (id, name, description, excluded_repo_patterns, enabled, tenant_id) VALUES (2, 'recent-views', 'Indexes users that recently viewed files in Sourcegraph.', NULL, false, 1);
+INSERT INTO own_signal_configurations (id, name, description, excluded_repo_patterns, enabled, tenant_id) VALUES (3, 'analytics', 'Indexes ownership data to present in aggregated views like Admin > Analytics > Own and Repo > Ownership', NULL, false, 1);
 
 SELECT pg_catalog.setval('own_signal_configurations_id_seq', 3, true);
 
-INSERT INTO roles VALUES (1, '2023-01-04 16:29:41.195966+00', true, 'USER', 1);
-INSERT INTO roles VALUES (2, '2023-01-04 16:29:41.195966+00', true, 'SITE_ADMINISTRATOR', 1);
+INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (1, '2023-01-04 16:29:41.195966+00', true, 'USER', 1);
+INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (2, '2023-01-04 16:29:41.195966+00', true, 'SITE_ADMINISTRATOR', 1);
+INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (4, '2024-10-30 11:54:24.127459+00', true, 'WORKSPACE_ADMINISTRATOR', 1);
 
-SELECT pg_catalog.setval('roles_id_seq', 3, true);
+SELECT pg_catalog.setval('roles_id_seq', 4, true);
 
-INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);
+INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active');
+
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (1, 'document-code', 'Document the code in a file', 'Write a brief documentation comment for  cody://selection. If documentation comments exist in  cody://current-file, or other files with the same file extension, use them as examples. Pay attention to the scope of the selected code (e.g. exported function/API vs implementation detail in a function), and use the idiomatic style for that type of code scope. Only generate the documentation for the selected code, do not generate the code. Do not enclose any other code or comments besides the documentation. Enclose only the documentation for cody://current-selection and nothing else. ', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'INSERT', false, NULL, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (2, 'explain-code', 'Explain the code in a file', 'Explain what cody://selection code does in simple terms. Assume the audience is a beginner programmer who has just learned the language features and basic syntax. Focus on explaining: 1) The purpose of the code 2) What input(s) it takes 3) What output(s) it produces 4) How it achieves its purpose through the logic and algorithm. 5) Any important logic flows or data transformations happening. Use simple language a beginner could understand. Include enough detail to give a full picture of what the code aims to accomplish without getting too technical. Format the explanation in coherent paragraphs, using proper punctuation and grammar. Write the explanation assuming no prior context about the code is known. Do not make assumptions about variables or functions not shown in the shared code. Start the answer with the name of the code that is being explained.', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'CHAT', false, NULL, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (3, 'generate-unit-tests', 'Generate unit tests the code in a file', 'Review the shared context and configurations to identify the test framework and libraries in use. Then, generate a suite of multiple unit tests for the functions in cody://selection using the detected test framework and libraries. Be sure to import the function being tested. Follow the same patterns as any shared context. Only add packages, imports, dependencies, and assertions if they are used in cody://current-dir . Pay attention to the file path of each shared context to see if test for cody://current-file already exists. If one exists, focus on generating new unit tests for uncovered cases. If none are detected, import common unit test libraries for cody://current-file. Focus on validating key functionality with simple and complete assertions. Only include mocks if one is detected in cody://current-dir . Before writing the tests, identify which test libraries and frameworks to import, e.g. "No new imports needed - using existing libs" or "Importing test framework that matches shared context usage" or "Importing the defined framework", etc. Then briefly summarize test coverage and any limitations. At the end, enclose the full completed code for the new unit tests, including all necessary imports, in a single markdown codeblock. No fragments or TODO. The new tests should validate expected functionality and cover edge cases for cody://selection with all required imports, including importing the function being tested. Do not repeat existing tests.', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'CHAT', false, NULL, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (4, 'find-code-smells', 'Review and analyze code', 'Please review and analyze the cody://selection and identify potential areas for improvement related to code smells, readability, maintainability, performance, security, etc. Do not list issues already addressed in the given code. Focus on providing up to 5 constructive suggestions that could make the code more robust, efficient, or align with best practices. For each suggestion, provide a brief explanation of the potential benefits. After listing any recommendations, summarize if you found notable opportunities to enhance the code quality overall or if the code generally follows sound design principles. If no issues found, reply "There are no errors."', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'CHAT', false, NULL, true);
+
+SELECT pg_catalog.setval('prompts_id_seq', 4, true);
