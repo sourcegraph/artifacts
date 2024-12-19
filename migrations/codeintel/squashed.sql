@@ -351,8 +351,10 @@ CREATE TABLE tenants (
     workspace_id uuid NOT NULL,
     display_name text,
     state tenant_state DEFAULT 'active'::tenant_state NOT NULL,
+    external_url text DEFAULT ''::text NOT NULL,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
-    CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text))
+    CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text)),
+    CONSTRAINT tenants_external_url_check CHECK ((lower(external_url) = external_url))
 );
 
 COMMENT ON TABLE tenants IS 'The table that holds all tenants known to the instance. In enterprise instances, this table will only contain the "default" tenant.';
@@ -367,6 +369,16 @@ COMMENT ON COLUMN tenants.display_name IS 'An optional display name for the tena
 
 COMMENT ON COLUMN tenants.state IS 'The state of the tenant. Can be active, suspended, dormant or deleted.';
 
+CREATE SEQUENCE tenants_id_seq
+    AS integer
+    START WITH 2
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE tenants_id_seq OWNED BY tenants.id;
+
 ALTER TABLE ONLY codeintel_scip_document_lookup ALTER COLUMN id SET DEFAULT nextval('codeintel_scip_document_lookup_id_seq'::regclass);
 
 ALTER TABLE ONLY codeintel_scip_documents ALTER COLUMN id SET DEFAULT nextval('codeintel_scip_documents_id_seq'::regclass);
@@ -380,6 +392,8 @@ ALTER TABLE ONLY rockskip_ancestry ALTER COLUMN id SET DEFAULT nextval('rockskip
 ALTER TABLE ONLY rockskip_repos ALTER COLUMN id SET DEFAULT nextval('rockskip_repos_id_seq'::regclass);
 
 ALTER TABLE ONLY rockskip_symbols ALTER COLUMN id SET DEFAULT nextval('rockskip_symbols_id_seq'::regclass);
+
+ALTER TABLE ONLY tenants ALTER COLUMN id SET DEFAULT nextval('tenants_id_seq'::regclass);
 
 ALTER TABLE ONLY codeintel_last_reconcile
     ADD CONSTRAINT codeintel_last_reconcile_dump_id_key UNIQUE (dump_id);
@@ -472,50 +486,52 @@ ALTER TABLE ONLY codeintel_scip_symbols
 
 ALTER TABLE codeintel_last_reconcile ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY codeintel_last_reconcile_isolation_policy ON codeintel_last_reconcile USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
 ALTER TABLE codeintel_scip_document_lookup ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY codeintel_scip_document_lookup_isolation_policy ON codeintel_scip_document_lookup USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
 ALTER TABLE codeintel_scip_document_lookup_schema_versions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY codeintel_scip_document_lookup_schema_versions_isolation_policy ON codeintel_scip_document_lookup_schema_versions USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE codeintel_scip_documents ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE codeintel_scip_documents_dereference_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY codeintel_scip_documents_dereference_logs_isolation_policy ON codeintel_scip_documents_dereference_logs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
-CREATE POLICY codeintel_scip_documents_isolation_policy ON codeintel_scip_documents USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
 ALTER TABLE codeintel_scip_metadata ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY codeintel_scip_metadata_isolation_policy ON codeintel_scip_metadata USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE codeintel_scip_symbol_names ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY codeintel_scip_symbol_names_isolation_policy ON codeintel_scip_symbol_names USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
 ALTER TABLE codeintel_scip_symbols ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY codeintel_scip_symbols_isolation_policy ON codeintel_scip_symbols USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE codeintel_scip_symbols_schema_versions ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY codeintel_scip_symbols_schema_versions_isolation_policy ON codeintel_scip_symbols_schema_versions USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
 ALTER TABLE rockskip_ancestry ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY rockskip_ancestry_isolation_policy ON rockskip_ancestry USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE rockskip_repos ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY rockskip_repos_isolation_policy ON rockskip_repos USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
-
 ALTER TABLE rockskip_symbols ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY rockskip_symbols_isolation_policy ON rockskip_symbols USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+CREATE POLICY tenant_isolation_policy ON codeintel_last_reconcile USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active');
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_document_lookup USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_document_lookup_schema_versions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_documents USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_documents_dereference_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_metadata USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_symbol_names USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_symbols USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_scip_symbols_schema_versions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON rockskip_ancestry USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON rockskip_repos USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON rockskip_symbols USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state, external_url) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '');
+
+SELECT pg_catalog.setval('tenants_id_seq', 1, true);

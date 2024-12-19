@@ -1,0 +1,3 @@
+name: Make dbworker tenant aware
+parents: [1732716803]
+bestEffortTerminateBlockingTransactions: true

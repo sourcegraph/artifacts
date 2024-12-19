@@ -2,63 +2,29 @@ extend type Mutation {
     """
     Delete a GitHub App. The GitHub App, along with all of its associated code host connections and
     authentication provider, will be deleted.
+    🚨 SECURITY: Requires site-admin.
     """
     deleteGitHubApp(gitHubApp: ID!): EmptyResponse
 
     """
     Refresh a GitHub App. This fetches information about the GitHub app and updates all installations
     associated with it.
+    🚨 SECURITY: Requires site-admin.
     """
     refreshGitHubApp(gitHubApp: ID!): EmptyResponse
-
-    """
-    NOT FOR GENERAL USE. Sets the list of repos that are configured for cloning for this installation.
-    """
-    setReposForInstallationID(installationID: Int!, repos: [String!]!): EmptyResponse
 }
 
 extend type Query {
     """
     All configured GitHub Apps, optionally filtered by the domain in which they are used.
+    🚨 SECURITY: Requires site-admin.
     """
     gitHubApps(domain: GitHubAppDomain): GitHubAppConnection!
     """
-    Looks up a GitHub App by its ID.
-    """
-    gitHubApp(id: ID!): GitHubApp
-    """
     Looks up a GitHub App by its AppID and BaseURL.
+    🚨 SECURITY: Requires site-admin.
     """
     gitHubAppByAppID(appID: Int!, baseURL: String!): GitHubApp
-    """
-    NOT FOR GENERAL USE. Fetches the configured GitHub App for multitenant.
-    """
-    multitenantGitHubApp: GitHubAppForUser!
-}
-
-"""
-The viewer's permission for a repository that is accessible to a GitHub App installation.
-"""
-enum GitHubAppRepositoryViewerPermission {
-    """
-    The repository permission is unknown or not determined.
-    """
-    UNKNOWN
-
-    """
-    Can read, clone, and push to this repository. Can also manage issues, pull requests, and repository settings, including adding collaborators.
-    """
-    ADMIN
-
-    """
-    Can read, clone, and push to this repository. Can also manage issues and pull requests.
-    """
-    WRITE
-
-    """
-    Can read and clone this repository. Can also open and comment on issues and pull requests.
-    """
-    READ
 }
 
 """
@@ -174,40 +140,6 @@ type GitHubApp implements Node {
 }
 
 """
-A GitHub App configuration that uses the authenticated user's access token.
-"""
-type GitHubAppForUser {
-    """
-    Unique ID of the GitHub App
-    """
-    id: ID!
-    """
-    The name of the GitHub App
-    """
-    name: String!
-    """
-    The client ID of the OAuth provider backing the GitHub App.
-    """
-    clientID: String!
-    """
-    The URL of the GitHub App page
-    """
-    appURL: String!
-    """
-    The logo URL of the GitHub App
-    """
-    logo: String!
-    """
-    Fetches a list of installation IDs for this GitHub App using the authenticated user's access token.
-    """
-    installations: [GitHubAppInstallationForUser!]!
-    """
-    Fetches a single installation with the given ID using the authenticated user's access token.
-    """
-    installation(installationID: Int!): GitHubAppInstallationForUser!
-}
-
-"""
 Represents a GitHub account on which the App was installed.
 """
 type GitHubAccount {
@@ -249,155 +181,4 @@ type Installation {
     The external services derived from this installation.
     """
     externalServices(first: Int): ExternalServiceConnection!
-}
-
-"""
-Represents a single GitHub App installation that's resolved using the user's access token.
-"""
-type GitHubAppInstallationForUser {
-    """
-    The installation ID of the App.
-    """
-    id: Int!
-    """
-    The installation URL.
-    """
-    url: String!
-    """
-    The account on which the App was installed
-    """
-    account: GitHubAccount!
-    """
-    Fetch the repositories from GitHub that this installation has access to.
-    """
-    installationRepos(page: Int!): GitHubAppRepositoryForInstallationConnection
-    """
-    Which repositories to clone using this installation.
-    """
-    reposToClone: [String!]!
-}
-
-"""
-A GitHub repository that is accessible to a GitHub App installation.
-"""
-type GitHubAppInstallationRepository {
-    """
-    ID of repository (GitHub GraphQL ID, not GitHub database ID)
-    """
-    id: ID!
-
-    """
-    The integer database id
-    """
-    databaseID: Int!
-
-    """
-    Full name of repository ("owner/name")
-    """
-    nameWithOwner: String!
-
-    """
-    Description of repository
-    """
-    description: String
-
-    """
-    The web URL of this repository ("https://github.com/foo/bar")
-    """
-    url: String!
-
-    """
-    Whether the repository is private
-    """
-    isPrivate: Boolean!
-
-    """
-    Whether the repository is a fork of another repository
-    """
-    isFork: Boolean!
-
-    """
-    Whether the repository is archived on the code host
-    """
-    isArchived: Boolean!
-
-    """
-    Whether the repository is locked on the code host
-    """
-    isLocked: Boolean!
-
-    """
-    ADMIN, WRITE, READ, or UNKNOWN
-    """
-    viewerPermission: GitHubAppRepositoryViewerPermission!
-
-    """
-    List of topics the repository is tagged with
-    """
-    repositoryTopics: [String!]!
-
-    """
-    Number of stargazers
-    """
-    stargazerCount: Int!
-
-    """
-    Number of forks
-    """
-    forkCount: Int!
-
-    """
-    Repository visibility (public, private, internal, or unknown)
-    """
-    visibility: GitHubAppRepositoryVisibility!
-
-    """
-    Disk usage in kibibytes
-    """
-    diskUsageKibibytes: Int!
-}
-
-"""
-An enum representing the visibility status of a GitHub repository.
-"""
-enum GitHubAppRepositoryVisibility {
-    """
-    Repository is visible to everyone
-    """
-    PUBLIC
-
-    """
-    Repository is only visible to authorized users
-    """
-    PRIVATE
-
-    """
-    Repository is visible to organization members
-    """
-    INTERNAL
-
-    """
-    Repository visibility could not be determined
-    """
-    UNKNOWN
-}
-
-"""
-A connection to a list of GitHub repositories that are accessible to a GitHub App installation.
-"""
-type GitHubAppRepositoryForInstallationConnection {
-    """
-    A list of repositories.
-    """
-    nodes: [GitHubAppInstallationRepository!]!
-
-    """
-    The total count of repositories in the connection.
-    """
-    totalCount: Int!
-
-    """
-    Pagination information.
-    """
-    pageInfo: PageInfo!
 }

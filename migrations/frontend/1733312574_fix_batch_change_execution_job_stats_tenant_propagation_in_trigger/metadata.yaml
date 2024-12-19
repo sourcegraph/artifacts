@@ -1,0 +1,2 @@
+name: Fix batch change execution job stats tenant propagation in trigger
+parents: [1733225966, 1732032110]

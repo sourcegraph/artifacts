@@ -1,0 +1,150 @@
+extend type Mutation {
+    """
+    Create a prompt tag.
+    """
+    createPromptTag(input: PromptTagCreateInput!): PromptTag!
+
+    """
+    Update a prompt tag.
+    """
+    updatePromptTag(id: ID!, input: PromptTagUpdateInput!): PromptTag!
+
+    """
+    Delete a prompt tag.
+    """
+    deletePromptTag(id: ID!): EmptyResponse
+}
+
+extend type Query {
+    """
+    List of prompt tags, which can be applied to prompts.
+    """
+    promptTags(
+        """
+        The limit argument for forward pagination.
+        """
+        first: Int
+
+        """
+        The limit argument for backward pagination.
+        """
+        last: Int
+
+        """
+        The cursor argument for forward pagination.
+        """
+        after: String
+
+        """
+        The cursor argument for backward pagination.
+        """
+        before: String
+
+        """
+        Search prompt tags by name.
+        """
+        query: String
+
+        """
+        The field to sort by.
+        """
+        orderBy: PromptTagsOrderBy = PROMPT_TAG_NAME
+
+        """
+        The field to sort by multiple fields.
+        """
+        orderByMultiple: [PromptTagsOrderBy!]
+    ): PromptTagsConnection!
+}
+
+"""
+The ways that a list of prompt tags can be ordered.
+"""
+enum PromptTagsOrderBy {
+    PROMPT_TAG_NAME
+}
+
+"""
+The input that describes a prompt tag to create.
+"""
+input PromptTagCreateInput {
+    """
+    The name of the prompt tag.
+    """
+    name: String!
+}
+
+"""
+The input that describes a prompt tag to update.
+"""
+input PromptTagUpdateInput {
+    """
+    The name of the prompt tag.
+    """
+    name: String!
+}
+
+"""
+A paginated connection for prompt tags.
+"""
+type PromptTagsConnection implements Connection {
+    """
+    A list of prompt tags.
+    """
+    nodes: [PromptTag!]!
+
+    """
+    The total number of prompt tags in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+A prompt tag.
+"""
+type PromptTag implements Node {
+    """
+    The unique ID of this prompt tag.
+    """
+    id: ID!
+
+    """
+    The name of the prompt tag, which is unique among all of the tenant's prompt tags.
+    """
+    name: String!
+
+    """
+    The user who created the prompt tag.
+    """
+    createdBy: User
+
+    """
+    The date of the prompt tag's creation.
+    """
+    createdAt: DateTime!
+
+    """
+    The user who created the prompt tag.
+    """
+    updatedBy: User
+
+    """
+    The date of the prompt tag's creation.
+    """
+    updatedAt: DateTime!
+
+    """
+    The URL of this prompt tag.
+    """
+    url: String!
+
+    """
+    Whether the viewer can edit and delete this prompt tag.
+    """
+    viewerCanAdminister: Boolean!
+}

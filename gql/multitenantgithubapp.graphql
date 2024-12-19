@@ -1,0 +1,344 @@
+extend type Query {
+    """
+    Contains queries relevant for this workspace. Not available outside of a Workspaces
+    environment.
+
+    DO NOT DEPEND ON ANY RESOLVERS IN THIS OBJECT, THIS IS NOT A STABLE API.
+    """
+    workspace: WorkspaceQuery!
+}
+
+extend type Mutation {
+    """
+    Contains mutations relevant for this workspace. Not available outside of a Workspaces
+    environment.
+
+    DO NOT DEPEND ON ANY RESOLVERS IN THIS OBJECT, THIS IS NOT A STABLE API.
+    """
+    workspace: WorkspaceMutation!
+}
+
+"""
+Contains queries relevant for this workspace. Not available outside of a Workspaces
+environment.
+"""
+type WorkspaceQuery {
+    """
+    The configured GitHub App for this workspace.
+    """
+    gitHubApp: WorkspaceGitHubApp!
+}
+
+"""
+Contains mutations relevant for this workspace. Not available outside of a Workspaces
+environment.
+"""
+type WorkspaceMutation {
+    """
+    Sets the list of repos that are configured for cloning. Sourcegraph will create
+    multiple code host connections from this list, one for each installation and one
+    for public repos if no installations exist.
+
+    Names must be provided in GitHub OWNER/NAME format.
+    """
+    setGitHubAppRepositories(repositories: [String!]!): EmptyResponse
+}
+
+"""
+The GitHub App configuration used by workspaces GitHub setup that uses the authenticated
+user's App-scoped access token for interacting with GitHub.
+"""
+type WorkspaceGitHubApp {
+    """
+    The name of the GitHub App.
+    """
+    name: String!
+    """
+    The client ID of the OAuth provider backing the GitHub App.
+    """
+    clientID: String!
+    """
+    The URL of the GitHub App page on GitHub.
+    """
+    appURL: String!
+    """
+    The applicable limits for repositories synced with GitHub for this GitHub App.
+    """
+    workspaceLimits: WorkspaceGitHubAppLimits!
+    """
+    API to list / search public GitHub repositories with no additional filters.
+    This endpoint can be used to validate and autocomplete a OSS repo that should
+    be added to the workspace.
+    """
+    listPublicGitHubRepositories(
+        """
+        Pagination arg.
+        """
+        first: Int!
+        """
+        Pagination arg.
+        """
+        after: String
+        """
+        The search term when searching for a repo.
+        """
+        search: String!
+    ): WorkspaceGitHubAppRepositoryConnection!
+    """
+    API to list / search the authenticated users GitHub repositories.
+    This endpoint can be used to list repos in the current users GitHub account.
+    Private repositories are only returned when the App is installed on them.
+    """
+    listUserGitHubRepositories(
+        """
+        Pagination arg.
+        """
+        first: Int!
+        """
+        Pagination arg.
+        """
+        after: String
+        """
+        An optional search term when searching for a repo. Leave blank to apply no filtering.
+        """
+        search: String
+    ): WorkspaceGitHubAppRepositoryConnection!
+    """
+    Fetches all installations for this GitHub App that the authenticated user has access to.
+    """
+    installations: [WorkspaceGitHubAppInstallation!]!
+    """
+    Fetches a single installation with the given ID. This API only returns when the authenticated
+    user has access to it.
+    """
+    installation(installationID: Int!): WorkspaceGitHubAppInstallation
+    """
+    The list of repositories currently selected for cloning across all installations plus public repos.
+    """
+    selectedRepositories: [WorkspaceGitHubAppRepository!]!
+}
+
+"""
+Represents a single GitHub App installation that's resolved using the user's access token.
+"""
+type WorkspaceGitHubAppInstallation {
+    """
+    The installation ID of the App.
+    """
+    installationID: Int!
+    """
+    The URL to the installation.
+    """
+    url: String!
+    """
+    The account on which the App was installed
+    """
+    account: WorkspaceGitHubAppAccount!
+    """
+    API to list / search GitHub repositories that belong to this installation.
+    This endpoint can be used to list repos in the installation GitHub account that
+    this GitHub App can currently access and clone.
+    Private repositories are only returned when the App is installed on them.
+    """
+    installationRepos(
+        """
+        Pagination arg.
+        """
+        first: Int!
+        """
+        Pagination arg.
+        """
+        after: String
+        """
+        An optional search term when searching for a repo. Leave blank to apply no filtering.
+        """
+        search: String
+    ): WorkspaceGitHubAppRepositoryConnection!
+}
+
+"""
+Represents a GitHub account on which the App was installed.
+"""
+type WorkspaceGitHubAppAccount {
+    """
+    The login username of the account.
+    """
+    login: String!
+    """
+    The avatar URL of the account.
+    """
+    avatarURL: String!
+    """
+    A link to the account on GitHub.
+    """
+    url: String!
+    """
+    The account type.
+    """
+    type: String!
+}
+
+"""
+A connection to a list of GitHub repositories that are accessible to a GitHub App installation.
+"""
+type WorkspaceGitHubAppRepositoryConnection {
+    """
+    A list of repositories.
+    """
+    nodes: [WorkspaceGitHubAppRepository!]!
+
+    """
+    The total count of repositories in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+A GitHub repository that is accessible to a GitHub App installation.
+"""
+type WorkspaceGitHubAppRepository {
+    """
+    ID of repository (GitHub GraphQL ID, not GitHub database ID or Sourcegraph GraphQL ID)
+    """
+    id: String!
+
+    """
+    The integer database id
+    """
+    databaseID: Int!
+
+    """
+    Full name of repository ("owner/name")
+    """
+    nameWithOwner: String!
+
+    """
+    Description of repository
+    """
+    description: String
+
+    """
+    The web URL of this repository ("https://github.com/foo/bar")
+    """
+    url: String!
+
+    """
+    Whether the repository is private
+    """
+    isPrivate: Boolean!
+
+    """
+    Whether the repository is a fork of another repository
+    """
+    isFork: Boolean!
+
+    """
+    Whether the repository is archived on the code host
+    """
+    isArchived: Boolean!
+
+    """
+    Whether the repository is locked on the code host
+    """
+    isLocked: Boolean!
+
+    """
+    ADMIN, WRITE, READ, or UNKNOWN
+    """
+    viewerPermission: WorkspaceGitHubAppRepositoryViewerPermission!
+
+    """
+    List of topics the repository is tagged with
+    """
+    repositoryTopics: [String!]!
+
+    """
+    Number of stargazers
+    """
+    stargazerCount: Int!
+
+    """
+    Number of forks
+    """
+    forkCount: Int!
+
+    """
+    Repository visibility (public, private, internal, or unknown)
+    """
+    visibility: WorkspaceGitHubAppRepositoryVisibility!
+
+    """
+    Disk usage in kibibytes
+    """
+    diskUsageKibibytes: Int!
+}
+
+"""
+The viewer's permission for a repository that is accessible to a GitHub App installation.
+"""
+enum WorkspaceGitHubAppRepositoryViewerPermission {
+    """
+    The repository permission is unknown or not determined.
+    """
+    UNKNOWN
+
+    """
+    Can read, clone, and push to this repository. Can also manage issues, pull requests, and repository settings, including adding collaborators.
+    """
+    ADMIN
+
+    """
+    Can read, clone, and push to this repository. Can also manage issues and pull requests.
+    """
+    WRITE
+
+    """
+    Can read and clone this repository. Can also open and comment on issues and pull requests.
+    """
+    READ
+}
+
+"""
+An enum representing the visibility status of a GitHub repository.
+"""
+enum WorkspaceGitHubAppRepositoryVisibility {
+    """
+    Repository is visible to everyone
+    """
+    PUBLIC
+
+    """
+    Repository is only visible to authorized users
+    """
+    PRIVATE
+
+    """
+    Repository is visible to organization members
+    """
+    INTERNAL
+
+    """
+    Repository visibility could not be determined
+    """
+    UNKNOWN
+}
+
+"""
+Limits for a workspace GitHub App.
+"""
+type WorkspaceGitHubAppLimits {
+    """
+    The maximum number of repositories that can be synced with the workspace GitHub App.
+    """
+    maximumRepositoryCount: Int!
+    """
+    The maximum size of all selected repositories combined that can be synced with
+    the workspace GitHub App.
+    """
+    maximumRepositorySizeBytes: BigInt!
+}

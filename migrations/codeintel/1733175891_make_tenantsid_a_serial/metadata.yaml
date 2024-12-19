@@ -1,0 +1,2 @@
+name: Make tenants.id a SERIAL
+parents: [1732716553, 1732783493]
