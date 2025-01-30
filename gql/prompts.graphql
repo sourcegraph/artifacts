@@ -109,6 +109,11 @@ extend type Query {
         Filter by tag IDs.
         """
         tags: [ID!]
+
+        """
+        List of prompt IDs to exclude.
+        """
+        exclude: [ID!]
     ): PromptsConnection!
 }
 

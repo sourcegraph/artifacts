@@ -1,0 +1,13 @@
+DROP TRIGGER IF EXISTS trigger_syntactic_scip_indexing_jobs_delete ON syntactic_scip_indexing_jobs;
+DROP TRIGGER IF EXISTS trigger_syntactic_scip_indexing_jobs_insert ON syntactic_scip_indexing_jobs;
+DROP TRIGGER IF EXISTS trigger_syntactic_scip_indexing_jobs_update ON syntactic_scip_indexing_jobs;
+
+DROP FUNCTION IF EXISTS func_syntactic_scip_indexing_jobs_insert;
+DROP FUNCTION IF EXISTS func_syntactic_scip_indexing_jobs_update;
+DROP FUNCTION IF EXISTS func_syntactic_scip_indexing_jobs_delete;
+DROP FUNCTION IF EXISTS func_syntactic_scip_indexing_jobs_transition_columns_diff;
+DROP FUNCTION IF EXISTS func_row_to_syntactic_scip_indexing_jobs_transition_columns;
+
+DROP TABLE IF EXISTS syntactic_scip_indexing_jobs_audit_logs;
+
+DROP TYPE IF EXISTS syntactic_scip_indexing_jobs_transition_columns;

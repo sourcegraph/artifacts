@@ -389,7 +389,7 @@ CREATE SEQUENCE insights_data_retention_jobs_id_seq
 
 ALTER SEQUENCE insights_data_retention_jobs_id_seq OWNED BY insights_data_retention_jobs.id;
 
-CREATE VIEW insights_jobs_backfill_in_progress AS
+CREATE VIEW insights_jobs_backfill_in_progress WITH (security_invoker='true') AS
  SELECT jobs.id,
     jobs.state,
     jobs.failure_message,
@@ -412,7 +412,7 @@ CREATE VIEW insights_jobs_backfill_in_progress AS
      JOIN insight_series_backfill isb ON ((jobs.backfill_id = isb.id)))
   WHERE (isb.state = 'processing'::text);
 
-CREATE VIEW insights_jobs_backfill_new AS
+CREATE VIEW insights_jobs_backfill_new WITH (security_invoker='true') AS
  SELECT jobs.id,
     jobs.state,
     jobs.failure_message,
@@ -883,6 +883,10 @@ CREATE POLICY tenant_isolation_policy ON repo_names USING ((tenant_id = ( SELECT
 CREATE POLICY tenant_isolation_policy ON series_points USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON series_points_snapshots USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setting('app.current_tenant'::text) = ANY (ARRAY['servicetenant'::text, 'workertenant'::text, 'zoekttenant'::text]))) OR (id = ( SELECT (NULLIF(NULLIF(NULLIF(current_setting('app.current_tenant'::text), 'servicetenant'::text), 'workertenant'::text), 'zoekttenant'::text))::integer AS current_tenant))));
+
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
 INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '');
 

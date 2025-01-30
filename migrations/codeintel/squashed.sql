@@ -532,6 +532,10 @@ CREATE POLICY tenant_isolation_policy ON rockskip_repos USING ((tenant_id = ( SE
 
 CREATE POLICY tenant_isolation_policy ON rockskip_symbols USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setting('app.current_tenant'::text) = ANY (ARRAY['servicetenant'::text, 'workertenant'::text, 'zoekttenant'::text]))) OR (id = ( SELECT (NULLIF(NULLIF(NULLIF(current_setting('app.current_tenant'::text), 'servicetenant'::text), 'workertenant'::text), 'zoekttenant'::text))::integer AS current_tenant))));
+
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
+
 INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state, external_url) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '');
 
 SELECT pg_catalog.setval('tenants_id_seq', 1, true);

@@ -271,7 +271,7 @@ type Mutation {
     """
     updatePassword(oldPassword: String!, newPassword: String!): EmptyResponse
     """
-    Creates a password for the current user. It is only permitted if the user does not have a password.
+    Creates a password for the current user. It is only permitted if the user does not have a password and password authentication is enabled.
     """
     createPassword(newPassword: String!): EmptyResponse
     """
@@ -3819,6 +3819,9 @@ type Repository implements Node & GenericSearchResultInterface {
     The size of repo when cloned on disk
     """
     diskSizeBytes: BigInt
+        @deprecated(
+            reason: "Use mirrorInfo.byteSize instead. This field is a deprecated and will be removed in a future release."
+        )
 
     """
     Returns true if embeddings for the repo are generated.
@@ -4207,9 +4210,10 @@ around).
 """
 type MirrorRepositoryInfo {
     """
-    The URL of the remote source repository.
+    The URL of the remote source repository. Requires site-admin. Otherwise null is
+    returned always.
     """
-    remoteURL: String!
+    remoteURL: String
     """
     Whether the clone of the repository has begun but not yet completed.
     """
@@ -4266,7 +4270,7 @@ type MirrorRepositoryInfo {
     byteSize: BigInt!
     """
     The gitserver shard on which the repository is or will be cloned.
-    Only site admins can access this field.
+    Only site admins can access this field. Null is returned otherwise.
     """
     shard: String
 }
@@ -7526,28 +7530,6 @@ type SiteConfiguration {
         """
         before: String
     ): SiteConfigurationChangeConnection
-    """
-    License information from license key. Available only to site-admins.
-    """
-    licenseInfo: LicenseInfo!
-}
-
-"""
-License information extracted from license key.
-"""
-type LicenseInfo {
-    """
-    Tags of the license.
-    """
-    tags: [String!]!
-    """
-    The number of users that can use the license.
-    """
-    userCount: Int!
-    """
-    The expiration date of the license.
-    """
-    expiresAt: DateTime!
 }
 
 """
@@ -8552,46 +8534,16 @@ type ProductSubscriptionStatus {
     """
     maximumAllowedUserCount: Int!
     """
-    The product license associated with this subscription.
-    If no license key is applied, a free plan is assumed.
+    Whether the subscription allows true-up for user accounts. Those additional seats will be charged at the
+    next renewal.
     """
-    license: ProductLicenseInfo!
-}
-
-"""
-Information about this site's product license (which activates certain Sourcegraph features).
-"""
-type ProductLicenseInfo {
+    allowsTrueUp: Boolean!
     """
-    The full name of the product that this license is for. To get the product name for the current
-    Sourcegraph site, use ProductSubscriptionStatus.productNameWithBrand instead (to handle cases where there is
-    no license).
+    The date when this license expires. Null, if the license is valid indefinitely.
+    Enterprise subscriptions always expire, but other gating providers (workspaces)
+    may have a concept of non-expiry, when self-serve billing is enabled.
     """
-    productNameWithBrand: String!
-    """
-    True if the license is for a free plan.
-    """
-    isFreePlan: Boolean!
-    """
-    Tags indicating the product plan and features activated by this license.
-    """
-    tags: [String!]!
-    """
-    The number of users allowed by this license.
-    """
-    userCount: Int!
-    """
-    The date when this license expires.
-    """
-    expiresAt: DateTime!
-    """
-    The Salesforce subscription ID associated with this license.
-    """
-    salesforceSubscriptionID: String
-    """
-    The Salesforce opportunity ID associated with this license.
-    """
-    salesforceOpportunityID: String
+    expiresAt: DateTime
     """
     This indicates if the current license is valid. It will be false if:
     - The license key has expired
@@ -10304,6 +10256,11 @@ enum PermissionNamespace {
     Permissions related to exported telemetry.
     """
     EXPORTED_TELEMETRY
+
+    """
+    Permissions related to user external accounts.
+    """
+    USER_EXTERNAL_ACCOUNTS
 }
 
 """

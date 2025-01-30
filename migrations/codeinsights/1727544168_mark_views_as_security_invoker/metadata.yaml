@@ -1,0 +1,3 @@
+name: Mark views as security_invoker
+parents: [1733175896]
+bestEffortTerminateBlockingTransactions: true

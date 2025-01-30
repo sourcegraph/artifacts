@@ -1,0 +1,4 @@
+ALTER TABLE lsif_configuration_policies
+DROP CONSTRAINT IF EXISTS lsif_configuration_policies_syntactic_head_only_constraint;
+
+DROP INDEX IF EXISTS syntactic_scip_indexing_jobs_queued_partial_ukey;

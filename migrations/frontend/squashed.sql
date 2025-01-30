@@ -96,6 +96,17 @@ CREATE TYPE persistmode AS ENUM (
     'snapshot'
 );
 
+CREATE TYPE syntactic_scip_indexing_jobs_transition_columns AS (
+	commit text,
+	state text,
+	num_resets integer,
+	num_failures integer,
+	worker_hostname text,
+	failure_message text
+);
+
+COMMENT ON TYPE syntactic_scip_indexing_jobs_transition_columns IS 'A type containing the columns that make-up the set of tracked transition columns. Primarily used to create a nulled record due to `OLD` being unset in INSERT queries, and creating a nulled record with a subquery is not allowed.';
+
 CREATE TYPE tenant_state AS ENUM (
     'active',
     'suspended',
@@ -478,6 +489,120 @@ CREATE FUNCTION func_row_to_lsif_uploads_transition_columns(rec record) RETURNS 
     BEGIN
         RETURN (rec.state, rec.expired, rec.num_resets, rec.num_failures, rec.worker_hostname, rec.committed_at);
     END;
+$$;
+
+CREATE FUNCTION func_row_to_syntactic_scip_indexing_jobs_transition_columns(rec record) RETURNS syntactic_scip_indexing_jobs_transition_columns
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN (rec.commit, rec.state, rec.num_resets, rec.num_failures, rec.worker_hostname,
+            rec.failure_message);
+END;
+$$;
+
+CREATE FUNCTION func_syntactic_scip_indexing_jobs_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    UPDATE syntactic_scip_indexing_jobs_audit_logs
+    SET record_deleted_at = NOW()
+    WHERE job_id IN (SELECT id FROM OLD);
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION func_syntactic_scip_indexing_jobs_insert() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO syntactic_scip_indexing_jobs_audit_logs
+        (job_id, tenant_id, operation, transition_columns)
+    VALUES (NEW.id,
+            NEW.tenant_id,
+            'create',
+            func_syntactic_scip_indexing_jobs_transition_columns_diff(
+                (NULL, NULL, NULL, NULL, NULL, NULL)::syntactic_scip_indexing_jobs_transition_columns,
+                func_row_to_syntactic_scip_indexing_jobs_transition_columns(NEW)
+            ));
+    RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION func_syntactic_scip_indexing_jobs_transition_columns_diff(old syntactic_scip_indexing_jobs_transition_columns, new syntactic_scip_indexing_jobs_transition_columns) RETURNS hstore[]
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    changes hstore[];
+BEGIN
+    changes = ARRAY []::hstore[];
+
+    IF old.commit IS DISTINCT FROM new.commit THEN
+        -- Here and below, we use this constructor: https://www.postgresql.org/docs/16/hstore.html#HSTORE-OPS-FUNCS
+        -- hstore ( text[] ) → hstore
+        --     Constructs an hstore from an array, which may be either a key/value array, or a two-dimensional array.
+        --     hstore(ARRAY['a','1','b','2']) → "a"=>"1", "b"=>"2"
+        --     hstore(ARRAY[['c','3'],['d','4']]) → "c"=>"3", "d"=>"4"
+        changes = changes || hstore(ARRAY ['column', 'commit', 'old', old.commit, 'new', new.commit]);
+    END IF;
+
+    IF old.failure_message IS DISTINCT FROM new.failure_message THEN
+        changes = changes ||
+                  hstore(ARRAY ['column', 'failure_message', 'old', old.failure_message, 'new', new.failure_message]);
+    END IF;
+
+    IF old.state IS DISTINCT FROM new.state THEN
+        changes = changes || hstore(ARRAY ['column', 'state', 'old', old.state, 'new', new.state]);
+    END IF;
+
+    IF old.num_resets IS DISTINCT FROM new.num_resets THEN
+        changes =
+            changes || hstore(ARRAY ['column', 'num_resets', 'old', old.num_resets::text, 'new', new.num_resets::text]);
+    END IF;
+
+    IF old.num_failures IS DISTINCT FROM new.num_failures THEN
+        changes = changes ||
+                  hstore(ARRAY ['column', 'num_failures', 'old', old.num_failures::text, 'new', new.num_failures::text]);
+    END IF;
+
+    IF old.worker_hostname IS DISTINCT FROM new.worker_hostname THEN
+        changes = changes ||
+                  hstore(ARRAY ['column', 'worker_hostname', 'old', old.worker_hostname, 'new', new.worker_hostname]);
+    END IF;
+
+    RETURN changes;
+END;
+$$;
+
+CREATE FUNCTION func_syntactic_scip_indexing_jobs_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    diff hstore[];
+BEGIN
+    diff = func_syntactic_scip_indexing_jobs_transition_columns_diff(
+        func_row_to_syntactic_scip_indexing_jobs_transition_columns(OLD),
+        func_row_to_syntactic_scip_indexing_jobs_transition_columns(NEW)
+           );
+
+    IF (ARRAY_LENGTH(diff, 1) > 0) THEN
+        INSERT INTO syntactic_scip_indexing_jobs_audit_logs
+        (job_id,
+         reason,
+         tenant_id,
+         operation,
+         transition_columns)
+        VALUES (NEW.id,
+                   -- By using SET LOCAL in the current transaction, we can make any information available to the trigger
+                   -- https://www.postgresql.org/docs/current/sql-set.html
+                COALESCE(CURRENT_SETTING('codeintel.syntactic_scip_indexing_jobs_audit.reason', TRUE), ''),
+                NEW.tenant_id,
+                'modify',
+                diff);
+    END IF;
+
+    RETURN NEW;
+END;
 $$;
 
 CREATE FUNCTION invalidate_session_for_userid_on_password_change() RETURNS trigger
@@ -895,6 +1020,121 @@ CREATE SEQUENCE access_tokens_id_seq
 
 ALTER SEQUENCE access_tokens_id_seq OWNED BY access_tokens.id;
 
+CREATE TABLE agent_connections (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    agent_id integer NOT NULL,
+    type text NOT NULL,
+    github_app_id integer,
+    webhook_id integer,
+    CONSTRAINT agent_connections_type_check CHECK ((type = ANY (ARRAY['github_app'::text, 'github_webhook'::text, 'gitlab_webhook'::text])))
+);
+
+CREATE SEQUENCE agent_connections_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_connections_id_seq OWNED BY agent_connections.id;
+
+CREATE TABLE agent_programs (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    agent_id integer NOT NULL,
+    status text NOT NULL,
+    files jsonb NOT NULL,
+    CONSTRAINT agent_programs_status_check CHECK ((status = ANY (ARRAY['enabled'::text, 'disabled'::text])))
+);
+
+CREATE SEQUENCE agent_programs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_programs_id_seq OWNED BY agent_programs.id;
+
+CREATE TABLE agent_review_diagnostic_feedback (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    data jsonb,
+    diagnostic_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE agent_review_diagnostic_feedback_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_review_diagnostic_feedback_id_seq OWNED BY agent_review_diagnostic_feedback.id;
+
+CREATE TABLE agent_review_diagnostics (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    data jsonb,
+    review_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE agent_review_diagnostics_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_review_diagnostics_id_seq OWNED BY agent_review_diagnostics.id;
+
+CREATE TABLE agent_reviews (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    data jsonb,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE agent_reviews_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_reviews_id_seq OWNED BY agent_reviews.id;
+
+CREATE TABLE agents (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    owner_user_id integer,
+    title text NOT NULL,
+    description text,
+    CONSTRAINT agents_description_length_check CHECK ((length(description) <= 3000)),
+    CONSTRAINT agents_title_length_check CHECK (((length(title) > 2) AND (length(title) <= 200)))
+);
+
+CREATE SEQUENCE agents_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agents_id_seq OWNED BY agents.id;
+
 CREATE TABLE aggregated_user_statistics (
     user_id bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1083,7 +1323,7 @@ CREATE TABLE batch_spec_workspace_execution_last_dequeues (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
-CREATE VIEW batch_spec_workspace_execution_queue AS
+CREATE VIEW batch_spec_workspace_execution_queue WITH (security_invoker='true') AS
  WITH queue_candidates AS (
          SELECT exec.id,
             rank() OVER (PARTITION BY queue.user_id ORDER BY exec.created_at, exec.id) AS place_in_user_queue
@@ -1097,7 +1337,7 @@ CREATE VIEW batch_spec_workspace_execution_queue AS
     place_in_user_queue
    FROM queue_candidates;
 
-CREATE VIEW batch_spec_workspace_execution_jobs_with_rank AS
+CREATE VIEW batch_spec_workspace_execution_jobs_with_rank WITH (security_invoker='true') AS
  SELECT j.id,
     j.batch_spec_workspace_id,
     j.state,
@@ -1310,7 +1550,7 @@ CREATE TABLE repo (
     CONSTRAINT repo_metadata_check CHECK ((jsonb_typeof(metadata) = 'object'::text))
 );
 
-CREATE VIEW branch_changeset_specs_and_changesets AS
+CREATE VIEW branch_changeset_specs_and_changesets WITH (security_invoker='true') AS
  SELECT changeset_specs.id AS changeset_spec_id,
     COALESCE(changesets.id, (0)::bigint) AS changeset_id,
     changeset_specs.repo_id,
@@ -1756,7 +1996,8 @@ CREATE TABLE lsif_configuration_policies (
     last_resolved_at timestamp with time zone,
     embeddings_enabled boolean DEFAULT false NOT NULL,
     syntactic_indexing_enabled boolean DEFAULT false NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    CONSTRAINT lsif_configuration_policies_syntactic_head_only_constraint CHECK (((syntactic_indexing_enabled = false) OR ((pattern = 'HEAD'::text) AND (type = 'GIT_COMMIT'::text))))
 );
 
 COMMENT ON COLUMN lsif_configuration_policies.repository_id IS 'The identifier of the repository to which this configuration policy applies. If absent, this policy is applied globally.';
@@ -1781,7 +2022,7 @@ COMMENT ON COLUMN lsif_configuration_policies.protected IS 'Whether or not this 
 
 COMMENT ON COLUMN lsif_configuration_policies.repository_patterns IS 'The name pattern matching repositories to which this configuration policy applies. If absent, all repositories are matched.';
 
-CREATE VIEW codeintel_configuration_policies AS
+CREATE VIEW codeintel_configuration_policies WITH (security_invoker='true') AS
  SELECT id,
     repository_id,
     name,
@@ -1811,7 +2052,7 @@ COMMENT ON COLUMN lsif_configuration_policies_repository_pattern_lookup.policy_i
 
 COMMENT ON COLUMN lsif_configuration_policies_repository_pattern_lookup.repo_id IS 'The repository identifier associated with the policy.';
 
-CREATE VIEW codeintel_configuration_policies_repository_pattern_lookup AS
+CREATE VIEW codeintel_configuration_policies_repository_pattern_lookup WITH (security_invoker='true') AS
  SELECT policy_id,
     repo_id
    FROM lsif_configuration_policies_repository_pattern_lookup;
@@ -2600,7 +2841,7 @@ CREATE SEQUENCE gitserver_relocator_jobs_id_seq
 
 ALTER SEQUENCE gitserver_relocator_jobs_id_seq OWNED BY gitserver_relocator_jobs.id;
 
-CREATE VIEW gitserver_relocator_jobs_with_repo_name AS
+CREATE VIEW gitserver_relocator_jobs_with_repo_name WITH (security_invoker='true') AS
  SELECT glj.id,
     glj.state,
     glj.queued_at,
@@ -2967,7 +3208,7 @@ COMMENT ON COLUMN lsif_uploads.last_traversal_scan_at IS 'The last time this upl
 
 COMMENT ON COLUMN lsif_uploads.content_type IS 'The content type of the upload record. For now, the default value is `application/x-ndjson+lsif` to backfill existing records. This will change as we remove LSIF support.';
 
-CREATE VIEW lsif_dumps AS
+CREATE VIEW lsif_dumps WITH (security_invoker='true') AS
  SELECT id,
     commit,
     root,
@@ -3003,7 +3244,7 @@ CREATE SEQUENCE lsif_dumps_id_seq
 
 ALTER SEQUENCE lsif_dumps_id_seq OWNED BY lsif_uploads.id;
 
-CREATE VIEW lsif_dumps_with_repository_name AS
+CREATE VIEW lsif_dumps_with_repository_name WITH (security_invoker='true') AS
  SELECT u.id,
     u.commit,
     u.root,
@@ -3083,6 +3324,8 @@ CREATE TABLE lsif_indexes (
     requested_envvars text[],
     enqueuer_user_id integer DEFAULT 0 NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    matched_policy_id integer,
+    matched_revision text,
     CONSTRAINT lsif_uploads_commit_valid_chars CHECK ((commit ~ '^[a-z0-9]{40}$'::text))
 );
 
@@ -3106,6 +3349,10 @@ COMMENT ON COLUMN lsif_indexes.execution_logs IS 'An array of [log entries](http
 
 COMMENT ON COLUMN lsif_indexes.local_steps IS 'A list of commands to run inside the indexer image prior to running the indexer command.';
 
+COMMENT ON COLUMN lsif_indexes.matched_policy_id IS 'The policy ID that triggered this indexing job to be created.';
+
+COMMENT ON COLUMN lsif_indexes.matched_revision IS 'The revision that triggered this indexing job to be created. Depending on matched_policy_id, this may be a tag name, a branch name, or HEAD.';
+
 CREATE SEQUENCE lsif_indexes_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -3115,7 +3362,7 @@ CREATE SEQUENCE lsif_indexes_id_seq
 
 ALTER SEQUENCE lsif_indexes_id_seq OWNED BY lsif_indexes.id;
 
-CREATE VIEW lsif_indexes_with_repository_name AS
+CREATE VIEW lsif_indexes_with_repository_name WITH (security_invoker='true') AS
  SELECT u.id,
     u.commit,
     u.queued_at,
@@ -3360,7 +3607,7 @@ CREATE SEQUENCE lsif_uploads_vulnerability_scan_id_seq
 
 ALTER SEQUENCE lsif_uploads_vulnerability_scan_id_seq OWNED BY lsif_uploads_vulnerability_scan.id;
 
-CREATE VIEW lsif_uploads_with_repository_name AS
+CREATE VIEW lsif_uploads_with_repository_name WITH (security_invoker='true') AS
  SELECT u.id,
     u.commit,
     u.root,
@@ -3717,7 +3964,7 @@ CREATE SEQUENCE outbound_webhooks_id_seq
 
 ALTER SEQUENCE outbound_webhooks_id_seq OWNED BY outbound_webhooks.id;
 
-CREATE VIEW outbound_webhooks_with_event_types AS
+CREATE VIEW outbound_webhooks_with_event_types WITH (security_invoker='true') AS
  SELECT id,
     created_by,
     created_at,
@@ -3797,7 +4044,7 @@ CREATE TABLE own_signal_configurations (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
-CREATE VIEW own_background_jobs_config_aware AS
+CREATE VIEW own_background_jobs_config_aware WITH (security_invoker='true') AS
  SELECT obj.id,
     obj.state,
     obj.failure_message,
@@ -4102,7 +4349,7 @@ CREATE TABLE users (
     CONSTRAINT users_username_valid_chars CHECK ((username OPERATOR(~) '^\w(?:\w|[-.](?=\w))*-?$'::citext))
 );
 
-CREATE VIEW prompts_view AS
+CREATE VIEW prompts_view WITH (security_invoker='true') AS
  SELECT prompts.id,
     prompts.name,
     prompts.description,
@@ -4128,7 +4375,7 @@ CREATE VIEW prompts_view AS
      LEFT JOIN users ON ((users.id = prompts.owner_user_id)))
      LEFT JOIN orgs ON ((orgs.id = prompts.owner_org_id)));
 
-CREATE VIEW reconciler_changesets AS
+CREATE VIEW reconciler_changesets WITH (security_invoker='true') AS
  SELECT c.id,
     c.batch_change_ids,
     c.repo_id,
@@ -4619,7 +4866,7 @@ CREATE SEQUENCE settings_id_seq
 
 ALTER SEQUENCE settings_id_seq OWNED BY settings.id;
 
-CREATE VIEW site_config AS
+CREATE VIEW site_config WITH (security_invoker='true') AS
  SELECT site_id,
     initialized
    FROM global_state;
@@ -4694,6 +4941,34 @@ COMMENT ON COLUMN syntactic_scip_indexing_jobs.execution_logs IS 'An array of [l
 
 COMMENT ON COLUMN syntactic_scip_indexing_jobs.enqueuer_user_id IS 'ID of the user who scheduled this index. Records with a non-NULL user ID are prioritised over the rest';
 
+CREATE TABLE syntactic_scip_indexing_jobs_audit_logs (
+    sequence bigint NOT NULL,
+    log_timestamp timestamp with time zone DEFAULT now() NOT NULL,
+    record_deleted_at timestamp with time zone,
+    job_id bigint NOT NULL,
+    transition_columns hstore[] NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    operation audit_log_operation NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+COMMENT ON COLUMN syntactic_scip_indexing_jobs_audit_logs.log_timestamp IS 'Timestamp for this log entry.';
+
+COMMENT ON COLUMN syntactic_scip_indexing_jobs_audit_logs.record_deleted_at IS 'Set once the indexing job this entry is associated with is deleted.';
+
+COMMENT ON COLUMN syntactic_scip_indexing_jobs_audit_logs.transition_columns IS 'Array of changes that occurred to the indexing job for this entry, in the form of {"column"=>"<column name>", "old"=>"<previous value>", "new"=>"<new value>"}.';
+
+COMMENT ON COLUMN syntactic_scip_indexing_jobs_audit_logs.reason IS 'The reason/source for this entry.';
+
+CREATE SEQUENCE syntactic_scip_indexing_jobs_audit_logs_sequence_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE syntactic_scip_indexing_jobs_audit_logs_sequence_seq OWNED BY syntactic_scip_indexing_jobs_audit_logs.sequence;
+
 CREATE SEQUENCE syntactic_scip_indexing_jobs_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -4703,7 +4978,7 @@ CREATE SEQUENCE syntactic_scip_indexing_jobs_id_seq
 
 ALTER SEQUENCE syntactic_scip_indexing_jobs_id_seq OWNED BY syntactic_scip_indexing_jobs.id;
 
-CREATE VIEW syntactic_scip_indexing_jobs_with_repository_name AS
+CREATE VIEW syntactic_scip_indexing_jobs_with_repository_name WITH (security_invoker='true') AS
  SELECT u.id,
     u.commit,
     u.queued_at,
@@ -4836,7 +5111,7 @@ CREATE SEQUENCE tenants_id_seq
 
 ALTER SEQUENCE tenants_id_seq OWNED BY tenants.id;
 
-CREATE VIEW tracking_changeset_specs_and_changesets AS
+CREATE VIEW tracking_changeset_specs_and_changesets WITH (security_invoker='true') AS
  SELECT changeset_specs.id AS changeset_spec_id,
     COALESCE(changesets.id, (0)::bigint) AS changeset_id,
     changeset_specs.repo_id,
@@ -4965,6 +5240,24 @@ CREATE TABLE user_permissions (
     migrated boolean DEFAULT true,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
+
+CREATE VIEW user_relevant_repos WITH (security_invoker='true') AS
+ SELECT u.id AS user_id,
+    cd.repo_id,
+    max(cd.last_commit_date) AS last_commit_date,
+    sum(cd.number_of_commits) AS number_of_commits
+   FROM ((users u
+     JOIN user_emails ue ON (((u.tenant_id = ue.tenant_id) AND (u.id = ue.user_id) AND (ue.verified_at IS NOT NULL) AND (ue.deleted_at IS NULL))))
+     JOIN contributor_data cd ON (((ue.tenant_id = cd.tenant_id) AND (((ue.email)::bytea = cd.author_email) OR ((u.display_name)::bytea = cd.author_name)))))
+  GROUP BY u.id, cd.repo_id
+  ORDER BY u.id, (max(cd.last_commit_date)) DESC;
+
+COMMENT ON VIEW user_relevant_repos IS '
+An aggregation of repos a user has contributed to.
+
+This is generated from commit data on the default branch of each repo,
+and uses email address or display name to link git users to Sourcegraph users.
+';
 
 CREATE TABLE user_repo_permissions (
     id bigint NOT NULL,
@@ -5170,6 +5463,18 @@ CREATE TABLE zoekt_repos (
 ALTER TABLE ONLY access_requests ALTER COLUMN id SET DEFAULT nextval('access_requests_id_seq'::regclass);
 
 ALTER TABLE ONLY access_tokens ALTER COLUMN id SET DEFAULT nextval('access_tokens_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_connections ALTER COLUMN id SET DEFAULT nextval('agent_connections_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_programs ALTER COLUMN id SET DEFAULT nextval('agent_programs_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_review_diagnostic_feedback ALTER COLUMN id SET DEFAULT nextval('agent_review_diagnostic_feedback_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_review_diagnostics ALTER COLUMN id SET DEFAULT nextval('agent_review_diagnostics_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_reviews ALTER COLUMN id SET DEFAULT nextval('agent_reviews_id_seq'::regclass);
+
+ALTER TABLE ONLY agents ALTER COLUMN id SET DEFAULT nextval('agents_id_seq'::regclass);
 
 ALTER TABLE ONLY assigned_owners ALTER COLUMN id SET DEFAULT nextval('assigned_owners_id_seq'::regclass);
 
@@ -5381,6 +5686,8 @@ ALTER TABLE ONLY survey_responses ALTER COLUMN id SET DEFAULT nextval('survey_re
 
 ALTER TABLE ONLY syntactic_scip_indexing_jobs ALTER COLUMN id SET DEFAULT nextval('syntactic_scip_indexing_jobs_id_seq'::regclass);
 
+ALTER TABLE ONLY syntactic_scip_indexing_jobs_audit_logs ALTER COLUMN sequence SET DEFAULT nextval('syntactic_scip_indexing_jobs_audit_logs_sequence_seq'::regclass);
+
 ALTER TABLE ONLY teams ALTER COLUMN id SET DEFAULT nextval('teams_id_seq'::regclass);
 
 ALTER TABLE ONLY temporary_settings ALTER COLUMN id SET DEFAULT nextval('temporary_settings_id_seq'::regclass);
@@ -5419,6 +5726,24 @@ ALTER TABLE ONLY access_tokens
 
 ALTER TABLE ONLY access_tokens
     ADD CONSTRAINT access_tokens_value_sha256_key UNIQUE (value_sha256, tenant_id);
+
+ALTER TABLE ONLY agent_connections
+    ADD CONSTRAINT agent_connections_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_programs
+    ADD CONSTRAINT agent_programs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_review_diagnostic_feedback
+    ADD CONSTRAINT agent_review_diagnostic_feedback_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_review_diagnostics
+    ADD CONSTRAINT agent_review_diagnostics_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_reviews
+    ADD CONSTRAINT agent_reviews_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agents
+    ADD CONSTRAINT agents_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY aggregated_user_statistics
     ADD CONSTRAINT aggregated_user_statistics_pkey PRIMARY KEY (user_id);
@@ -5647,6 +5972,9 @@ ALTER TABLE ONLY gitserver_repos
 
 ALTER TABLE ONLY gitserver_repos_sync_output
     ADD CONSTRAINT gitserver_repos_sync_output_pkey PRIMARY KEY (repo_id);
+
+ALTER TABLE ONLY global_state
+    ADD CONSTRAINT global_state_one_per_tenant UNIQUE (tenant_id);
 
 ALTER TABLE ONLY global_state
     ADD CONSTRAINT global_state_pkey PRIMARY KEY (id);
@@ -5900,6 +6228,9 @@ ALTER TABLE ONLY sub_repo_permissions
 ALTER TABLE ONLY survey_responses
     ADD CONSTRAINT survey_responses_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY syntactic_scip_indexing_jobs_audit_logs
+    ADD CONSTRAINT syntactic_scip_indexing_jobs_audit_logs_pkey PRIMARY KEY (sequence);
+
 ALTER TABLE ONLY syntactic_scip_indexing_jobs
     ADD CONSTRAINT syntactic_scip_indexing_jobs_pkey PRIMARY KEY (id);
 
@@ -6006,6 +6337,20 @@ CREATE INDEX access_tokens_lookup ON access_tokens USING hash (value_sha256) WHE
 
 CREATE INDEX access_tokens_lookup_double_hash ON access_tokens USING hash (digest(value_sha256, 'sha256'::text)) WHERE (deleted_at IS NULL);
 
+CREATE INDEX agent_connections_agent_id_idx ON agent_connections USING btree (agent_id);
+
+CREATE INDEX agent_connections_github_app_id_idx ON agent_connections USING btree (github_app_id);
+
+CREATE INDEX agent_connections_tenant_id_idx ON agent_connections USING btree (tenant_id);
+
+CREATE INDEX agent_connections_webhook_id_idx ON agent_connections USING btree (webhook_id);
+
+CREATE INDEX agent_programs_agent_id_idx ON agent_programs USING btree (agent_id);
+
+CREATE INDEX agent_programs_tenant_id_idx ON agent_programs USING btree (tenant_id);
+
+CREATE INDEX agents_tenant_id_idx ON agents USING btree (tenant_id);
+
 CREATE INDEX app_id_idx ON github_app_installs USING btree (app_id);
 
 CREATE UNIQUE INDEX assigned_owners_file_path_owner ON assigned_owners USING btree (file_path_id, owner_user_id);
@@ -6099,6 +6444,8 @@ CREATE INDEX codeowners_owners_reference ON codeowners_owners USING btree (refer
 CREATE INDEX configuration_policies_audit_logs_policy_id ON configuration_policies_audit_logs USING btree (policy_id);
 
 CREATE INDEX configuration_policies_audit_logs_timestamp ON configuration_policies_audit_logs USING brin (log_timestamp);
+
+CREATE INDEX contributor_data_author_name_idx ON contributor_data USING btree (tenant_id, author_name);
 
 CREATE INDEX event_logs_anonymous_user_id ON event_logs USING btree (anonymous_user_id);
 
@@ -6218,7 +6565,15 @@ CREATE INDEX lsif_indexes_commit_last_checked_at ON lsif_indexes USING btree (co
 
 CREATE INDEX lsif_indexes_dequeue_order_idx ON lsif_indexes USING btree (((enqueuer_user_id > 0)) DESC, queued_at DESC, id) WHERE ((state = 'queued'::text) OR (state = 'errored'::text));
 
+CREATE INDEX lsif_indexes_matched_policy_id_partial_idx ON lsif_indexes USING btree (matched_policy_id) WHERE (matched_policy_id IS NOT NULL);
+
+COMMENT ON INDEX lsif_indexes_matched_policy_id_partial_idx IS 'Inverted index for FK constraint to support policy deletion without a full table scan.';
+
 CREATE INDEX lsif_indexes_queued_at_id ON lsif_indexes USING btree (queued_at DESC, id);
+
+CREATE UNIQUE INDEX lsif_indexes_queued_partial_ukey ON lsif_indexes USING btree (repository_id, indexer, root, tenant_id, commit) WHERE ((state = 'queued'::text) AND (matched_policy_id IS NOT NULL));
+
+COMMENT ON INDEX lsif_indexes_queued_partial_ukey IS 'Partial index for commit overwriting on detecting new commits for a repository while the old commit is still enqueued.';
 
 CREATE INDEX lsif_indexes_repository_id_commit ON lsif_indexes USING btree (repository_id, commit);
 
@@ -6366,11 +6721,7 @@ CREATE INDEX repo_metadata_gin_idx ON repo USING gin (metadata);
 
 CREATE INDEX repo_name_case_sensitive_trgm_idx ON repo USING gin (((name)::text) gin_trgm_ops);
 
-CREATE INDEX repo_name_idx ON repo USING btree (lower((name)::text) COLLATE "C");
-
 CREATE INDEX repo_name_lower_trgm_idx ON repo USING gin (name_lower gin_trgm_ops);
-
-CREATE INDEX repo_name_trgm ON repo USING gin (lower((name)::text) gin_trgm_ops);
 
 CREATE INDEX repo_non_deleted_id_name_idx ON repo USING btree (id, name) WHERE (deleted_at IS NULL);
 
@@ -6410,9 +6761,15 @@ CREATE INDEX settings_user_id_idx ON settings USING btree (user_id);
 
 CREATE INDEX sub_repo_perms_user_id ON sub_repo_permissions USING btree (user_id);
 
+CREATE INDEX syntactic_scip_indexing_jobs_audit_logs_indexing_job_id ON syntactic_scip_indexing_jobs_audit_logs USING btree (job_id);
+
+CREATE INDEX syntactic_scip_indexing_jobs_audit_logs_timestamp ON syntactic_scip_indexing_jobs_audit_logs USING brin (log_timestamp);
+
 CREATE INDEX syntactic_scip_indexing_jobs_dequeue_order_idx ON syntactic_scip_indexing_jobs USING btree (((enqueuer_user_id > 0)) DESC, queued_at DESC, id) WHERE ((state = 'queued'::text) OR (state = 'errored'::text));
 
 CREATE INDEX syntactic_scip_indexing_jobs_queued_at_id ON syntactic_scip_indexing_jobs USING btree (queued_at DESC, id);
+
+CREATE UNIQUE INDEX syntactic_scip_indexing_jobs_queued_partial_ukey ON syntactic_scip_indexing_jobs USING btree (tenant_id, repository_id) WHERE (state = 'queued'::text);
 
 CREATE INDEX syntactic_scip_indexing_jobs_repository_id_commit ON syntactic_scip_indexing_jobs USING btree (repository_id, commit);
 
@@ -6514,6 +6871,12 @@ CREATE TRIGGER trigger_lsif_uploads_update BEFORE UPDATE OF state, num_resets, n
 
 CREATE TRIGGER trigger_package_repo_filters_updated_at BEFORE UPDATE ON package_repo_filters FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION func_package_repo_filters_updated_at();
 
+CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_delete AFTER DELETE ON syntactic_scip_indexing_jobs REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_delete();
+
+CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_insert AFTER INSERT ON syntactic_scip_indexing_jobs FOR EACH ROW EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_insert();
+
+CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_update BEFORE UPDATE OF commit, state, num_resets, num_failures, worker_hostname, failure_message ON syntactic_scip_indexing_jobs FOR EACH ROW EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_update();
+
 CREATE TRIGGER update_own_aggregate_recent_contribution AFTER INSERT ON own_signal_recent_contribution FOR EACH ROW EXECUTE FUNCTION update_own_aggregate_recent_contribution();
 
 CREATE TRIGGER versions_insert BEFORE INSERT ON versions FOR EACH ROW EXECUTE FUNCTION versions_insert_row_trigger();
@@ -6526,6 +6889,27 @@ ALTER TABLE ONLY access_tokens
 
 ALTER TABLE ONLY access_tokens
     ADD CONSTRAINT access_tokens_subject_user_id_fkey FOREIGN KEY (subject_user_id) REFERENCES users(id);
+
+ALTER TABLE ONLY agent_connections
+    ADD CONSTRAINT agent_connections_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_connections
+    ADD CONSTRAINT agent_connections_github_app_id_fkey FOREIGN KEY (github_app_id) REFERENCES github_apps(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY agent_connections
+    ADD CONSTRAINT agent_connections_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY agent_programs
+    ADD CONSTRAINT agent_programs_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_review_diagnostic_feedback
+    ADD CONSTRAINT agent_review_diagnostic_feedback_diagnostic_id_fkey FOREIGN KEY (diagnostic_id) REFERENCES agent_review_diagnostics(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_review_diagnostics
+    ADD CONSTRAINT agent_review_diagnostics_review_id_fkey FOREIGN KEY (review_id) REFERENCES agent_reviews(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agents
+    ADD CONSTRAINT agents_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
 
 ALTER TABLE ONLY aggregated_user_statistics
     ADD CONSTRAINT aggregated_user_statistics_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
@@ -6817,6 +7201,9 @@ ALTER TABLE ONLY lsif_dependency_indexing_jobs
 
 ALTER TABLE ONLY lsif_index_configuration
     ADD CONSTRAINT lsif_index_configuration_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY lsif_indexes
+    ADD CONSTRAINT lsif_indexes_matched_policy_id_fkey FOREIGN KEY (matched_policy_id) REFERENCES lsif_configuration_policies(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY lsif_packages
     ADD CONSTRAINT lsif_packages_dump_id_fkey FOREIGN KEY (dump_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
@@ -7116,6 +7503,18 @@ ALTER TABLE access_requests ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE access_tokens ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE agent_connections ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_programs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_review_diagnostic_feedback ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_review_diagnostics ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_reviews ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE aggregated_user_statistics ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE assigned_owners ENABLE ROW LEVEL SECURITY;
@@ -7398,6 +7797,8 @@ ALTER TABLE survey_responses ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE syntactic_scip_indexing_jobs ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE syntactic_scip_indexing_jobs_audit_logs ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE syntactic_scip_last_index_scan ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
@@ -7411,6 +7812,18 @@ ALTER TABLE temporary_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_policy ON access_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON access_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_connections USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_programs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_review_diagnostic_feedback USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_review_diagnostics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_reviews USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agents USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON aggregated_user_statistics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -7694,6 +8107,8 @@ CREATE POLICY tenant_isolation_policy ON survey_responses USING ((tenant_id = ( 
 
 CREATE POLICY tenant_isolation_policy ON syntactic_scip_indexing_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
+CREATE POLICY tenant_isolation_policy ON syntactic_scip_indexing_jobs_audit_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON syntactic_scip_last_index_scan USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON team_members USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -7704,7 +8119,7 @@ CREATE POLICY tenant_isolation_policy ON telemetry_events_export_queue USING ((t
 
 CREATE POLICY tenant_isolation_policy ON temporary_settings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setting('app.current_tenant'::text) = ANY (ARRAY['servicetenant'::text, 'workertenant'::text]))) OR (id = ( SELECT (NULLIF(NULLIF(current_setting('app.current_tenant'::text), 'servicetenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setting('app.current_tenant'::text) = ANY (ARRAY['servicetenant'::text, 'workertenant'::text, 'zoekttenant'::text]))) OR (id = ( SELECT (NULLIF(NULLIF(NULLIF(current_setting('app.current_tenant'::text), 'servicetenant'::text), 'workertenant'::text), 'zoekttenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON user_credentials USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

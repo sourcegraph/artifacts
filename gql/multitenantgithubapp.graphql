@@ -85,25 +85,6 @@ type WorkspaceGitHubApp {
         search: String!
     ): WorkspaceGitHubAppRepositoryConnection!
     """
-    API to list / search the authenticated users GitHub repositories.
-    This endpoint can be used to list repos in the current users GitHub account.
-    Private repositories are only returned when the App is installed on them.
-    """
-    listUserGitHubRepositories(
-        """
-        Pagination arg.
-        """
-        first: Int!
-        """
-        Pagination arg.
-        """
-        after: String
-        """
-        An optional search term when searching for a repo. Leave blank to apply no filtering.
-        """
-        search: String
-    ): WorkspaceGitHubAppRepositoryConnection!
-    """
     Fetches all installations for this GitHub App that the authenticated user has access to.
     """
     installations: [WorkspaceGitHubAppInstallation!]!
@@ -218,11 +199,6 @@ type WorkspaceGitHubAppRepository {
     nameWithOwner: String!
 
     """
-    Description of repository
-    """
-    description: String
-
-    """
     The web URL of this repository ("https://github.com/foo/bar")
     """
     url: String!
@@ -243,31 +219,6 @@ type WorkspaceGitHubAppRepository {
     isArchived: Boolean!
 
     """
-    Whether the repository is locked on the code host
-    """
-    isLocked: Boolean!
-
-    """
-    ADMIN, WRITE, READ, or UNKNOWN
-    """
-    viewerPermission: WorkspaceGitHubAppRepositoryViewerPermission!
-
-    """
-    List of topics the repository is tagged with
-    """
-    repositoryTopics: [String!]!
-
-    """
-    Number of stargazers
-    """
-    stargazerCount: Int!
-
-    """
-    Number of forks
-    """
-    forkCount: Int!
-
-    """
     Repository visibility (public, private, internal, or unknown)
     """
     visibility: WorkspaceGitHubAppRepositoryVisibility!
@@ -276,31 +227,22 @@ type WorkspaceGitHubAppRepository {
     Disk usage in kibibytes
     """
     diskUsageKibibytes: Int!
-}
-
-"""
-The viewer's permission for a repository that is accessible to a GitHub App installation.
-"""
-enum WorkspaceGitHubAppRepositoryViewerPermission {
-    """
-    The repository permission is unknown or not determined.
-    """
-    UNKNOWN
 
     """
-    Can read, clone, and push to this repository. Can also manage issues, pull requests, and repository settings, including adding collaborators.
+    Information and status related to mirroring, if this repository is a mirror of another repository (e.g., on
+    some code host). In this case, the remote source repository is external to Sourcegraph and the mirror is
+    maintained by the Sourcegraph site (not the other way around).
+    Null, if the repo has not yet been synced.
+    This field is available to all workspace admins independent of repo authz,
+    so that admins with different privileges can still effectively manage repositories.
     """
-    ADMIN
+    mirrorInfo: MirrorRepositoryInfo
 
     """
-    Can read, clone, and push to this repository. Can also manage issues and pull requests.
+    The repository on Sourcegraph. Null, if not yet synced, or not accessible by the
+    requesting user.
     """
-    WRITE
-
-    """
-    Can read and clone this repository. Can also open and comment on issues and pull requests.
-    """
-    READ
+    repository: Repository
 }
 
 """

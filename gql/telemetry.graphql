@@ -236,29 +236,29 @@ input TelemetryEventMarketingTrackingInput {
     """
     Initial URL the user landed on.
     """
-    firstSourceURL: String
+    firstSourceURL: String @deprecated(reason: "use 'internal/marketingtracking' instead")
     """
     Cohort ID to identify the user as part of a specific A/B test.
     """
-    cohortID: String
+    cohortID: String @deprecated(reason: "use 'internal/marketingtracking' instead")
     """
     Referrer URL that refers the user to Sourcegraph.
     """
-    referrer: String
+    referrer: String @deprecated(reason: "use 'internal/marketingtracking' instead")
     """
     Last source URL visited by the user.
     """
-    lastSourceURL: String
+    lastSourceURL: String @deprecated(reason: "use 'internal/marketingtracking' instead")
     """
     Device session ID to identify the user's session.
     """
-    deviceSessionID: String
+    deviceSessionID: String @deprecated(reason: "use 'internal/marketingtracking' instead")
     """
     Session referrer URL for the user.
     """
-    sessionReferrer: String
+    sessionReferrer: String @deprecated(reason: "use 'internal/marketingtracking' instead")
     """
     First URL the user visited in their current session.
     """
-    sessionFirstURL: String
+    sessionFirstURL: String @deprecated(reason: "use 'internal/marketingtracking' instead")
 }
