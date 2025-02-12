@@ -271,7 +271,7 @@ type Mutation {
     """
     updatePassword(oldPassword: String!, newPassword: String!): EmptyResponse
     """
-    Creates a password for the current user. It is only permitted if the user does not have a password and password authentication is enabled.
+    Creates a password for the current user. It is only permitted if the user does not have a password.
     """
     createPassword(newPassword: String!): EmptyResponse
     """
@@ -520,6 +520,10 @@ type Mutation {
         The site ID that the client was connected to when the event was logged.
         """
         connectedSiteID: String
+        """
+        The connected site's license key, hashed using sha256. Used for uniquely identifying the site.
+        """
+        hashedLicenseKey: String
     ): EmptyResponse @deprecated(reason: "use telemetry { recordEvent } instead")
     """
     Logs a batch of events.
@@ -988,6 +992,10 @@ input Event {
     The site ID that the client was connected to when the event was logged.
     """
     connectedSiteID: String
+    """
+    The connected site's license key, hashed using sha256. Used for uniquely identifying the site.
+    """
+    hashedLicenseKey: String
 }
 
 """
@@ -2628,7 +2636,6 @@ enum SearchPatternType {
     lucky
     keyword
     codycontext
-    nls
 }
 
 """
@@ -3424,12 +3431,6 @@ type ExternalServiceSyncJob implements Node {
     reposDeleted: Int!
 
     """
-    The number of repos that the sync job _wanted_ to delete. The actual number
-    of deletions could be constrained by the code host config.
-    """
-    reposWantedToDelete: Int!
-
-    """
     The number of existing repos whose metadata has changed during this sync job.
     """
     reposModified: Int!
@@ -3819,9 +3820,6 @@ type Repository implements Node & GenericSearchResultInterface {
     The size of repo when cloned on disk
     """
     diskSizeBytes: BigInt
-        @deprecated(
-            reason: "Use mirrorInfo.byteSize instead. This field is a deprecated and will be removed in a future release."
-        )
 
     """
     Returns true if embeddings for the repo are generated.
@@ -4210,10 +4208,9 @@ around).
 """
 type MirrorRepositoryInfo {
     """
-    The URL of the remote source repository. Requires site-admin. Otherwise null is
-    returned always.
+    The URL of the remote source repository.
     """
-    remoteURL: String
+    remoteURL: String!
     """
     Whether the clone of the repository has begun but not yet completed.
     """
@@ -4270,7 +4267,7 @@ type MirrorRepositoryInfo {
     byteSize: BigInt!
     """
     The gitserver shard on which the repository is or will be cloned.
-    Only site admins can access this field. Null is returned otherwise.
+    Only site admins can access this field.
     """
     shard: String
 }
@@ -4306,6 +4303,10 @@ type UpdateSchedule {
     The index of the repo in the schedule.
     """
     index: Int!
+    """
+    The total number of repos in the schedule.
+    """
+    total: Int!
 }
 
 """
@@ -4322,6 +4323,10 @@ type UpdateQueue {
     True if the repo is currently updating.
     """
     updating: Boolean!
+    """
+    The total number of repos in the update queue (including updating repos).
+    """
+    total: Int!
 }
 
 """
@@ -6294,6 +6299,7 @@ type User implements Node & SettingsSubject & Namespace {
     username: String!
     """
     The user's primary email address.
+    Only the user and site admins can access this field.
     """
     email: String! @deprecated(reason: "use emails instead")
     """
@@ -6384,10 +6390,12 @@ type User implements Node & SettingsSubject & Namespace {
     ): EventLogsConnection!
     """
     The user's email addresses.
+    Only the user and site admins can access this field.
     """
     emails: [UserEmail!]!
     """
     Whether the user has a verified email or not.
+    Only the user and site admins can access this field.
     """
     hasVerifiedEmail: Boolean!
     """
@@ -6699,10 +6707,6 @@ type ExternalAccount implements Node {
     may query this field.
     """
     publicAccountData: PublicExternalAccountData
-    """
-    Whether the requesting user can remove the link to the external account.
-    """
-    viewerCanRemove: Boolean!
     """
     TEMPORARY: to debug #inc-284-plg-users-paying-for-and-being-billed-for-pro-without-being-upgrade.
     Cody Subscription associated with the external account.
@@ -7195,6 +7199,11 @@ type Site implements SettingsSubject {
     """
     allowEditExternalServicesWithFile: Boolean!
     """
+    Whether the site is over the limit for free user accounts, and a warning needs to be shown to all users.
+    Only applies if the site does not have a valid license.
+    """
+    freeUsersExceeded: Boolean!
+    """
     Alerts to display to the viewer.
     """
     alerts: [Alert!]!
@@ -7273,6 +7282,20 @@ type Site implements SettingsSubject {
         eventsCount: SiteUsersNumberRangeInput
     ): SiteUsers!
 
+    """
+    Monitoring overview for this site.
+    Note: This is primarily used for displaying recently-fired alerts in the web app. If your intent
+    is to monitor Sourcegraph, it is better to configure alerting or query Prometheus directly in
+    order to ensure that if the frontend goes down you still receive alerts:
+    Configure alerting: https://sourcegraph.com/docs/admin/observability/alerting
+    Query Prometheus directly: https://sourcegraph.com/docs/admin/observability/alerting_custom_consumption
+    """
+    monitoringStatistics(
+        """
+        Days of history (based on current UTC time).
+        """
+        days: Int @deprecated(reason: "No longer supported - will be removed after Sourcegraph 4.5")
+    ): MonitoringStatistics!
     """
     Whether changes can be made to site settings through the API. When global settings are configured through
     the GLOBAL_SETTINGS_FILE environment variable, site settings edits cannot be made through the API.
@@ -7530,6 +7553,28 @@ type SiteConfiguration {
         """
         before: String
     ): SiteConfigurationChangeConnection
+    """
+    License information from license key. Available only to site-admins.
+    """
+    licenseInfo: LicenseInfo!
+}
+
+"""
+License information extracted from license key.
+"""
+type LicenseInfo {
+    """
+    Tags of the license.
+    """
+    tags: [String!]!
+    """
+    The number of users that can use the license.
+    """
+    userCount: Int!
+    """
+    The expiration date of the license.
+    """
+    expiresAt: DateTime!
 }
 
 """
@@ -8416,6 +8461,19 @@ type SiteUsagePeriod {
 }
 
 """
+Monitoring overview.
+"""
+type MonitoringStatistics {
+    """
+    Alerts fired in this time span.
+    """
+    alerts: [MonitoringAlert!]!
+        @deprecated(
+            reason: "No longer supported, and will no longer return data - query will be removed after Sourcegraph 4.5"
+        )
+}
+
+"""
 A high-level monitoring alert, for details see https://sourcegraph.com/docs/admin/observability/metrics#high-level-alerting-metrics
 """
 type MonitoringAlert {
@@ -8530,20 +8588,55 @@ type ProductSubscriptionStatus {
     actualUserCountDate: String!
     """
     The number of users allowed. If there is a license, this is equal to ProductLicenseInfo.userCount. Otherwise,
-    it is the user limit for instances without a license.
+    it is the user limit for instances without a license, or null if there is no limit.
     """
-    maximumAllowedUserCount: Int!
+    maximumAllowedUserCount: Int
     """
-    Whether the subscription allows true-up for user accounts. Those additional seats will be charged at the
-    next renewal.
+    The number of free users allowed on a site without a license before a warning is shown to all users, or null
+    if a valid license is in use.
     """
-    allowsTrueUp: Boolean!
+    noLicenseWarningUserCount: Int
     """
-    The date when this license expires. Null, if the license is valid indefinitely.
-    Enterprise subscriptions always expire, but other gating providers (workspaces)
-    may have a concept of non-expiry, when self-serve billing is enabled.
+    The product license associated with this subscription.
+    If no license key is applied, a free plan is assumed.
     """
-    expiresAt: DateTime
+    license: ProductLicenseInfo!
+}
+
+"""
+Information about this site's product license (which activates certain Sourcegraph features).
+"""
+type ProductLicenseInfo {
+    """
+    The full name of the product that this license is for. To get the product name for the current
+    Sourcegraph site, use ProductSubscriptionStatus.productNameWithBrand instead (to handle cases where there is
+    no license).
+    """
+    productNameWithBrand: String!
+    """
+    True if the license is for a free plan.
+    """
+    isFreePlan: Boolean!
+    """
+    Tags indicating the product plan and features activated by this license.
+    """
+    tags: [String!]!
+    """
+    The number of users allowed by this license.
+    """
+    userCount: Int!
+    """
+    The date when this license expires.
+    """
+    expiresAt: DateTime!
+    """
+    The Salesforce subscription ID associated with this license.
+    """
+    salesforceSubscriptionID: String
+    """
+    The Salesforce opportunity ID associated with this license.
+    """
+    salesforceOpportunityID: String
     """
     This indicates if the current license is valid. It will be false if:
     - The license key has expired
@@ -8555,6 +8648,10 @@ type ProductSubscriptionStatus {
     This indicates the reason the license is invalid. It'll be null if `isValid` is true.
     """
     licenseInvalidityReason: String
+    """
+    The license key, hashed using sha256.
+    """
+    hashedKey: String
 }
 
 """
@@ -10246,21 +10343,6 @@ enum PermissionNamespace {
     ❗ Product subscriptions are only available in Sourcegraph.com
     """
     PRODUCT_SUBSCRIPTIONS
-
-    """
-    Permissions related to workspace repo administration.
-    """
-    WORKSPACE_REPOSITORIES
-
-    """
-    Permissions related to exported telemetry.
-    """
-    EXPORTED_TELEMETRY
-
-    """
-    Permissions related to user external accounts.
-    """
-    USER_EXTERNAL_ACCOUNTS
 }
 
 """

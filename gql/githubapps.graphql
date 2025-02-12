@@ -2,14 +2,12 @@ extend type Mutation {
     """
     Delete a GitHub App. The GitHub App, along with all of its associated code host connections and
     authentication provider, will be deleted.
-    🚨 SECURITY: Requires site-admin.
     """
     deleteGitHubApp(gitHubApp: ID!): EmptyResponse
 
     """
     Refresh a GitHub App. This fetches information about the GitHub app and updates all installations
     associated with it.
-    🚨 SECURITY: Requires site-admin.
     """
     refreshGitHubApp(gitHubApp: ID!): EmptyResponse
 }
@@ -17,12 +15,14 @@ extend type Mutation {
 extend type Query {
     """
     All configured GitHub Apps, optionally filtered by the domain in which they are used.
-    🚨 SECURITY: Requires site-admin.
     """
     gitHubApps(domain: GitHubAppDomain): GitHubAppConnection!
     """
+    Looks up a GitHub App by its ID.
+    """
+    gitHubApp(id: ID!): GitHubApp
+    """
     Looks up a GitHub App by its AppID and BaseURL.
-    🚨 SECURITY: Requires site-admin.
     """
     gitHubAppByAppID(appID: Int!, baseURL: String!): GitHubApp
 }

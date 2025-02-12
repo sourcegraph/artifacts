@@ -61,16 +61,6 @@ extend type Query {
         recommendedOnly: Boolean
 
         """
-        Whether to include only builtin prompts.
-        """
-        builtinOnly: Boolean = false
-
-        """
-        Whether to include builtin prompts.
-        """
-        includeBuiltin: Boolean = false
-
-        """
         Whether to include draft prompts owned by the viewer.
         """
         includeViewerDrafts: Boolean
@@ -104,16 +94,6 @@ extend type Query {
         The field to sort by multiple fields.
         """
         orderByMultiple: [PromptsOrderBy!]
-
-        """
-        Filter by tag IDs.
-        """
-        tags: [ID!]
-
-        """
-        List of prompt IDs to exclude.
-        """
-        exclude: [ID!]
     ): PromptsConnection!
 }
 
@@ -165,11 +145,6 @@ input PromptInput {
     Whether the prompt is recommended.
     """
     recommended: Boolean
-
-    """
-    The tags for the prompt.
-    """
-    tags: [ID!]
 }
 
 """
@@ -228,11 +203,6 @@ input PromptUpdateInput {
     Whether the prompt is recommended.
     """
     recommended: Boolean
-
-    """
-    The new tags delete and override any existing tags.
-    """
-    tags: [ID!]
 }
 
 """
@@ -311,9 +281,8 @@ type Prompt implements Node {
 
     """
     The owner of the prompt, either a user or organization.
-    The owner is null for builtin prompts.
     """
-    owner: Namespace
+    owner: Namespace!
 
     """
     The visibility state of the prompt.
@@ -370,56 +339,6 @@ type Prompt implements Node {
     Whether the prompt is recommended.
     """
     recommended: Boolean!
-
-    """
-    Whether the prompt is built-in prompt. Built-in prompts are not editable.
-    """
-    builtin: Boolean!
-
-    """
-    Tags associated with this prompt.
-    """
-    tags(
-        """
-        The limit argument for forward pagination.
-        """
-        first: Int
-
-        """
-        The limit argument for backward pagination.
-        """
-        last: Int
-
-        """
-        The cursor argument for forward pagination.
-        """
-        after: String
-
-        """
-        The cursor argument for backward pagination.
-        """
-        before: String
-    ): PromptToTagsConnection!
-}
-
-"""
-A paginated connection for prompt tags.
-"""
-type PromptToTagsConnection implements Connection {
-    """
-    A list of prompt tags.
-    """
-    nodes: [PromptTag!]!
-
-    """
-    The total number of prompt tags in the connection.
-    """
-    totalCount: Int!
-
-    """
-    Pagination information.
-    """
-    pageInfo: ConnectionPageInfo!
 }
 
 """

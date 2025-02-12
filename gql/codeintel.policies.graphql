@@ -128,7 +128,6 @@ extend type Mutation {
     # reasonable defaults instead.
     updateCodeIntelligenceConfigurationPolicy(
         id: ID!
-        # There is no repo: argument here, see NOTE(id: no-repo-id-policy-update)
         repositoryPatterns: [String!]
         name: String!
         type: GitObjectType!

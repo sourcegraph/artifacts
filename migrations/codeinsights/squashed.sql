@@ -22,13 +22,6 @@ CREATE TYPE series_sort_mode_enum AS ENUM (
     'DATE_ADDED'
 );
 
-CREATE TYPE tenant_state AS ENUM (
-    'active',
-    'suspended',
-    'dormant',
-    'deleted'
-);
-
 CREATE TYPE time_unit AS ENUM (
     'HOUR',
     'DAY',
@@ -389,7 +382,7 @@ CREATE SEQUENCE insights_data_retention_jobs_id_seq
 
 ALTER SEQUENCE insights_data_retention_jobs_id_seq OWNED BY insights_data_retention_jobs.id;
 
-CREATE VIEW insights_jobs_backfill_in_progress WITH (security_invoker='true') AS
+CREATE VIEW insights_jobs_backfill_in_progress AS
  SELECT jobs.id,
     jobs.state,
     jobs.failure_message,
@@ -406,13 +399,12 @@ CREATE VIEW insights_jobs_backfill_in_progress WITH (security_invoker='true') AS
     jobs.backfill_id,
     isb.state AS backfill_state,
     isb.estimated_cost,
-    width_bucket(isb.estimated_cost, (0)::double precision, max((isb.estimated_cost + (1)::double precision)) OVER (), 4) AS cost_bucket,
-    jobs.tenant_id
+    width_bucket(isb.estimated_cost, (0)::double precision, max((isb.estimated_cost + (1)::double precision)) OVER (), 4) AS cost_bucket
    FROM (insights_background_jobs jobs
      JOIN insight_series_backfill isb ON ((jobs.backfill_id = isb.id)))
   WHERE (isb.state = 'processing'::text);
 
-CREATE VIEW insights_jobs_backfill_new WITH (security_invoker='true') AS
+CREATE VIEW insights_jobs_backfill_new AS
  SELECT jobs.id,
     jobs.state,
     jobs.failure_message,
@@ -428,8 +420,7 @@ CREATE VIEW insights_jobs_backfill_new WITH (security_invoker='true') AS
     jobs.cancel,
     jobs.backfill_id,
     isb.state AS backfill_state,
-    isb.estimated_cost,
-    jobs.tenant_id
+    isb.estimated_cost
    FROM (insights_background_jobs jobs
      JOIN insight_series_backfill isb ON ((jobs.backfill_id = isb.id)))
   WHERE (isb.state = 'new'::text);
@@ -570,13 +561,10 @@ CREATE TABLE tenants (
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    state tenant_state DEFAULT 'active'::tenant_state NOT NULL,
     workspace_id uuid NOT NULL,
     display_name text,
-    external_url text DEFAULT ''::text NOT NULL,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
-    CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text)),
-    CONSTRAINT tenants_external_url_check CHECK ((lower(external_url) = external_url))
+    CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text))
 );
 
 COMMENT ON TABLE tenants IS 'The table that holds all tenants known to the instance. In enterprise instances, this table will only contain the "default" tenant.';
@@ -585,21 +573,9 @@ COMMENT ON COLUMN tenants.id IS 'The ID of the tenant. To keep tenants globally 
 
 COMMENT ON COLUMN tenants.name IS 'The name of the tenant. This may be displayed to the user and must be unique.';
 
-COMMENT ON COLUMN tenants.state IS 'The state of the tenant. Can be active, suspended, dormant or deleted.';
-
 COMMENT ON COLUMN tenants.workspace_id IS 'The ID in workspaces service of the tenant. This is used for identifying the link between tenant and workspace.';
 
 COMMENT ON COLUMN tenants.display_name IS 'An optional display name for the tenant. This is used for rendering the tenant name in the UI.';
-
-CREATE SEQUENCE tenants_id_seq
-    AS integer
-    START WITH 2
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE tenants_id_seq OWNED BY tenants.id;
 
 ALTER TABLE ONLY dashboard ALTER COLUMN id SET DEFAULT nextval('dashboard_id_seq'::regclass);
 
@@ -628,8 +604,6 @@ ALTER TABLE ONLY repo_iterator ALTER COLUMN id SET DEFAULT nextval('repo_iterato
 ALTER TABLE ONLY repo_iterator_errors ALTER COLUMN id SET DEFAULT nextval('repo_iterator_errors_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_names ALTER COLUMN id SET DEFAULT nextval('repo_names_id_seq'::regclass);
-
-ALTER TABLE ONLY tenants ALTER COLUMN id SET DEFAULT nextval('tenants_id_seq'::regclass);
 
 ALTER TABLE ONLY archived_insight_series_recording_times
     ADD CONSTRAINT archived_insight_series_recor_insight_series_id_recording_t_key UNIQUE (insight_series_id, recording_time);
@@ -806,88 +780,82 @@ ALTER TABLE ONLY series_points
 
 ALTER TABLE archived_insight_series_recording_times ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY archived_insight_series_recording_times_isolation_policy ON archived_insight_series_recording_times USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE archived_series_points ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY archived_series_points_isolation_policy ON archived_series_points USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE dashboard ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE dashboard_grants ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY dashboard_grants_isolation_policy ON dashboard_grants USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE dashboard_insight_view ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY dashboard_insight_view_isolation_policy ON dashboard_insight_view USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY dashboard_isolation_policy ON dashboard USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE insight_series ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE insight_series_backfill ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY insight_series_backfill_isolation_policy ON insight_series_backfill USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE insight_series_incomplete_points ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY insight_series_incomplete_points_isolation_policy ON insight_series_incomplete_points USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY insight_series_isolation_policy ON insight_series USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE insight_series_recording_times ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_series_recording_times_isolation_policy ON insight_series_recording_times USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE insight_view ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE insight_view_grants ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY insight_view_grants_isolation_policy ON insight_view_grants USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY insight_view_isolation_policy ON insight_view USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE insight_view_series ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY insight_view_series_isolation_policy ON insight_view_series USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE insights_background_jobs ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY insights_background_jobs_isolation_policy ON insights_background_jobs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE insights_data_retention_jobs ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY insights_data_retention_jobs_isolation_policy ON insights_data_retention_jobs USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE metadata ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY metadata_isolation_policy ON metadata USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE repo_iterator ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_iterator_errors ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY repo_iterator_errors_isolation_policy ON repo_iterator_errors USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
+CREATE POLICY repo_iterator_isolation_policy ON repo_iterator USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE repo_names ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY repo_names_isolation_policy ON repo_names USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
 ALTER TABLE series_points ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY series_points_isolation_policy ON series_points USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
+
 ALTER TABLE series_points_snapshots ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY tenant_isolation_policy ON archived_insight_series_recording_times USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+CREATE POLICY series_points_snapshots_isolation_policy ON series_points_snapshots USING ((tenant_id = (current_setting('app.current_tenant'::text))::integer));
 
-CREATE POLICY tenant_isolation_policy ON archived_series_points USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON dashboard USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON dashboard_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON dashboard_insight_view USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_series USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_series_backfill USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_series_incomplete_points USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_series_recording_times USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_view USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_view_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insight_view_series USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON insights_background_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
-CREATE POLICY tenant_isolation_policy ON insights_data_retention_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
-CREATE POLICY tenant_isolation_policy ON metadata USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON repo_iterator USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON repo_iterator_errors USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON repo_names USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON series_points USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON series_points_snapshots USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setting('app.current_tenant'::text) = ANY (ARRAY['servicetenant'::text, 'workertenant'::text, 'zoekttenant'::text]))) OR (id = ( SELECT (NULLIF(NULLIF(NULLIF(current_setting('app.current_tenant'::text), 'servicetenant'::text), 'workertenant'::text), 'zoekttenant'::text))::integer AS current_tenant))));
-
-ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
-
-INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '');
-
-SELECT pg_catalog.setval('tenants_id_seq', 1, true);
+INSERT INTO tenants VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL);

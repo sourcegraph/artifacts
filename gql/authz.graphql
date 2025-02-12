@@ -259,7 +259,7 @@ extend type Repository {
     The permissions information of the repository for the authenticated user.
     It is null when there is no permissions data stored for the repository.
     """
-    permissionsInfo: RepositoryPermissionsInfo
+    permissionsInfo: PermissionsInfo
 }
 
 extend type User {
@@ -267,7 +267,7 @@ extend type User {
     The permissions information of the user over repositories.
     It is null when there is no permissions data stored for the user.
     """
-    permissionsInfo: UserPermissionsInfo
+    permissionsInfo: PermissionsInfo
 }
 
 """
@@ -352,59 +352,9 @@ enum PermissionSource {
 }
 
 """
-Permissions information of a repository.
+Permissions information of a repository or a user.
 """
-type RepositoryPermissionsInfo {
-    """
-    The permission levels that a user has on the repository.
-    """
-    permissions: [RepositoryPermission!]!
-    """
-    The last complete synced time, the value is updated only after a user- or repo-
-    centric sync of permissions. It is null when the complete sync never happened.
-    """
-    syncedAt: DateTime
-    """
-    The last updated time of permissions, the value is updated whenever there is a
-    change to the database row (i.e. incremental update).
-    """
-    updatedAt: DateTime
-    """
-    If true for a repo, it indicates access to the repo is allowed for all users.
-    It will always be false for users.
-    """
-    unrestricted: Boolean!
-    """
-    The connection for users who have access to the repository.
-    """
-    users(
-        """
-        Number of nodes returned during forward pagination. Maximum number of returned nodes is 100.
-        """
-        first: Int
-        """
-        Number of nodes returned during backward pagination. Maximum number of returned nodes is 100.
-        """
-        last: Int
-        """
-        Opaque pagination cursor to be used when paginating forwards.
-        """
-        after: String
-        """
-        Opaque pagination cursor to be used when paginating backwards.
-        """
-        before: String
-        """
-        Search query to filter users based on username or display name.
-        """
-        query: String
-    ): PermissionsInfoUsersConnection
-}
-
-"""
-Permissions information of a user.
-"""
-type UserPermissionsInfo {
+type PermissionsInfo {
     """
     The permission levels that a user has on the repository.
     """
@@ -428,6 +378,7 @@ type UserPermissionsInfo {
     It will always be false for users.
     """
     unrestricted: Boolean!
+
     """
     The connection for repository permissions accessible to the user.
     """
@@ -453,6 +404,31 @@ type UserPermissionsInfo {
         """
         query: String
     ): PermissionsInfoRepositoriesConnection
+    """
+    The connection for users who have access to the repository.
+    """
+    users(
+        """
+        Number of nodes returned during forward pagination. Maximum number of returned nodes is 100.
+        """
+        first: Int
+        """
+        Number of nodes returned during backward pagination. Maximum number of returned nodes is 100.
+        """
+        last: Int
+        """
+        Opaque pagination cursor to be used when paginating forwards.
+        """
+        after: String
+        """
+        Opaque pagination cursor to be used when paginating backwards.
+        """
+        before: String
+        """
+        Search query to filter users based on username or display name.
+        """
+        query: String
+    ): PermissionsInfoUsersConnection
 }
 
 """
