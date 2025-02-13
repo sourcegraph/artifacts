@@ -13,6 +13,11 @@ extend type Query {
         repository name, commit, root, and indexer fields will be returned..
         """
         query: String
+        # We should probably provide a more precise definition here, and have
+        # similar searching syntax as the top-level search bar for more
+        # consistent UX. However, that requires first _defining_ the syntax;
+        # see FIXME(id: ad-hoc-upload-filtering-syntax). Once we define the
+        # syntax properly, we should mention it in the web UI.
 
         """
         If supplied, only precise indexes in one of the provided states are returned.

@@ -171,14 +171,6 @@ type ChatIntentResponse {
     """
     score: Float!
     """
-    Confidence score assigned by the "code search" intent detection model (the higher the score, the more likely it is that the query is about code search).
-    """
-    searchScore: Float!
-    """
-    Confidence score assigned by the "edit" intent detection model (the higher the score, the more likely it is that the query is about an edit command).
-    """
-    editScore: Float!
-    """
     All intents and scores computed by the intent detection model
     """
     allScores: [IntentScore!]!
