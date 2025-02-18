@@ -236,29 +236,29 @@ input TelemetryEventMarketingTrackingInput {
     """
     Initial URL the user landed on.
     """
-    firstSourceURL: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    firstSourceURL: String @deprecated(reason: "use 'lib/marketingtracking' instead")
     """
     Cohort ID to identify the user as part of a specific A/B test.
     """
-    cohortID: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    cohortID: String @deprecated(reason: "use 'lib/marketingtracking' instead")
     """
     Referrer URL that refers the user to Sourcegraph.
     """
-    referrer: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    referrer: String @deprecated(reason: "use 'lib/marketingtracking' instead")
     """
     Last source URL visited by the user.
     """
-    lastSourceURL: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    lastSourceURL: String @deprecated(reason: "use 'lib/marketingtracking' instead")
     """
     Device session ID to identify the user's session.
     """
-    deviceSessionID: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    deviceSessionID: String @deprecated(reason: "use 'lib/marketingtracking' instead")
     """
     Session referrer URL for the user.
     """
-    sessionReferrer: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    sessionReferrer: String @deprecated(reason: "use 'lib/marketingtracking' instead")
     """
     First URL the user visited in their current session.
     """
-    sessionFirstURL: String @deprecated(reason: "use 'internal/marketingtracking' instead")
+    sessionFirstURL: String @deprecated(reason: "use 'lib/marketingtracking' instead")
 }

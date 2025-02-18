@@ -920,6 +920,15 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION update_agent_runs_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
 CREATE FUNCTION update_own_aggregate_recent_contribution() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -1041,6 +1050,58 @@ CREATE SEQUENCE agent_connections_id_seq
 
 ALTER SEQUENCE agent_connections_id_seq OWNED BY agent_connections.id;
 
+CREATE TABLE agent_conversation_messages (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    external_api_url text GENERATED ALWAYS AS ((data ->> 'external_api_url'::text)) STORED,
+    external_html_url text GENERATED ALWAYS AS ((data ->> 'external_html_url'::text)) STORED,
+    data jsonb,
+    conversation_id integer GENERATED ALWAYS AS (((data ->> 'conversation_id'::text))::integer) STORED NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    external_service_id text GENERATED ALWAYS AS ((data ->> 'external_service_id'::text)) STORED,
+    external_created_at text GENERATED ALWAYS AS ((data ->> 'external_created_at'::text)) STORED,
+    external_updated_at text GENERATED ALWAYS AS ((data ->> 'external_updated_at'::text)) STORED
+);
+
+CREATE SEQUENCE agent_conversation_messages_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_conversation_messages_id_seq OWNED BY agent_conversation_messages.id;
+
+CREATE TABLE agent_conversations (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    data jsonb,
+    agent_id integer GENERATED ALWAYS AS (((data ->> 'agent_id'::text))::integer) STORED,
+    kind text GENERATED ALWAYS AS ((data ->> 'kind'::text)) STORED NOT NULL,
+    external_api_url text GENERATED ALWAYS AS ((data ->> 'external_api_url'::text)) STORED,
+    external_html_url text GENERATED ALWAYS AS ((data ->> 'external_html_url'::text)) STORED,
+    rule_id text GENERATED ALWAYS AS ((data ->> 'rule_id'::text)) STORED,
+    user_id integer GENERATED ALWAYS AS (((data ->> 'user_id'::text))::integer) STORED,
+    diagnostic_id integer GENERATED ALWAYS AS (((data ->> 'diagnostic_id'::text))::integer) STORED,
+    review_id integer GENERATED ALWAYS AS (((data ->> 'review_id'::text))::integer) STORED,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    external_service_id text GENERATED ALWAYS AS ((data ->> 'external_service_id'::text)) STORED,
+    external_created_at text GENERATED ALWAYS AS ((data ->> 'external_created_at'::text)) STORED,
+    external_updated_at text GENERATED ALWAYS AS ((data ->> 'external_updated_at'::text)) STORED,
+    pull_request_id bigint GENERATED ALWAYS AS (((data ->> 'pull_request_id'::text))::bigint) STORED
+);
+
+CREATE SEQUENCE agent_conversations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_conversations_id_seq OWNED BY agent_conversations.id;
+
 CREATE TABLE agent_programs (
     id integer NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -1065,8 +1126,10 @@ CREATE TABLE agent_review_diagnostic_feedback (
     id integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     data jsonb,
-    diagnostic_id integer NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    review_id integer GENERATED ALWAYS AS (((data ->> 'review_id'::text))::integer) STORED,
+    diagnostic_id integer GENERATED ALWAYS AS (((data ->> 'diagnostic_id'::text))::integer) STORED,
+    user_id integer GENERATED ALWAYS AS ((((data -> 'author'::text) ->> 'user_id'::text))::integer) STORED
 );
 
 CREATE SEQUENCE agent_review_diagnostic_feedback_id_seq
@@ -1083,8 +1146,8 @@ CREATE TABLE agent_review_diagnostics (
     id integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     data jsonb,
-    review_id integer NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    review_id integer GENERATED ALWAYS AS (((data ->> 'review_id'::text))::integer) STORED
 );
 
 CREATE SEQUENCE agent_review_diagnostics_id_seq
@@ -1101,7 +1164,8 @@ CREATE TABLE agent_reviews (
     id integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     data jsonb,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    pull_request_api_url text GENERATED ALWAYS AS ((((data -> 'request'::text) -> 'diff'::text) ->> 'pull_request_api_url'::text)) STORED
 );
 
 CREATE SEQUENCE agent_reviews_id_seq
@@ -1113,6 +1177,55 @@ CREATE SEQUENCE agent_reviews_id_seq
     CACHE 1;
 
 ALTER SEQUENCE agent_reviews_id_seq OWNED BY agent_reviews.id;
+
+CREATE UNLOGGED TABLE agent_run_logs (
+    id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    run_id integer NOT NULL,
+    severity text NOT NULL,
+    message text NOT NULL,
+    fields jsonb,
+    CONSTRAINT agent_run_logs_severity_check CHECK ((severity = ANY (ARRAY['debug'::text, 'info'::text, 'warning'::text, 'error'::text])))
+);
+
+COMMENT ON TABLE agent_run_logs IS 'unlogged table to support write-heavy workloads. The logs are not critical data so we''re willing to accept the tradeoff that this data may get lost if the database crashes.';
+
+COMMENT ON COLUMN agent_run_logs.id IS 'intentionally bigserial because just a single run can have a lot of logs';
+
+CREATE UNLOGGED SEQUENCE agent_run_logs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_run_logs_id_seq OWNED BY agent_run_logs.id;
+
+CREATE TABLE agent_runs (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    agent_id integer,
+    status text NOT NULL,
+    program_id integer,
+    parameters jsonb,
+    results jsonb DEFAULT '[]'::jsonb NOT NULL,
+    CONSTRAINT agent_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])))
+);
+
+COMMENT ON COLUMN agent_runs.agent_id IS 'intentionally not null because it allows us to create a run early in a webhook handler before we have identified an associated agent';
+
+CREATE SEQUENCE agent_runs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_runs_id_seq OWNED BY agent_runs.id;
 
 CREATE TABLE agents (
     id integer NOT NULL,
@@ -5466,6 +5579,10 @@ ALTER TABLE ONLY access_tokens ALTER COLUMN id SET DEFAULT nextval('access_token
 
 ALTER TABLE ONLY agent_connections ALTER COLUMN id SET DEFAULT nextval('agent_connections_id_seq'::regclass);
 
+ALTER TABLE ONLY agent_conversation_messages ALTER COLUMN id SET DEFAULT nextval('agent_conversation_messages_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_conversations ALTER COLUMN id SET DEFAULT nextval('agent_conversations_id_seq'::regclass);
+
 ALTER TABLE ONLY agent_programs ALTER COLUMN id SET DEFAULT nextval('agent_programs_id_seq'::regclass);
 
 ALTER TABLE ONLY agent_review_diagnostic_feedback ALTER COLUMN id SET DEFAULT nextval('agent_review_diagnostic_feedback_id_seq'::regclass);
@@ -5473,6 +5590,10 @@ ALTER TABLE ONLY agent_review_diagnostic_feedback ALTER COLUMN id SET DEFAULT ne
 ALTER TABLE ONLY agent_review_diagnostics ALTER COLUMN id SET DEFAULT nextval('agent_review_diagnostics_id_seq'::regclass);
 
 ALTER TABLE ONLY agent_reviews ALTER COLUMN id SET DEFAULT nextval('agent_reviews_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_run_logs ALTER COLUMN id SET DEFAULT nextval('agent_run_logs_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_runs ALTER COLUMN id SET DEFAULT nextval('agent_runs_id_seq'::regclass);
 
 ALTER TABLE ONLY agents ALTER COLUMN id SET DEFAULT nextval('agents_id_seq'::regclass);
 
@@ -5730,6 +5851,12 @@ ALTER TABLE ONLY access_tokens
 ALTER TABLE ONLY agent_connections
     ADD CONSTRAINT agent_connections_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY agent_conversation_messages
+    ADD CONSTRAINT agent_conversation_messages_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_conversations
+    ADD CONSTRAINT agent_conversations_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY agent_programs
     ADD CONSTRAINT agent_programs_pkey PRIMARY KEY (id);
 
@@ -5741,6 +5868,12 @@ ALTER TABLE ONLY agent_review_diagnostics
 
 ALTER TABLE ONLY agent_reviews
     ADD CONSTRAINT agent_reviews_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_run_logs
+    ADD CONSTRAINT agent_run_logs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_runs
+    ADD CONSTRAINT agent_runs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY agents
     ADD CONSTRAINT agents_pkey PRIMARY KEY (id);
@@ -6345,9 +6478,47 @@ CREATE INDEX agent_connections_tenant_id_idx ON agent_connections USING btree (t
 
 CREATE INDEX agent_connections_webhook_id_idx ON agent_connections USING btree (webhook_id);
 
+CREATE INDEX agent_conversation_conversation_id_external_api_url_idx ON agent_conversation_messages USING btree (conversation_id, external_api_url);
+
+CREATE INDEX agent_conversation_messages_external_service_idx ON agent_conversation_messages USING btree (external_service_id);
+
+CREATE INDEX agent_conversations_agent_id_idx ON agent_conversations USING btree (agent_id);
+
+CREATE INDEX agent_conversations_diagnostic_id_idx ON agent_conversations USING btree (diagnostic_id);
+
+CREATE INDEX agent_conversations_external_api_url_idx ON agent_conversations USING btree (external_api_url);
+
+CREATE INDEX agent_conversations_external_html_url_idx ON agent_conversations USING btree (external_html_url);
+
+CREATE INDEX agent_conversations_external_service_idx ON agent_conversations USING btree (external_service_id);
+
+CREATE INDEX agent_conversations_kind_idx ON agent_conversations USING btree (kind);
+
+CREATE INDEX agent_conversations_review_id_idx ON agent_conversations USING btree (review_id);
+
+CREATE INDEX agent_conversations_rule_id_idx ON agent_conversations USING btree (rule_id);
+
+CREATE INDEX agent_conversations_user_id_idx ON agent_conversations USING btree (user_id);
+
 CREATE INDEX agent_programs_agent_id_idx ON agent_programs USING btree (agent_id);
 
 CREATE INDEX agent_programs_tenant_id_idx ON agent_programs USING btree (tenant_id);
+
+CREATE INDEX agent_review_diagnostic_feedback_diagnostic_id ON agent_review_diagnostic_feedback USING btree (diagnostic_id);
+
+CREATE INDEX agent_review_diagnostic_feedback_review_id ON agent_review_diagnostic_feedback USING btree (review_id);
+
+CREATE INDEX agent_review_diagnostic_feedback_user_id ON agent_review_diagnostic_feedback USING btree (user_id);
+
+CREATE INDEX agent_review_diagnostics_review_id ON agent_review_diagnostics USING btree (review_id);
+
+CREATE INDEX agent_reviews_pull_request_api_url ON agent_reviews USING btree (pull_request_api_url);
+
+CREATE INDEX agent_run_logs_run_id_idx ON agent_run_logs USING btree (run_id);
+
+CREATE INDEX agent_runs_agent_id_idx ON agent_runs USING btree (agent_id);
+
+CREATE INDEX agent_runs_updated_at_idx ON agent_runs USING btree (updated_at);
 
 CREATE INDEX agents_tenant_id_idx ON agents USING btree (tenant_id);
 
@@ -6877,6 +7048,8 @@ CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_insert AFTER INSERT ON synta
 
 CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_update BEFORE UPDATE OF commit, state, num_resets, num_failures, worker_hostname, failure_message ON syntactic_scip_indexing_jobs FOR EACH ROW EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_update();
 
+CREATE TRIGGER update_agent_runs_updated_at BEFORE UPDATE ON agent_runs FOR EACH ROW EXECUTE FUNCTION update_agent_runs_updated_at();
+
 CREATE TRIGGER update_own_aggregate_recent_contribution AFTER INSERT ON own_signal_recent_contribution FOR EACH ROW EXECUTE FUNCTION update_own_aggregate_recent_contribution();
 
 CREATE TRIGGER versions_insert BEFORE INSERT ON versions FOR EACH ROW EXECUTE FUNCTION versions_insert_row_trigger();
@@ -6899,14 +7072,44 @@ ALTER TABLE ONLY agent_connections
 ALTER TABLE ONLY agent_connections
     ADD CONSTRAINT agent_connections_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE SET NULL DEFERRABLE;
 
+ALTER TABLE ONLY agent_conversation_messages
+    ADD CONSTRAINT agent_conversation_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_conversations
+    ADD CONSTRAINT agent_conversations_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_conversations
+    ADD CONSTRAINT agent_conversations_diagnostic_id_fkey FOREIGN KEY (diagnostic_id) REFERENCES agent_review_diagnostics(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_conversations
+    ADD CONSTRAINT agent_conversations_review_id_fkey FOREIGN KEY (review_id) REFERENCES agent_reviews(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_conversations
+    ADD CONSTRAINT agent_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY agent_programs
     ADD CONSTRAINT agent_programs_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY agent_review_diagnostic_feedback
-    ADD CONSTRAINT agent_review_diagnostic_feedback_diagnostic_id_fkey FOREIGN KEY (diagnostic_id) REFERENCES agent_review_diagnostics(id) ON DELETE CASCADE;
+    ADD CONSTRAINT agent_review_diagnostic_feedback_diagnostic_id_generated_fkey FOREIGN KEY (diagnostic_id) REFERENCES agent_review_diagnostics(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_review_diagnostic_feedback
+    ADD CONSTRAINT agent_review_diagnostic_feedback_review_id_fkey FOREIGN KEY (review_id) REFERENCES agent_reviews(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_review_diagnostic_feedback
+    ADD CONSTRAINT agent_review_diagnostic_feedback_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY agent_review_diagnostics
-    ADD CONSTRAINT agent_review_diagnostics_review_id_fkey FOREIGN KEY (review_id) REFERENCES agent_reviews(id) ON DELETE CASCADE;
+    ADD CONSTRAINT agent_review_diagnostics_review_id_generated_fkey FOREIGN KEY (review_id) REFERENCES agent_reviews(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_run_logs
+    ADD CONSTRAINT agent_run_logs_run_id_fkey FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_runs
+    ADD CONSTRAINT agent_runs_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_runs
+    ADD CONSTRAINT agent_runs_program_id_fkey FOREIGN KEY (program_id) REFERENCES agent_programs(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY agents
     ADD CONSTRAINT agents_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
@@ -7505,6 +7708,10 @@ ALTER TABLE access_tokens ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE agent_connections ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE agent_conversation_messages ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_conversations ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE agent_programs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE agent_review_diagnostic_feedback ENABLE ROW LEVEL SECURITY;
@@ -7512,6 +7719,10 @@ ALTER TABLE agent_review_diagnostic_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_review_diagnostics ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE agent_reviews ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_run_logs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_runs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 
@@ -7815,6 +8026,10 @@ CREATE POLICY tenant_isolation_policy ON access_tokens USING ((tenant_id = ( SEL
 
 CREATE POLICY tenant_isolation_policy ON agent_connections USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON agent_conversation_messages USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON agent_programs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON agent_review_diagnostic_feedback USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -7822,6 +8037,10 @@ CREATE POLICY tenant_isolation_policy ON agent_review_diagnostic_feedback USING 
 CREATE POLICY tenant_isolation_policy ON agent_review_diagnostics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON agent_reviews USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_run_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_runs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON agents USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

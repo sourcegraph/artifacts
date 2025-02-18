@@ -856,7 +856,7 @@ CREATE POLICY tenant_isolation_policy ON dashboard_insight_view USING ((tenant_i
 
 CREATE POLICY tenant_isolation_policy ON insight_series USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON insight_series_backfill USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+CREATE POLICY tenant_isolation_policy ON insight_series_backfill USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON insight_series_incomplete_points USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
