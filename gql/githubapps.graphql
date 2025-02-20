@@ -39,10 +39,14 @@ enum GitHubAppDomain {
     GitHub Apps that are configured for batch changes commit signing.
     """
     BATCHES
+    """
+    GitHub Apps that are configured for code review agents.
+    """
+    AGENTS_REVIEW
 }
 
 """
-GitHubAppKind enumerates the domains in which GitHub Apps can be used.
+GitHubAppKind enumerates the purposes of GitHub Apps.
 """
 enum GitHubAppKind {
     """
@@ -61,6 +65,10 @@ enum GitHubAppKind {
     GitHub Apps that are configured for a site's batch changes credential.
     """
     SITE_CREDENTIAL
+    """
+    GitHub Apps that are configured for code review agents.
+    """
+    AGENTS_REVIEW
 }
 
 """
