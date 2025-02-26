@@ -58,6 +58,21 @@ jobs:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
         run: echo "$latest_release_tag" > TAG
 
+      - name: Pull sourcegraph schemas
+        env: 
+          latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
+        run: |
+          file_name="sg_schema_${latest_release_tag}.tar.gz"
+
+          # Download the tar file using curl
+          curl -O "https://storage.googleapis.com/sg_schemas/$file_name"
+
+          # extract tar file
+          tar -xvf "$file_name" -C schemas
+
+          # delete the tar
+          rm -rf "$file_name"
+
       - name: Pull graphql schemas
         env:
           latest_release_tag: ${{ needs.check_release.outputs.latest_release_tag }}
