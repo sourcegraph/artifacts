@@ -47,7 +47,8 @@ jobs:
   pull_latest_artifacts:
     runs-on: ubuntu-latest
     needs: [check_release]
-    if: needs.check_release.outputs.new_release_found == 'true'      
+    # temporarily deactivate this so we can pull the latest schemas
+    # if: needs.check_release.outputs.new_release_found == 'true'      
 
     steps:
       - name: Checkout repository
