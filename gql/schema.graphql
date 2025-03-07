@@ -5301,7 +5301,7 @@ type Person {
     """
     The name if set; otherwise the email username.
     """
-    displayName: String!
+    displayName: String
     """
     The avatar URL, if known.
     """
