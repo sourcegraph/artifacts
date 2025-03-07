@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "git.schema.json#",
+  "description": "The reusable definitions for Git-based code hosts configurations.",
+  "definitions": {
+    "gitSSHCredential": {
+      "description": "SSH keys to use when cloning Git repo.",
+      "type": "object",
+      "required": ["privateKey"],
+      "properties": {
+        "privateKey": {
+          "type": "string",
+          "description": "The based64-encoded SSH private key in PEM format. It supports RSA, DSA, ECDSA, and Ed25519 private keys in PKCS#1, PKCS#8, OpenSSL, and OpenSSH formats."
+        },
+        "passphrase": {
+          "type": "string",
+          "description": "The passphrase of the SSH private key, if any. Leave blank if the private key doesn't need a passphrase."
+        }
+      }
+    },
+    "gitSSHCipher": {
+      "description": "SSH cipher to use when cloning via SSH. Must be a valid choice from `ssh -Q cipher`.",
+      "type": "string",
+      "enum": [
+        "3des-cbc",
+        "aes128-cbc",
+        "aes192-cbc",
+        "aes256-cbc",
+        "aes128-ctr",
+        "aes192-ctr",
+        "aes256-ctr",
+        "aes128-gcm@openssh.com",
+        "aes256-gcm@openssh.com",
+        "chacha20-poly1305@openssh.com"
+      ]
+    }
+  }
+}

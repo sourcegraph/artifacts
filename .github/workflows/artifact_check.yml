@@ -116,6 +116,7 @@ jobs:
           git add migrations
           git add TAG
           git add gql
+          git add schemas
 
           git commit -m "Add artifacts for $latest_release_tag"
           
