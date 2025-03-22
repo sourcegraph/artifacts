@@ -3691,6 +3691,18 @@
         "region": {
           "description": "Region to use when configuring API clients. (Since the 'frontend' binary's container won't be able to pick this up from the host OS's environment variables.)",
           "type": "string"
+        },
+        "authMethod": {
+          "description": "Optional: the authentication method to use. If not specified or 'AWS' specified, AWS request signing will be used. If 'direct' specified, the provided accessToken will be used as a bearer token to authenticate requests to the endpoint.",
+          "type": "string",
+          "enum": ["AWS", "direct"],
+          "default": "AWS"
+        },
+        "urlBuilder": {
+          "description": "Optional: the URL building method to use. If not specified or 'AWS' specified, region and model will be used to build the AWS Bedrock URL. If 'direct' specified, the provided endpoint will be used as the URL.",
+          "type": "string",
+          "enum": ["AWS", "direct"],
+          "default": "AWS"
         }
       }
     },
