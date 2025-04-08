@@ -12,6 +12,13 @@ extend type Mutation {
     🚨 SECURITY: Requires site-admin.
     """
     refreshGitHubApp(gitHubApp: ID!): EmptyResponse
+
+    """
+    Add an existing GitHub App. This uses the provided Client ID and Private Key to fetch the GitHub
+    App details from GitHub and store it in the database.
+    🚨 SECURITY: Requires site-admin.
+    """
+    createGitHubApp(gitHubURL: String!, clientID: String!, privateKey: String!): GitHubApp
 }
 
 extend type Query {

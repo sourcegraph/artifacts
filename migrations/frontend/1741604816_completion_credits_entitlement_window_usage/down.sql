@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS completion_credits_entitlement_window_usage;

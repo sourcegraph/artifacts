@@ -940,9 +940,14 @@
           "default": "5m"
         },
         "concurrency": {
-          "description": "The number of code monitor jobs allowed to run concurrenctly. Decrease to reduce peak load.",
+          "description": "The number of code monitor jobs allowed to run concurrently. Decrease to reduce peak load.",
           "type": "integer",
           "default": 4
+        },
+        "maxRuntime": {
+          "description": "The maximum runtime in minutes per code monitor jobs. Increase if jobs time out consistently",
+          "type": "integer",
+          "default": 1
         }
       }
     },
@@ -1720,24 +1725,6 @@
               "internalTraffic": false,
               "graphQL": false,
               "gitserverAccess": false
-            }
-          ]
-        },
-        "securityEventLog": {
-          "description": "EXPERIMENTAL: Configuration for security event logging",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "location": {
-              "description": "Where to output the security event log [none, auditlog, database, all] where auditlog is the default logging to stdout with the specified audit log format",
-              "type": "string",
-              "enum": ["none", "auditlog", "database", "all"],
-              "default": "auditlog"
-            }
-          },
-          "examples": [
-            {
-              "location": "auditlog"
             }
           ]
         }
@@ -3091,6 +3078,15 @@
         "pointer": true
       }
     },
+    "attribution.mode": {
+      "description": "Hide Cody-generated snippets that have attribution matches (\"enforced\"), or show the snippet but passively inform the user about attribution (\"permissive\", the default). Requires attribution.enabled = true.",
+      "type": "string",
+      "enum": ["permissive", "enforced"],
+      "default": "permissive",
+      "!go": {
+        "pointer": true
+      }
+    },
     "attribution.gateway": {
       "description": "Use this gateway parameters for customers that bring their own key. Otherwise gateway endpoint is used.",
       "type": "object",
@@ -3119,18 +3115,6 @@
       },
       "group": "Cody",
       "properties": {
-        "intentDetection": {
-          "description": "Intent detection model / API configuration",
-          "type": "object",
-          "properties": {
-            "endpoint": {
-              "type": "string"
-            },
-            "accessToken": {
-              "type": "string"
-            }
-          }
-        },
         "reranker": {
           "description": "Reranker to use for rankContext requests",
           "type": "object",
@@ -3157,6 +3141,18 @@
           "!go": {
             "taggedUnionType": true
           }
+        }
+      }
+    },
+    "entitlements.completionCredits": {
+      "description": "Configure completion credits entitlement enablement",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "Configure completions credits consumption tracking and enforcement mode",
+          "type": "string",
+          "default": "disabled",
+          "enum": ["disabled", "track", "trackStrict", "enforce"]
         }
       }
     }
@@ -3456,7 +3452,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["autocomplete", "chat", "vision", "reasoning"]
+            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit"]
           },
           "examples": [["chat", "autocomplete", "vision"]]
         },
@@ -3516,11 +3512,11 @@
       "examples": [
         {
           "unit": "mtok",
-          "inputTokenPennies": 7000,
-          "outputTokenPennies": 4000
+          "inputTokenCredits": 7000,
+          "outputTokenCredits": 4000
         }
       ],
-      "required": ["unit", "inputTokenPennies", "outputTokenPennies"],
+      "required": ["unit"],
       "properties": {
         "unit": {
           "description": "Unit of measurement for token price, either per million or per billion tokens",
@@ -3528,15 +3524,35 @@
           "enum": ["mtok", "btok"],
           "examples": ["mtok"]
         },
-        "inputTokenPennies": {
-          "description": "Cost per unit of input tokens in pennies",
+        "inputTokenCredits": {
+          "description": "Cost per unit of input tokens in credits",
+          "examples": [7000],
           "type": "integer",
-          "examples": [7000]
+          "!go": {
+            "pointer": true
+          }
+        },
+        "outputTokenCredits": {
+          "description": "Cost per unit of output tokens in credits",
+          "examples": [4000],
+          "type": "integer",
+          "!go": {
+            "pointer": true
+          }
+        },
+        "inputTokenPennies": {
+          "description": "DEPRECATED: Use inputTokenCredits instead.",
+          "type": "integer",
+          "!go": {
+            "pointer": true
+          }
         },
         "outputTokenPennies": {
+          "description": "DEPRECATED: Use outputTokenCredits instead.",
           "type": "integer",
-          "description": "Cost per unit of output tokens in pennies",
-          "examples": [4000]
+          "!go": {
+            "pointer": true
+          }
         }
       }
     },

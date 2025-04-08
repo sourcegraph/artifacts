@@ -167,9 +167,8 @@ extend type Mutation {
 
     If a configuration is supplied, that configuration is used to determine what jobs to
     schedule. If no configuration is supplied, it will go through the regular index scheduling
-    rules: first read any in-repo configuration (e.g., sourcegraph.yaml), then look for any
-    existing in-database configuration, finally falling back to the automatically inferred
-    configuration based on the repo contents at the target commit.
+    rules: first look for any existing in-database configuration, then fall back to
+    the automatically inferred configuration based on the repo contents at the target commit.
     """
     queueAutoIndexJobsForRepo(repository: ID!, rev: String, configuration: String): [PreciseIndex!]!
 

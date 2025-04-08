@@ -1,0 +1,1 @@
+-- Down migration is empty since truncating tables cannot be undone.

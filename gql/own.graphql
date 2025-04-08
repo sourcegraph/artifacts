@@ -161,7 +161,7 @@ enum OwnershipReasonType {
 A union of all the different ownership reasons.
 """
 union OwnershipReason =
-      CodeownersFileEntry
+    | CodeownersFileEntry
     | RecentContributorOwnershipSignal
     | RecentViewOwnershipSignal
     | AssignedOwner

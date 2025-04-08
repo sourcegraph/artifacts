@@ -229,6 +229,10 @@ interface Changeset {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
 
     """
@@ -285,6 +289,10 @@ type HiddenExternalChangeset implements Node & Changeset {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
 
     """
@@ -352,6 +360,10 @@ type ExternalChangeset implements Node & Changeset {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
 
     """
@@ -694,6 +706,61 @@ type ChangesetEventConnection {
     Pagination information.
     """
     pageInfo: PageInfo!
+}
+
+"""
+This enum declares all supported sorting orders for batch changes.
+"""
+enum BatchChangesSortOrder {
+    """
+    Sort alphabetically in descending order.
+    """
+    ALPHABETICAL_DESCENDING
+
+    """
+    Sort alphabetically in ascending order.
+    """
+    ALPHABETICAL_ASCENDING
+
+    """
+    Sort by id in ascending order (oldest first).
+    """
+    OLDEST_FIRST
+
+    """
+    Sort by id in descending order (newest first).
+    """
+    NEWEST_FIRST
+}
+
+"""
+This enum declares all supported sorting orders for changesets.
+"""
+enum ChangesetsSortOrder {
+    """
+    Sort by id in ascending order (oldest first).
+    """
+    OLDEST_FIRST
+
+    """
+    Sort by changeset spec title in ascending order (A-Z).
+    """
+    TITLE_ASCENDING
+
+    """
+    Sort by changeset spec title in desscending order (Z-A).
+    """
+    TITLE_DESCENDING
+
+    """
+    Sort by repository name in ascending order (A-Z).
+    """
+    REPO_ASCENDING
+
+    """
+    Sort by repository name in desscending order (Z-A).
+    """
+    REPO_DESCENDING
 }
 
 """
@@ -1075,7 +1142,7 @@ union ChangesetApplyPreview = VisibleChangesetApplyPreview | HiddenChangesetAppl
 A preview entry to a repository to which the user has access.
 """
 union VisibleApplyPreviewTargets =
-      VisibleApplyPreviewTargetsAttach
+    | VisibleApplyPreviewTargetsAttach
     | VisibleApplyPreviewTargetsUpdate
     | VisibleApplyPreviewTargetsDetach
 
@@ -1118,7 +1185,7 @@ type VisibleApplyPreviewTargetsDetach {
 A preview entry to a repository to which the user has no access.
 """
 union HiddenApplyPreviewTargets =
-      HiddenApplyPreviewTargetsAttach
+    | HiddenApplyPreviewTargetsAttach
     | HiddenApplyPreviewTargetsUpdate
     | HiddenApplyPreviewTargetsDetach
 
@@ -1319,6 +1386,54 @@ type ForkTarget {
 
 extend type Mutation {
     """
+    Creates a new batch spec template in the library.
+
+    Site-admin only.
+    """
+    createBatchSpecLibraryRecord(
+        """
+        The name to identify the batch spec template.
+        """
+        name: String!
+        """
+        The batch spec template content.
+        """
+        spec: String!
+    ): BatchSpecLibraryRecord!
+
+    """
+    Updates an existing batch spec template in the library.
+
+    Site-admin only.
+    """
+    updateBatchSpecLibraryRecord(
+        """
+        The ID of the batch spec template to update.
+        """
+        id: ID!
+        """
+        The new name for the batch spec template.
+        """
+        name: String!
+        """
+        The new batch spec template content.
+        """
+        spec: String!
+    ): BatchSpecLibraryRecord!
+
+    """
+    Deletes a batch spec template from the library.
+
+    Site-admin only.
+    """
+    deleteBatchSpecLibraryRecord(
+        """
+        The ID of the batch spec template to delete.
+        """
+        id: ID!
+    ): EmptyResponse!
+
+    """
     Upload a changeset spec that will be used in a future update to a batch change. The changeset spec
     is stored and can be referenced by its ID in the applyBatchChange mutation. Just uploading the
     changeset spec does not result in changes to the batch change or any of its changesets; you need
@@ -1493,13 +1608,6 @@ extend type Mutation {
         allowUnsupported: Boolean = false
 
         """
-        Right away set the execute flag.
-
-        TODO: Not implemented yet.
-        """
-        execute: Boolean = false
-
-        """
         Don't use cache entries.
         """
         noCache: Boolean = false
@@ -1552,13 +1660,6 @@ extend type Mutation {
         allowUnsupported: Boolean = false
 
         """
-        Right away set the execute flag.
-
-        TODO: Not implemented yet.
-        """
-        execute: Boolean = false
-
-        """
         Don't use cache entries.
         """
         noCache: Boolean = false
@@ -1592,13 +1693,6 @@ extend type Mutation {
         allowUnsupported: Boolean = false
 
         """
-        Right away set the execute flag.
-
-        TODO: Not implemented yet.
-        """
-        execute: Boolean = false
-
-        """
         Don't use cache entries.
         """
         noCache: Boolean = false
@@ -1609,14 +1703,6 @@ extend type Mutation {
         """
         namespace: ID!
     ): BatchSpec!
-
-    """
-    Deletes the batch spec. All associated jobs will be canceled, if still running.
-    This is called by the client, whenever a new run is triggered, to support
-    faster cleanups. We will also purge these in the background, but this'll be
-    faster.
-    """
-    deleteBatchSpec(batchSpec: ID!): EmptyResponse!
 
     """
     Enqueue the workspaces that resulted from evaluation in
@@ -1643,12 +1729,6 @@ extend type Mutation {
         state.
         """
         noCache: Boolean
-        """
-        Right away set the autoApplyEnabled flag on the batch spec.
-
-        TODO: Not implemented yet.
-        """
-        autoApply: Boolean = false
     ): BatchSpec!
 
     """
@@ -1741,6 +1821,11 @@ extend type Mutation {
         The credential to be stored. This can never be retrieved through the API and will be stored encrypted.
         """
         credential: String!
+
+        """
+        The method that should be used for commit signing. Set to empty or NONE if no commit signing is desired.
+        """
+        commitSigning: CommitSigningMethod
     ): BatchChangesCredential!
 
     """
@@ -1768,6 +1853,11 @@ extend type Mutation {
     Experimental: This API is likely to change in the future.
     """
     reenqueueChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
+
+    """
+    Rebase multiple changesets.
+    """
+    rebaseChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
 
     """
     Merge multiple changesets. If squash is true, the commits will be squashed
@@ -1799,12 +1889,6 @@ extend type Mutation {
     cancelBatchSpecExecution(batchSpec: ID!): BatchSpec!
 
     """
-    Cancel a single workspace execution. Mostly useful in the "try out" UI, but
-    can also be used at later stages. Must be in PROCESSING or QUEUED state.
-    """
-    cancelBatchSpecWorkspaceExecution(batchSpecWorkspaces: [ID!]!): EmptyResponse!
-
-    """
     Requeue the workspaces for execution. Previous results and logs will be deleted and
     the executions are _replaced_. The workspaces must be in a final state (COMPLETED, FAILED)
     to be retryable.
@@ -1820,23 +1904,73 @@ extend type Mutation {
     execution will also be retried and their changeset specs deleted.
     """
     retryBatchSpecExecution(batchSpec: ID!, includeCompleted: Boolean = false): BatchSpec!
+}
+
+"""
+The commit signing method used for a credential.
+"""
+enum CommitSigningMethod {
+    """
+    Generates an SSH key for commit signing.
+    """
+    SSH
+}
+
+"""
+A saved batch spec template that can be used to create new batch changes.
+"""
+type BatchSpecLibraryRecord {
+    """
+    The unique ID for the batch spec library entry.
+    """
+    id: ID!
 
     """
-    Enqueue the workspace for execution. The workspace must not be running, and
-    not be in a final state. This can be used for running single workspaces before
-    running the full set.
+    The name of the batch spec template.
     """
-    enqueueBatchSpecWorkspaceExecution(batchSpecWorkspaces: [ID!]!): EmptyResponse!
+    name: String!
 
     """
-    Sets the autoApplyEnabled on the given batch spec. Must be in PROCESSING state.
-
-    TODO: Not implemented yet.
+    The batch spec template content.
     """
-    toggleBatchSpecAutoApply(batchSpec: ID!, value: Boolean!): BatchSpec!
+    spec: String!
+}
+
+"""
+A list of batch spec library records.
+"""
+type BatchSpecLibraryConnection {
+    """
+    The total number of batch spec library records in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+
+    """
+    A list of batch spec library records.
+    """
+    nodes: [BatchSpecLibraryRecord!]!
 }
 
 extend type Query {
+    """
+    Returns a list of saved batch spec templates that can be reused to create new batch changes.
+    """
+    batchSpecLibrary(
+        """
+        Returns the first n batch changes from the list.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): BatchSpecLibraryConnection
+
     """
     A list of batch changes.
     """
@@ -1861,6 +1995,14 @@ extend type Query {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Search for batch changes matching this query.
+        """
+        search: String
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
     """
     Looks up a batch change by namespace and name.
@@ -2768,6 +2910,8 @@ type BatchChange implements Node {
         Only include changesets belonging to the given repository.
         """
         repo: ID
+
+        sortOrder: ChangesetsSortOrder = OLDEST_FIRST
     ): ChangesetConnection!
 
     """
@@ -2897,6 +3041,10 @@ enum BulkOperationType {
     Export changesets.
     """
     EXPORT
+    """
+    Rebase changesets.
+    """
+    REBASE
 }
 
 """
@@ -3076,14 +3224,6 @@ type BatchSpec implements Node {
     between revealing the problem and merging the fixes is as short as possible.
     """
     id: ID!
-
-    """
-    Future: Flag that calls applyBatchChange automatically when this execution completes.
-    Useful for integrations with code monitoring etc.
-
-    TODO: Not implemented yet.
-    """
-    autoApplyEnabled: Boolean!
 
     """
     The current execution state of the batch spec. For manually created ones (src-cli workflow),
@@ -3362,6 +3502,14 @@ extend type Org {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Search for batch changes matching this query.
+        """
+        search: String
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
 }
 
@@ -3390,6 +3538,14 @@ extend type User {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Search for batch changes matching this query.
+        """
+        search: String
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
 
     """
@@ -3440,6 +3596,14 @@ extend type Repository {
         Only include batch changes that the viewer can administer.
         """
         viewerCanAdminister: Boolean
+        """
+        Search for batch changes matching this query.
+        """
+        search: String
+        """
+        Specify the order in which batch changes are returned.
+        """
+        sortOrder: BatchChangesSortOrder = NEWEST_FIRST
     ): BatchChangeConnection!
 
     """
@@ -3562,6 +3726,11 @@ type BatchChangesCredential implements Node {
     If the credential is a GitHub app, this field contains the details of the GitHubApp.
     """
     gitHubApp: GitHubApp
+
+    """
+    If commit signing has been configured, this field contains the public ssh key used for commit signing.
+    """
+    commitSigningPublicKey: String
 }
 
 """

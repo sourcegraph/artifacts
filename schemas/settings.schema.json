@@ -224,6 +224,14 @@
           "description": "Disables ordering of repository search results by similarity.",
           "type": "boolean",
           "default": false
+        },
+        "boostRelevantRepositories": {
+          "description": "Boosts repositories that users have contributed to in the search results.",
+          "type": "boolean",
+          "default": true,
+          "!go": {
+            "pointer": true
+          }
         }
       },
       "group": "Experimental"

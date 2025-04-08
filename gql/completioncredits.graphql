@@ -1,0 +1,132 @@
+extend type Query {
+    """
+    EXPERIMENTAL: Query completion credits usage.
+
+    Requires site configuration 'entitlements.completionCredits: { mode: "track" }' or stricter.
+    """
+    completionCreditsUsage(
+        """
+        Returns the first n recently exported events.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+        """
+        Defaults to the calling actor.
+
+        If provided, must be a site admin to view another user's usage data.
+        """
+        userID: ID
+        """
+        Query for usage records created before the given time.
+        """
+        createdBefore: DateTime
+        """
+        Query for usage records created after the given time.
+        """
+        createdAfter: DateTime
+    ): CompletionCreditsUsageConnection!
+
+    """
+    EXPERIMENTAL: Query completion credits entitlement window usage.
+
+    Requires site configuration 'entitlements.completionCredits: { mode: "track" }' or stricter.
+    """
+    completionCreditsEntitlementWindowUsage(
+        """
+        Defaults to the calling actor.
+
+        If provided, must be a site admin to view another user's usage data.
+        """
+        userID: ID
+    ): CompletionCreditsEntitlementWindowUsage!
+}
+
+"""
+A list of ompletion credits usage records.
+"""
+type CompletionCreditsUsageConnection {
+    """
+    Completion credits usage records, with the most recent events first.
+    """
+    nodes: [CompletionCreditsUsage!]!
+
+    """
+    The total number of events in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+Describes a completion credits usage record.
+"""
+type CompletionCreditsUsage {
+    """
+    The model reference associated with this usage.
+    """
+    modelRef: String!
+    """
+    The feature associated with this usage.
+    """
+    feature: String!
+    """
+    The amount of credits consumed by this usage.
+    """
+    credits: BigInt!
+    """
+    The time this usage record was created at.
+    """
+    createdAt: DateTime!
+    """
+    EXPERIMENTAL: URI indicating the interaction that consumed these credits.
+    """
+    interactionURI: String
+    """
+    EXPERIMENTAL: Token usage metadata.
+    """
+    tokens: JSONValue
+}
+
+"""
+Describes credits usage within a completion credits entitlement window for a user.
+"""
+type CompletionCreditsEntitlementWindowUsage {
+    """
+    The entitlement associated with this usage window.
+    """
+    entitlement: Entitlement
+    """
+    Whether the entitlement was exceeded in this window.
+    """
+    entitlementExceeded: Boolean!
+
+    """
+    The amount of credits consumed in this window.
+    """
+    credits: BigInt!
+    """
+    The time this usage window started at.
+    """
+    windowStartedAt: DateTime!
+
+    """
+    Detailed usage records corresponding to this window.
+    """
+    usage(
+        """
+        Returns the first n recently exported events.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): CompletionCreditsUsageConnection!
+}

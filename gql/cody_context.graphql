@@ -19,17 +19,19 @@ extend type Query {
         query: String!
         """
         The number of code results to return.
+        NOTE: The API no longer searches text and code separately, and instead just collects `codeResultsCount + textResultsCount` total results.
         """
         codeResultsCount: Int!
         """
-        The number of text results to return. Text results contain Markdown files and similar file types primarily used for writing documentation.
+        The number of text results to return.
+        NOTE: The API no longer searches text and code separately, and instead just collects `codeResultsCount + textResultsCount` total results.
         """
         textResultsCount: Int!
         """
         The version number of the context API
         """
         version: String
-    ): [CodyContextResult!]!
+    ): [CodyContextResult!]! @deprecated(reason: "Use the search API instead with `patterntype=nls`")
 
     """
     Get lists of context related to the query from a set of repositories.
@@ -61,7 +63,7 @@ extend type Query {
         The version number of the context API
         """
         version: String
-    ): CodyContextAlternativesResult!
+    ): CodyContextAlternativesResult! @deprecated(reason: "Use the search API instead with `patterntype=nls`")
 
     """
     EXPERIMENTAL: Detect intent for a given Cody chat query.
@@ -75,7 +77,7 @@ extend type Query {
         Cody interaction ID - used to join requests for intent detection/context fetching/ranking.
         """
         interactionId: String!
-    ): ChatIntentResponse!
+    ): ChatIntentResponse! @deprecated(reason: "Automatic intent detection is no longer in use.")
 
     """
     EXPERIMENTAL: Fetches the relevant context for a mentioned URL

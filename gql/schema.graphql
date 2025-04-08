@@ -227,7 +227,8 @@ type Mutation {
     """
     Set an email address as the user's primary.
 
-    Only the user and site admins may perform this mutation.
+    Only the user and site admins may perform this mutation. Check user.viewerCanChangePrimaryEmail
+    for permission and other update inhibitors.
     """
     setUserEmailPrimary(user: ID!, email: String!): EmptyResponse!
     """
@@ -837,51 +838,6 @@ type Mutation {
     deleteRepositoryFromDisk(repo: ID!): EmptyResponse!
 
     """
-    Create a new package repo reference filter.
-    """
-    addPackageRepoFilter(
-        """
-        Whether the matcher should be for allowlisting or blocklisting.
-        """
-        behaviour: PackageMatchBehaviour!
-        """
-        The ecosystem of the package repo reference this matcher should apply to.
-        Maps to the external service whos config would be updated when used in the
-        set query.
-        """
-        kind: PackageRepoReferenceKind!
-        """
-        The package repo reference matcher to persist.
-        """
-        filter: PackageVersionOrNameFilterInput!
-    ): PackageFilter!
-
-    """
-    Updates a package repo reference filter.
-    """
-    updatePackageRepoFilter(
-        """
-        The ID of the package repo reference filter to update.
-        """
-        id: ID!
-
-        behaviour: PackageMatchBehaviour!
-        """
-        The ecosystem of the package repo reference this matcher should apply to.
-        Maps to the external service whos config would be updated when used in the
-        set query.
-        """
-        kind: PackageRepoReferenceKind!
-
-        filter: PackageVersionOrNameFilterInput!
-    ): EmptyResponse!
-
-    """
-    Deletes a package repo reference filter.
-    """
-    deletePackageRepoFilter(id: ID!): EmptyResponse!
-
-    """
     Sets the completions requests quota for the user per day. Quota: Null means
     use the default quota.
     """
@@ -1394,6 +1350,12 @@ type Query {
         An alias for name. DEPRECATED: use name instead.
         """
         uri: String
+        """
+        Query the repository by its database ID.
+        NOTE: this is intended for debugging purposes only, and clients should
+        generally just use GraphQL IDs.
+        """
+        databaseID: Int
     ): Repository
     """
     Looks up a repository by either name or cloneURL or hashedName. When the
@@ -1575,70 +1537,6 @@ type Query {
         """
         descending: Boolean = false
     ): NewRepositoryConnection!
-
-    """
-    Query package repo references.
-    """
-    packageRepoReferences(
-        """
-        The exact package repo reference kind to filter by.
-        """
-        kind: PackageRepoReferenceKind
-        """
-        If supplied, only package repo references that match the given
-        terms by their name will be returned.
-        TODO: fuzzy vs exact?
-        """
-        name: String
-        """
-        Returns the first n package repo references from the list.
-        """
-        first: Int
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-    ): PackageRepoReferenceConnection!
-
-    """
-    Query package repo reference filters.
-    """
-    packageRepoFilters(
-        """
-        Whether the matcher should be for allowlisting or blocklisting.
-        """
-        behaviour: PackageMatchBehaviour
-        """
-        The ecosystem of the package repo reference this matcher should apply to.
-        Maps to the external service whos config would be updated when used in the
-        set query.
-        """
-        kind: PackageRepoReferenceKind
-    ): [PackageFilter!]
-
-    """
-    Returns either a list of package repo references,
-    or the versions of a single package repo reference,
-    that match the provided matcher.
-    """
-    packageRepoReferencesMatchingFilter(
-        """
-        The kind of the package repo reference this matcher should apply to.
-        """
-        kind: PackageRepoReferenceKind!
-        """
-        The matcher for which to return matching results.
-        """
-        filter: PackageVersionOrNameFilterInput!
-        """
-        Returns the first n package/package version matches from the list.
-        """
-        first: Int
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-    ): PackageRepoOrVersionConnection!
 
     """
     Looks up a Phabricator repository by name.
@@ -1858,9 +1756,16 @@ type Query {
     evaluateFeatureFlag(flagName: String!): Boolean
 
     """
-    Retrieve all evaluated feature flags for the current user
+    Evaluates multiple feature flags for the current user.
     """
-    evaluatedFeatureFlags: [EvaluatedFeatureFlag!]!
+    evaluateFeatureFlags(flagNames: [String!]!): [EvaluateFeatureFlagResult!]!
+
+    """
+    Retrieve all previously evaluated feature flags for the current user.
+
+    DEPRECATED: We will remove this query with Sourcegraph 6.3. Use `evaluateFeatureFlags` to get the feature flags for the current user instead. We will stop to cache information about previously evaluated feature flags.
+    """
+    evaluatedFeatureFlags: [EvaluatedFeatureFlag!]! @deprecated(reason: "use evaluateFeatureFlags instead")
 
     """
     Retrieve the value of a feature flag for the organization
@@ -2489,7 +2394,7 @@ type FeatureFlagOverride {
 }
 
 """
-An evaluated feature flag is any feature flag (static or random) that has been evaluated to
+An evaluated feature flag is any feature flag (static or random) that has previously been evaluated to
 a concrete value for a given viewer.
 """
 type EvaluatedFeatureFlag {
@@ -2502,6 +2407,22 @@ type EvaluatedFeatureFlag {
     The concrete evaluated value of the feature flag
     """
     value: Boolean!
+}
+
+"""
+An evaluate feature flag result is the result of the feature flags and all available overrides for the user and organization.
+The value may be null if the feature flag does not exist.
+"""
+type EvaluateFeatureFlagResult {
+    """
+    The name of the feature flag
+    """
+    name: String!
+
+    """
+    The concrete evaluated value of the feature flag. Null if the feature flag does not exist.
+    """
+    value: Boolean
 }
 
 """
@@ -3104,16 +3025,10 @@ enum ExternalServiceKind {
     GITHUB
     GITLAB
     GITOLITE
-    GOMODULES
-    JVMPACKAGES
-    NPMPACKAGES
     OTHER
     PAGURE
     PERFORCE
     PHABRICATOR
-    PYTHONPACKAGES
-    RUSTPACKAGES
-    RUBYPACKAGES
 }
 
 """
@@ -3272,7 +3187,7 @@ This is so that the UI can surface whether the external service
 can serve requests, and if not, why is the reason for that.
 """
 union ExternalServiceAvailability =
-      ExternalServiceAvailable
+    | ExternalServiceAvailable
     | ExternalServiceUnavailable
     | ExternalServiceAvailabilityUnknown
 
@@ -3921,234 +3836,6 @@ type KeyValuePair {
     The nullable value. A null value indicates this key-value pair should be treated as a tag.
     """
     value: String
-}
-
-"""
-List of package repo references.
-"""
-type PackageRepoReferenceConnection {
-    """
-    A list of package repo references.
-    """
-    nodes: [PackageRepoReference!]!
-
-    """
-    The total number of package repo references in the connection.
-    """
-    totalCount: Int!
-
-    """
-    Pagination information.
-    """
-    pageInfo: PageInfo!
-}
-
-"""
-Connection resolver for either a list of package repo references or versions.
-"""
-union PackageRepoOrVersionConnection = PackageRepoReferenceConnection | PackageRepoReferenceVersionConnection
-
-"""
-List of package repo reference versions.
-"""
-type PackageRepoReferenceVersionConnection {
-    """
-    A list of package repo versions.
-    """
-    nodes: [PackageRepoReferenceVersion!]!
-
-    """
-    The total number of package repo versions in the connection.
-    """
-    totalCount: Int!
-
-    """
-    Pagination information.
-    """
-    pageInfo: PageInfo!
-}
-
-"""
-A kind of package repo reference.
-ExternalServiceKind, with a more specific set of values.
-"""
-enum PackageRepoReferenceKind {
-    GOMODULES
-    JVMPACKAGES
-    NPMPACKAGES
-    PYTHONPACKAGES
-    RUSTPACKAGES
-    RUBYPACKAGES
-}
-
-"""
-A reference to a package repo, such as a maven artifact, rust crate etc.
-"""
-type PackageRepoReference {
-    """
-    A unique ID for the package repo reference.
-    """
-    id: ID!
-
-    """
-    The external service kind under which this package repo
-    reference is uniquely identified.
-    """
-    kind: PackageRepoReferenceKind!
-
-    """
-    The name of the package, in a format relevant to the specific ecosystem e.g.
-    maven artifact coordinates (com.sample:text), npm scoped packages (@monkeys/banana).
-    """
-    name: String!
-
-    """
-    The versions of this package known to the sourcegraph instance.
-    """
-    versions: [PackageRepoReferenceVersion!]!
-
-    """
-    Indicates whether a package repo reference has been blocked by a blocklist entry and/or
-    no matching entry in a non-empty allowlist
-    """
-    blocked: Boolean!
-
-    """
-    The synthetic repository (aka the package repo) created to store the contents of the
-    synced versions of the package repo reference. This type is subject to change once
-    package repos and other non-git code hosts become first-class.
-    """
-    repository: Repository
-}
-
-"""
-A version of a package repo reference.
-"""
-type PackageRepoReferenceVersion {
-    """
-    A unique ID for the package repo reference version.
-    """
-    id: ID!
-
-    """
-    The package repo reference that this ID is for.
-    """
-    packageRepoReferenceID: ID!
-
-    """
-    The version string. Not guaranteed to be semver or any other format.
-    """
-    version: String!
-}
-
-"""
-Whether a package repo reference filter is part of the allowlist or blocklist
-"""
-enum PackageMatchBehaviour {
-    """
-    Blocks a package repo reference from syncing.
-    """
-    BLOCK
-    """
-    Allows a package repo reference to be synced.
-    """
-    ALLOW
-}
-
-"""
-Filters package repo references of the matching scheme/kind, applying to either
-references of matching names or versions of a specific package name.
-One of either nameFilter or versionFilter must be provided.
-"""
-type PackageFilter {
-    """
-    Opaque ID string.
-    """
-    id: ID!
-
-    """
-    The behaviour of the filter when applied to a matching package repo reference or version.
-    """
-    behaviour: PackageMatchBehaviour!
-
-    """
-    The schemes/kinds of package repo references this filter should apply to only.
-    """
-    kind: PackageRepoReferenceKind!
-
-    """
-    Optional name-matching filter.
-    """
-    nameFilter: PackageNameFilter
-
-    """
-    Optional package-specific version-matching filter.
-    """
-    versionFilter: PackageVersionFilter
-}
-
-"""
-A package repo reference filter that matches names.
-"""
-type PackageNameFilter {
-    """
-    Glob string to match names.
-    """
-    packageGlob: String!
-}
-
-"""
-A package repo reference filter that matches versions for a specific name.
-"""
-type PackageVersionFilter {
-    """
-    Exact package name to match.
-    """
-    packageName: String!
-
-    """
-    Glob string to match versions.
-    """
-    versionGlob: String!
-}
-
-"""
-A name or version matching filter for. One of either nameFilter or versionFilter must be provided.
-"""
-input PackageVersionOrNameFilterInput {
-    """
-    Optional name-matching filter.
-    """
-    nameFilter: PackageNameFilterInput
-    """
-    Optional package-specific version-matching filter.
-    """
-    versionFilter: PackageVersionFilterInput
-}
-
-"""
-A package repo reference filter that matches names.
-"""
-input PackageNameFilterInput {
-    """
-    Glob string to match names.
-    """
-    packageGlob: String!
-}
-
-"""
-A package repo reference filter that matches versions for a specific name.
-"""
-input PackageVersionFilterInput {
-    """
-    Exact package name to match.
-    """
-    packageName: String!
-
-    """
-    Glob string to match versions.
-    """
-    versionGlob: String!
 }
 
 """
@@ -5355,6 +5042,10 @@ interface TreeEntry {
     """
     canonicalURL: String!
     """
+    The URL to the raw contents of this tree entry.
+    """
+    rawURL: String!
+    """
     The URLs to this tree entry on external services.
     """
     externalURLs: [ExternalLink!]!
@@ -5446,6 +5137,10 @@ type GitTree implements TreeEntry {
     The canonical URL to this tree (using an immutable revision specifier).
     """
     canonicalURL: String!
+    """
+    A URL that returns the raw list of entry names in this tree entry.
+    """
+    rawURL: String!
     """
     The URLs to this tree on external services.
     """
@@ -5846,6 +5541,8 @@ type GitBlob implements TreeEntry & File2 {
     contentType: String!
     """
     The content of this blob.
+    Prefer fetching the contents of the blob from the URL returned by rawURL, which can stream its
+    response and skip the JSON encoding roundtrip.
     """
     content(
         """
@@ -5904,6 +5601,10 @@ type GitBlob implements TreeEntry & File2 {
     The canonical URL to this blob (using an immutable revision specifier).
     """
     canonicalURL: String!
+    """
+    The URL to the raw contents of this file.
+    """
+    rawURL: String!
 
     """
     The URL to this file using the changelist ID if this file is inside a perforce depot.
@@ -6065,7 +5766,6 @@ type FileMatch {
     """
     lineMatches: [LineMatch!]!
     """
-    EXPERIMENTAL: This field is experimental and may be unstable.
     The chunk matches.
     """
     chunkMatches: [ChunkMatch!]!
@@ -6122,6 +5822,12 @@ type ChunkMatch {
     The set of ranges within the content that matched the search query.
     """
     ranges: [Range!]!
+    """
+    The line number of the most important line of the chunk.  The line number is
+    zero-based and relative to the start of the file (not the chunk), and is
+    guaranteed to be a line within the chunk range.
+    """
+    bestLineMatch: Int!
 }
 
 """
@@ -6452,6 +6158,11 @@ type User implements Node & SettingsSubject & Namespace {
     Whether the user is controlled externally through SCIM.
     """
     scimControlled: Boolean!
+
+    """
+    Whether the viewer can change the primary email of this user.
+    """
+    viewerCanChangePrimaryEmail: Boolean!
 
     """
     The list of all roles assigned to this user.
@@ -8644,7 +8355,7 @@ type IndexingProgress {
 FOR INTERNAL USE ONLY: A status message
 """
 union StatusMessage =
-      GitUpdatesDisabled
+    | GitUpdatesDisabled
     | NoRepositoriesDetected
     | CloningProgress
     | ExternalServiceSyncError

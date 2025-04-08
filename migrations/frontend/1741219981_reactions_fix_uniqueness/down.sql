@@ -1,0 +1,5 @@
+DROP INDEX IF EXISTS agent_conversation_message_reactions_external_service_id_idx;
+
+ALTER TABLE agent_conversation_message_reactions DROP CONSTRAINT IF EXISTS agent_conversation_message_reactions_external_service_id_key;
+
+CREATE INDEX IF NOT EXISTS agent_conversation_message_reactions_external_service_id_idx ON agent_conversation_message_reactions (external_service_id);

@@ -1,0 +1,218 @@
+extend type Mutation {
+    """
+    Creates the entitlement. Site-admin only.
+    """
+    createEntitlement(
+        """
+        The name of the entitlement.
+        """
+        name: String!
+
+        """
+        The type of the entitlement.
+        """
+        type: String!
+
+        """
+        The limit value for this entitlement.
+        """
+        limit: BigInt!
+
+        """
+        The interval for this entitlement.
+        """
+        interval: EntitlementInterval!
+
+        """
+        Whether this is the default entitlement for its type.
+        """
+        isDefault: Boolean = false
+    ): Entitlement!
+
+    """
+    Updates the entitlement. Site-admin only.
+    """
+    updateEntitlement(
+        """
+        The ID of the entitlement to update.
+        """
+        id: ID!
+
+        """
+        The name of the entitlement.
+        """
+        name: String!
+
+        """
+        The limit value for this entitlement.
+        """
+        limit: BigInt!
+
+        """
+        The interval for this entitlement.
+        """
+        interval: EntitlementInterval!
+
+        """
+        Whether this is the default entitlement for its type.
+        """
+        isDefault: Boolean = false
+    ): Entitlement!
+
+    """
+    Deletes the entitlement. Site-admin only.
+    """
+    deleteEntitlement(id: ID!): EmptyResponse!
+
+    """
+    Grants the entitlement to the users. Site-admin only.
+    """
+    createEntitlementGrants(
+        """
+        The ID of the entitlement to grant.
+        """
+        entitlementID: ID!
+        """
+        The list of users IDs to grant the entitlement to.
+        """
+        userIDs: [ID!]!
+    ): EmptyResponse!
+
+    """
+    Deletes the entitlement grants. Site-admin only.
+    """
+    deleteEntitlementGrants(
+        """
+        The ID of the entitlement grant to delete.
+        """
+        entitlementID: ID!
+        """
+        The list of users IDs to delete the grant from.
+        """
+        userIDs: [ID!]!
+    ): EmptyResponse!
+}
+
+extend type Query {
+    """
+    Returns an entitlement by its ID.
+    """
+    entitlement(id: ID!): Entitlement
+
+    """
+    Returns all entitlements in a paginated format.
+    """
+    entitlements(
+        """
+        The type of the entitlement.
+        """
+        type: String
+        """
+        Whether this is the default entitlement for its type.
+        """
+        isDefault: Boolean
+        """
+        The limit argument for forward pagination.
+        """
+        first: Int = 50
+        """
+        The cursor argument for forward pagination.
+        """
+        after: String
+    ): EntitlementConnection!
+}
+
+extend type User {
+    """
+    Entitlement grants for the user.
+    """
+    entitlementGrants(
+        """
+        The ID of the entitlement.
+        """
+        entitlementID: ID
+    ): [EntitlementGrant!]!
+}
+
+"""
+Entitlement defines configurable limits for LLM credit consumption by users
+or other principals. It allows site admins to control and distribute LLM spend
+by setting quotas with specific time windows.
+"""
+type Entitlement {
+    """
+    The ID of the entitlement.
+    """
+    id: ID!
+
+    """
+    The name of the entitlement.
+    """
+    name: String!
+
+    """
+    The type of the entitlement.
+    """
+    type: String!
+
+    """
+    The limit value for this entitlement.
+    """
+    limit: BigInt!
+
+    """
+    The frequency at which this entitlement is renewed.
+    """
+    interval: EntitlementInterval!
+
+    """
+    Whether this is the default entitlement for its type.
+    """
+    isDefault: Boolean!
+
+    """
+    When this entitlement was last updated.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+A list of entitlements.
+"""
+type EntitlementConnection {
+    """
+    A list of entitlements.
+    """
+    nodes: [Entitlement!]!
+    """
+    The total count of entitlements in the connection. This total count may be larger
+    than the number of nodes in this object when the result is paginated.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+EntitlementGrant maps a user to an entitlement.
+"""
+type EntitlementGrant {
+    """
+    The ID of the entitlement.
+    """
+    entitlementID: ID!
+    """
+    The ID of the user.
+    """
+    userID: ID!
+}
+
+"""
+EntitlementInterval represents the available time periods for entitlement renewal.
+"""
+enum EntitlementInterval {
+    ONE_DAY
+    SEVEN_DAYS
+}

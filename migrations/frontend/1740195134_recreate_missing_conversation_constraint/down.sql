@@ -1,0 +1,1 @@
+-- Do nothing because this migration only exists to fix a broken state an edited migration created

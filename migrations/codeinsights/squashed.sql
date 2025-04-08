@@ -574,6 +574,12 @@ CREATE TABLE tenants (
     workspace_id uuid NOT NULL,
     display_name text,
     external_url text DEFAULT ''::text NOT NULL,
+    redis_pruned_at timestamp with time zone,
+    deleted_at timestamp with time zone,
+    gitserver_pruned_at timestamp with time zone,
+    zoekt_pruned_at timestamp with time zone,
+    blobstore_pruned_at timestamp with time zone,
+    database_pruned_at timestamp with time zone,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text)),
     CONSTRAINT tenants_external_url_check CHECK ((lower(external_url) = external_url))
@@ -888,6 +894,6 @@ CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setti
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
-INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '');
+INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '', NULL, NULL, NULL, NULL, NULL, NULL);
 
 SELECT pg_catalog.setval('tenants_id_seq', 1, true);

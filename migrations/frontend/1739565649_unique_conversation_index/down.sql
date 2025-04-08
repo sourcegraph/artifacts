@@ -1,0 +1,3 @@
+ALTER TABLE agent_conversations DROP CONSTRAINT IF EXISTS agent_conversations_external_service_id_key;
+
+ALTER TABLE agent_conversation_messages DROP CONSTRAINT IF EXISTS agent_conversation_messages_external_service_id_key;

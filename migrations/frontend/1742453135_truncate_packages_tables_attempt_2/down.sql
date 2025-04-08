@@ -1,0 +1,1 @@
+-- It doesn't make sense to undo this migration.

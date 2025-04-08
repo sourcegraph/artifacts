@@ -1,0 +1,2 @@
+-- No down migration because we don't want to delete any data that
+-- may be in those columns and no new structure was generated
