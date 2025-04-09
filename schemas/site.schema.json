@@ -307,6 +307,11 @@
               "type": "boolean",
               "default": false
             },
+            "redactInaccessibleCommits": {
+              "description": "Redacts commits in the history that the user does not have access to instead of removing them from history. DO NOT USE THIS UNLESS EXPLICITLY ASKED FOR BY THE SOURCEGRAPH TEAM.",
+              "type": "boolean",
+              "default": false
+            },
             "userCacheSize": {
               "description": "The number of user permissions to cache",
               "type": "integer",

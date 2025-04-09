@@ -260,6 +260,17 @@ extend type Repository {
     It is null when there is no permissions data stored for the repository.
     """
     permissionsInfo: RepositoryPermissionsInfo
+
+    """
+    Returns the sub-repository permissions for this repository.
+    Only site admins can use this query.
+    """
+    subRepositoryPermissions(
+        """
+        The user ID whose permissions to view.
+        """
+        userID: ID!
+    ): SubRepositoryPermissionsConnection!
 }
 
 extend type User {
@@ -901,4 +912,53 @@ type PermissionsSyncingStats {
     The number of repository with old permissions.
     """
     reposWithStalePermissions: Int!
+}
+
+"""
+A connection of users and their sub-repository permissions.
+"""
+type SubRepositoryPermissionsConnection {
+    """
+    A list of users with their sub-repository permissions.
+    """
+    nodes: [SubRepositoryPermissionsNode!]!
+    """
+    The total count of users with permissions.
+    """
+    totalCount: Int!
+}
+
+"""
+A user and their sub-repository permissions.
+"""
+type SubRepositoryPermissionsNode {
+    """
+    The user who has the permissions.
+    """
+    user: User!
+    """
+    The paths with IP restriction rules the user has access to or is denied access to.
+    """
+    pathRules: [SubRepoPathRule!]!
+}
+
+"""
+A path rule with IP restriction for sub-repository permissions.
+"""
+type SubRepoPathRule {
+    """
+    The path pattern. Paths starting with "-" deny access, all others grant access.
+    """
+    path: String!
+    """
+    The IP address restriction pattern.
+    This may be a specific IP address, a CIDR range, or a wildcard pattern.
+    A value of "*" means no IP restriction.
+    """
+    ipRestriction: String!
+    """
+    Indicates whether the IP restriction was backfilled with a wildcard.
+    True means the IP was backfilled (not originally set), false means it was explicitly set.
+    """
+    ipBackfilled: Boolean!
 }
