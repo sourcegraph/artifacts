@@ -324,6 +324,12 @@
               "default": 10,
               "minimum": 1
             },
+            "rulesInterpretationMode": {
+              "description": "Controls how Perforce IP-based protection rules are interpreted. 'unified' (default) applies all rules regardless of proxy-prefix. 'directOnly' only applies rules without proxy- prefix. 'proxyOnly' only applies rules with proxy- prefix. Use this to align with your Perforce deployment model.",
+              "type": "string",
+              "enum": ["unified", "directOnly", "proxyOnly"],
+              "default": "unified"
+            },
             "enforceIPRestrictions": {
               "description": "Enforces IP restrictions on sub-repo permissions. If true, relies on rightmost value X-FORWARDED-FOR header to determine the client IP address. You must configure your reverse proxy to set this header securely. Also incompoitable with the perforce ignoreRulesWithHost option.",
               "type": "boolean",
@@ -3754,6 +3760,10 @@
         "useDeprecatedCompletionsAPI": {
           "description": "Enables the use of the older completions API for select Azure OpenAI models. This is just an escape hatch, for backwards compatibility, because not all Azure OpenAI models are available on the 'newer' completions API.",
           "type": "boolean"
+        },
+        "apiVersion": {
+          "description": "The API version to use for the Azure OpenAI Service. Compatibility may be broken between versions - the only officially supported option here is to leave it unset.",
+          "type": "string"
         }
       }
     },
