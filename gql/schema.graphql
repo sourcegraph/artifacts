@@ -3483,6 +3483,12 @@ type Repository implements Node & GenericSearchResultInterface {
     """
     id: ID!
     """
+    The repository's database ID.
+    NOTE: this is intended for debugging purposes only, and clients should
+    generally just use GraphQL IDs.
+    """
+    databaseID: Int!
+    """
     The repository's name, as a path with one or more components. It conventionally consists of
     the repository's hostname and path (joined by "/"), minus any suffixes (such as ".git").
     Examples:
