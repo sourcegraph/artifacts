@@ -7,6 +7,14 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "siteWideSearchContext": {
+      "title": "SettingsSiteWideSearchContext",
+      "description": "Enables default site wide search context. Only admins can set this. Individual users can override with their own search context.",
+      "type": "string",
+      "!go": {
+        "pointer": true
+      }
+    },
     "experimentalFeatures": {
       "title": "SettingsExperimentalFeatures",
       "description": "Experimental features and settings.",

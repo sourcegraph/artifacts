@@ -820,6 +820,10 @@ enum ChangesetSpecOperation {
     The changeset is re-added to the batch change.
     """
     REATTACH
+    """
+    The changeset is rebased on top of the latest changes on the target branch.
+    """
+    REBASE
 }
 
 """
@@ -1969,6 +1973,11 @@ extend type Query {
         Opaque pagination cursor.
         """
         after: String
+
+        """
+        Search for templates matching this query.
+        """
+        search: String
     ): BatchSpecLibraryConnection
 
     """

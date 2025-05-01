@@ -35,12 +35,6 @@
       },
       "examples": [["//Sourcegraph/", "//Engineering/Cloud/"]]
     },
-    "maxChanges": {
-      "description": "Only import at most n changes when possible (git p4 clone --max-changes).",
-      "type": "number",
-      "default": 1000,
-      "minimum": 1
-    },
     "authorization": {
       "title": "PerforceAuthorization",
       "description": "If non-null, enforces Perforce depot permissions.",

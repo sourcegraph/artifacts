@@ -1,0 +1,2 @@
+name: drop security_event_logs table
+parents: [1740192851, 1740527412]

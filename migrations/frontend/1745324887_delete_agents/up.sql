@@ -1,0 +1,17 @@
+DROP TABLE IF EXISTS agents CASCADE;
+DROP TABLE IF EXISTS agent_conversations CASCADE;
+DROP TABLE IF EXISTS agent_rules CASCADE;
+DROP TABLE IF EXISTS agent_changeset_revisions CASCADE;
+DROP TABLE IF EXISTS agent_changesets CASCADE;
+DROP TABLE IF EXISTS agent_connections CASCADE;
+DROP TABLE IF EXISTS agent_conversation_message_chunks CASCADE;
+DROP TABLE IF EXISTS agent_conversation_message_reactions CASCADE;
+DROP TABLE IF EXISTS agent_conversation_messages CASCADE;
+DROP TABLE IF EXISTS agent_conversation_sync CASCADE;
+DROP TABLE IF EXISTS agent_programs CASCADE;
+DROP TABLE IF EXISTS agent_review_diagnostic_feedback CASCADE;
+DROP TABLE IF EXISTS agent_review_diagnostics CASCADE;
+DROP TABLE IF EXISTS agent_reviews CASCADE;
+DROP TABLE IF EXISTS agent_rule_revisions CASCADE;
+DROP TABLE IF EXISTS agent_run_logs CASCADE;
+DROP TABLE IF EXISTS agent_runs CASCADE;

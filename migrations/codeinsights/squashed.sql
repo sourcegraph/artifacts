@@ -53,8 +53,18 @@ CREATE TABLE archived_series_points (
     original_repo_name_id integer,
     capture text,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL,
     CONSTRAINT check_repo_fields_specifity CHECK ((((repo_id IS NULL) AND (repo_name_id IS NULL) AND (original_repo_name_id IS NULL)) OR ((repo_id IS NOT NULL) AND (repo_name_id IS NOT NULL) AND (original_repo_name_id IS NOT NULL))))
 );
+
+CREATE SEQUENCE archived_series_points_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE archived_series_points_id_seq OWNED BY archived_series_points.id;
 
 CREATE TABLE dashboard (
     id integer NOT NULL,
@@ -239,8 +249,8 @@ CREATE SEQUENCE insight_series_incomplete_points_id_seq
 ALTER SEQUENCE insight_series_incomplete_points_id_seq OWNED BY insight_series_incomplete_points.id;
 
 CREATE TABLE insight_series_recording_times (
-    insight_series_id integer,
-    recording_time timestamp with time zone,
+    insight_series_id integer NOT NULL,
+    recording_time timestamp with time zone NOT NULL,
     snapshot boolean,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
@@ -531,6 +541,7 @@ CREATE TABLE series_points (
     original_repo_name_id integer,
     capture text,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL,
     CONSTRAINT check_repo_fields_specifity CHECK ((((repo_id IS NULL) AND (repo_name_id IS NULL) AND (original_repo_name_id IS NULL)) OR ((repo_id IS NOT NULL) AND (repo_name_id IS NOT NULL) AND (original_repo_name_id IS NOT NULL))))
 );
 
@@ -550,6 +561,15 @@ COMMENT ON COLUMN series_points.repo_name_id IS 'The most recently known name fo
 
 COMMENT ON COLUMN series_points.original_repo_name_id IS 'The repository name as it was known at the time the event was created. It may have been renamed since.';
 
+CREATE SEQUENCE series_points_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE series_points_id_seq OWNED BY series_points.id;
+
 CREATE TABLE series_points_snapshots (
     series_id text NOT NULL,
     "time" timestamp with time zone NOT NULL,
@@ -560,10 +580,20 @@ CREATE TABLE series_points_snapshots (
     original_repo_name_id integer,
     capture text,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL,
     CONSTRAINT check_repo_fields_specifity CHECK ((((repo_id IS NULL) AND (repo_name_id IS NULL) AND (original_repo_name_id IS NULL)) OR ((repo_id IS NOT NULL) AND (repo_name_id IS NOT NULL) AND (original_repo_name_id IS NOT NULL))))
 );
 
 COMMENT ON TABLE series_points_snapshots IS 'Stores ephemeral snapshot data of insight recordings.';
+
+CREATE SEQUENCE series_points_snapshots_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE series_points_snapshots_id_seq OWNED BY series_points_snapshots.id;
 
 CREATE TABLE tenants (
     id bigint NOT NULL,
@@ -580,6 +610,7 @@ CREATE TABLE tenants (
     zoekt_pruned_at timestamp with time zone,
     blobstore_pruned_at timestamp with time zone,
     database_pruned_at timestamp with time zone,
+    searcher_cache_pruned_at timestamp with time zone,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text)),
     CONSTRAINT tenants_external_url_check CHECK ((lower(external_url) = external_url))
@@ -606,6 +637,8 @@ CREATE SEQUENCE tenants_id_seq
     CACHE 1;
 
 ALTER SEQUENCE tenants_id_seq OWNED BY tenants.id;
+
+ALTER TABLE ONLY archived_series_points ALTER COLUMN id SET DEFAULT nextval('archived_series_points_id_seq'::regclass);
 
 ALTER TABLE ONLY dashboard ALTER COLUMN id SET DEFAULT nextval('dashboard_id_seq'::regclass);
 
@@ -635,10 +668,17 @@ ALTER TABLE ONLY repo_iterator_errors ALTER COLUMN id SET DEFAULT nextval('repo_
 
 ALTER TABLE ONLY repo_names ALTER COLUMN id SET DEFAULT nextval('repo_names_id_seq'::regclass);
 
+ALTER TABLE ONLY series_points ALTER COLUMN id SET DEFAULT nextval('series_points_id_seq'::regclass);
+
+ALTER TABLE ONLY series_points_snapshots ALTER COLUMN id SET DEFAULT nextval('series_points_snapshots_id_seq'::regclass);
+
 ALTER TABLE ONLY tenants ALTER COLUMN id SET DEFAULT nextval('tenants_id_seq'::regclass);
 
 ALTER TABLE ONLY archived_insight_series_recording_times
-    ADD CONSTRAINT archived_insight_series_recor_insight_series_id_recording_t_key UNIQUE (insight_series_id, recording_time);
+    ADD CONSTRAINT archived_insight_series_recording_times_pkey PRIMARY KEY (insight_series_id, recording_time);
+
+ALTER TABLE ONLY archived_series_points
+    ADD CONSTRAINT archived_series_points_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY dashboard_grants
     ADD CONSTRAINT dashboard_grants_pk PRIMARY KEY (id);
@@ -659,7 +699,7 @@ ALTER TABLE ONLY insight_series
     ADD CONSTRAINT insight_series_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY insight_series_recording_times
-    ADD CONSTRAINT insight_series_recording_time_insight_series_id_recording_t_key UNIQUE (insight_series_id, recording_time);
+    ADD CONSTRAINT insight_series_recording_times_pkey PRIMARY KEY (insight_series_id, recording_time);
 
 ALTER TABLE ONLY insight_view_grants
     ADD CONSTRAINT insight_view_grants_pk PRIMARY KEY (id);
@@ -687,6 +727,12 @@ ALTER TABLE ONLY repo_iterator
 
 ALTER TABLE ONLY repo_names
     ADD CONSTRAINT repo_names_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY series_points
+    ADD CONSTRAINT series_points_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY series_points_snapshots
+    ADD CONSTRAINT series_points_snapshots_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY tenants
     ADD CONSTRAINT tenants_name_key UNIQUE (name);
@@ -894,6 +940,6 @@ CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setti
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
-INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '', NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 SELECT pg_catalog.setval('tenants_id_seq', 1, true);

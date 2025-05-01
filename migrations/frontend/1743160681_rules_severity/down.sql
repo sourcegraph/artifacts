@@ -1,0 +1,2 @@
+ALTER TABLE agent_rules DROP CONSTRAINT IF EXISTS check_impact;
+ALTER TABLE agent_rules DROP COLUMN IF EXISTS impact;

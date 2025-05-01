@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS searcher_cache_pruned_at TIMESTAMP WITH TIME ZONE;

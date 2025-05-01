@@ -1,0 +1,3 @@
+name: Add index to sort telemetry export queue in memory
+parents: [1741025634, 1742346918, 1742985807, 1743149449, 1743160681]
+createIndexConcurrently: true

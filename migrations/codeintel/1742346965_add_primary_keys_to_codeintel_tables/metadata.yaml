@@ -1,0 +1,3 @@
+name: add_primary_keys_to_codeintel_tables
+parents: [1741688674]
+bestEffortTerminateBlockingTransactions: true

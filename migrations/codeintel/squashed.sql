@@ -358,6 +358,7 @@ CREATE TABLE tenants (
     zoekt_pruned_at timestamp with time zone,
     blobstore_pruned_at timestamp with time zone,
     database_pruned_at timestamp with time zone,
+    searcher_cache_pruned_at timestamp with time zone,
     CONSTRAINT tenant_name_length CHECK (((char_length(name) <= 32) AND (char_length(name) >= 3))),
     CONSTRAINT tenant_name_valid_chars CHECK ((name ~ '^[a-z](?:[a-z0-9\_-])*[a-z0-9]$'::text)),
     CONSTRAINT tenants_external_url_check CHECK ((lower(external_url) = external_url))
@@ -403,6 +404,9 @@ ALTER TABLE ONLY tenants ALTER COLUMN id SET DEFAULT nextval('tenants_id_seq'::r
 
 ALTER TABLE ONLY codeintel_last_reconcile
     ADD CONSTRAINT codeintel_last_reconcile_dump_id_key UNIQUE (dump_id);
+
+ALTER TABLE ONLY codeintel_last_reconcile
+    ADD CONSTRAINT codeintel_last_reconcile_pkey PRIMARY KEY (dump_id);
 
 ALTER TABLE ONLY codeintel_scip_document_lookup
     ADD CONSTRAINT codeintel_scip_document_lookup_pkey PRIMARY KEY (id);
@@ -542,6 +546,6 @@ CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setti
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
-INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '', NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 SELECT pg_catalog.setval('tenants_id_seq', 1, true);

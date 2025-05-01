@@ -19,9 +19,9 @@ extend type Mutation {
         limit: BigInt!
 
         """
-        The interval for this entitlement.
+        The window to enforce this entitlement over.
         """
-        interval: EntitlementInterval!
+        window: EntitlementWindow!
 
         """
         Whether this is the default entitlement for its type.
@@ -49,9 +49,9 @@ extend type Mutation {
         limit: BigInt!
 
         """
-        The interval for this entitlement.
+        The window to enforce this entitlement over.
         """
-        interval: EntitlementInterval!
+        window: EntitlementWindow!
 
         """
         Whether this is the default entitlement for its type.
@@ -163,7 +163,7 @@ type Entitlement {
     """
     The frequency at which this entitlement is renewed.
     """
-    interval: EntitlementInterval!
+    window: EntitlementWindow!
 
     """
     Whether this is the default entitlement for its type.
@@ -210,9 +210,9 @@ type EntitlementGrant {
 }
 
 """
-EntitlementInterval represents the available time periods for entitlement renewal.
+EntitlementWindow represents the available time periods for entitlement enforcement.
 """
-enum EntitlementInterval {
+enum EntitlementWindow {
     ONE_DAY
     SEVEN_DAYS
 }

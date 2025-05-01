@@ -921,7 +921,7 @@
       ]
     },
     "gitLongCommandTimeout": {
-      "description": "Maximum number of seconds that a long Git command (e.g. clone or remote update) is allowed to execute. The default is 3600 seconds, or 1 hour.",
+      "description": "Maximum number of seconds that a long Git command (e.g. clone or remote update) is allowed to execute. The default is 7200 seconds, or 2 hours.",
       "type": "integer",
       "default": 7200,
       "group": "External services"
@@ -930,6 +930,15 @@
       "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. Note: the global git update scheduler respects gitMaxConcurrentClones. However, we allow each gitserver to run upto gitMaxConcurrentClones to allow for urgent fetches. Urgent fetches are used when a user is browsing a PR and we do not have the commit yet.",
       "type": "integer",
       "default": 5,
+      "group": "External services"
+    },
+    "gitMaxConcurrentCleanups": {
+      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. <= 0 means disabled.",
+      "type": "integer",
+      "default": 5,
+      "!go": {
+        "pointer": true
+      },
       "group": "External services"
     },
     "gitMaxCodehostRequestsPerSecond": {
@@ -1356,12 +1365,12 @@
     "permissions.syncUsersBackoffSeconds": {
       "description": "Don't sync a user's permissions if they have synced within the last n seconds.",
       "type": "integer",
-      "default": 60
+      "default": 900
     },
     "permissions.syncReposBackoffSeconds": {
       "description": "Don't sync a repo's permissions if it has synced within the last n seconds.",
       "type": "integer",
-      "default": 60
+      "default": 900
     },
     "permissions.syncUsersMaxConcurrency": {
       "description": "The maximum number of user-centric permissions syncing jobs that can be spawned concurrently. Service restart is required to take effect for changes.",
@@ -2189,33 +2198,6 @@
             "pointer": true
           },
           "description": "Whether to enable Enterprise Portal auth proxies for site admins."
-        },
-        "minimumExternalAccountAge": {
-          "description": "The minimum amount of days a Github or GitLab account must exist, before being allowed on Sourcegraph.com.",
-          "type": "integer",
-          "default": 0
-        },
-        "minimumExternalAccountAgeExemptList": {
-          "description": "A list of email addresses that are allowed to be exempted from the minimumExternalAccountAge requirement.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "slackLicenseExpirationWebhook": {
-          "description": "Slack webhook for upcoming license expiration notifications.",
-          "type": "string",
-          "group": "Sourcegraph.com"
-        },
-        "slackLicenseAnomallyWebhook": {
-          "description": "Slack webhook for when there is an anomaly detected with license key usage.",
-          "type": "string",
-          "group": "Sourcegraph.com"
-        },
-        "slackLicenseCreationWebhook": {
-          "description": "Slack webhook for when a license key is created.",
-          "type": "string",
-          "group": "Sourcegraph.com"
         },
         "srcCliVersionCache": {
           "description": "Configuration related to the src-cli version cache. This should only be used on sourcegraph.com.",
@@ -3463,9 +3445,9 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit"]
+            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit", "tools"]
           },
-          "examples": [["chat", "autocomplete", "vision"]]
+          "examples": [["chat", "autocomplete", "vision", "reasoning", "edit", "tools"]]
         },
         "category": {
           "type": "string",
@@ -3601,9 +3583,9 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["autocomplete", "chat"]
+            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit", "tools"]
           },
-          "examples": [["chat", "autocomplete"]]
+          "examples": [["chat", "autocomplete", "vision", "reasoning", "edit", "tools"]]
         },
         "category": {
           "type": "string",

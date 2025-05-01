@@ -120,7 +120,11 @@ type CodeGraphData implements Node {
     commit: String!
 
     """
-    Information about the tool which generated this code graph data
+    Information about the tool which generated this code graph data.
+
+    This information may be missing if the tool itself did not specify
+    the information in the generated SCIP index. This field is always
+    available for all Sourcegraph-maintained indexers.
     """
     toolInfo: CodeGraphToolInfo
 
@@ -152,6 +156,30 @@ type CodeGraphData implements Node {
     # TODO(issue: GRAPH-635): Allow passing a filter here to only get
     # occurrences for specific lines.
     occurrences(first: Int, after: String): SCIPOccurrenceConnection
+
+    """
+    Relationships represents additional metadata about how symbols are related
+    to each other.
+
+    At the moment, this will only return information relationships defined within
+    the same file.
+
+    E.g. if Dog.java has a class Dog which subclasses Animal defined in
+    Animal.java then the IS_IMPLEMENTATION relationship defined on Dog will
+    be returned when accessing relationships(..) for Dog.java.
+
+    However, this relationship will not show up when accessing relationships(..)
+    for Animal.java.
+    """
+    # TODO(issue: GRAPH-1179): Also return data for relationships not defined
+    # within the file.
+    # --------------------------------------------------------------------------
+    # This field is present on CodeGraphData instead of a separate
+    # SymbolInformation field, because SymbolInformation is meant to be
+    # restricted to symbols defined or referenced within the same Document,
+    # but we want to add some support for "external relationships" to SCIP.
+    # See TODO(issue: GRAPH-1180) for more details.
+    relationships(first: Int, after: String): SCIPRelationshipConnection
 }
 
 """
@@ -182,6 +210,62 @@ type SCIPOccurrenceConnection {
     """
     pageInfo: PageInfo!
 }
+
+"""
+Connection type for a list of relationships.
+"""
+type SCIPRelationshipConnection {
+    """
+    List of relationship values within a given page. Depending on the page
+    boundary, not all relationships for a particular symbol may be returned.
+    """
+    nodes: [SCIPRelationship!]!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+Represents a relationship between two symbols 'A rel B' for a particular
+(repo, commit, path) tuple.
+
+For example, a type T may not implement an interface I at an older
+commit, but it may do so at a newer commit.
+"""
+type SCIPRelationship {
+    """
+    The source symbol for this relationship.
+    """
+    fromSymbol: String!
+
+    """
+    The target symbol for this relationship.
+    """
+    toSymbol: String!
+
+    """
+    EXPERIMENTAL: Meant for debugging purposes only.
+    This field may make backward-incompatible changes in the future.
+
+    The array is guaranteed to be non-empty.
+    """
+    debugKind: [DebugSCIPRelationshipKind!]!
+}
+
+"""
+Denotes information about relationships as in SCIP, but
+optimized for debugging rather than downstream usability.
+"""
+enum DebugSCIPRelationshipKind {
+    IS_REFERENCE
+    IS_IMPLEMENTATION
+    IS_DEFINED_BY
+}
+# In the future, once indexers record SymbolInformation.Kind
+# we can expose better information such as 'IsSubclassOf',
+# 'IsSuperclassOf', 'Overrides', 'IsOverridenBy', etc.
 
 """
 EXPERIMENTAL: This type may change in a backwards-incompatible way.
@@ -216,6 +300,9 @@ type SCIPOccurrence {
     """
     Symbol name using syntax specified by the SCIP schema.
     https://github.com/sourcegraph/scip/blob/main/scip.proto#L147-L188
+
+    Empty if the indexer did not specify this field. Such occurrences cannot
+    be used for code navigation.
     """
     symbol: String
     """
@@ -226,12 +313,13 @@ type SCIPOccurrence {
     Description of the role a symbol plays at a particular source range.
 
     The 'Definition' and 'Reference' roles are mutually exclusive (exactly
-    one of those will be present in the array below).
+    one of those will be present in the array below). This also means that
+    the array is guaranteed to be non-empty.
     """
     # NOTE: At the moment, we do not support all symbol roles present
     # in SCIP because indexers do not consistently implement roles other
     # than the ones supported below.
-    roles: [SymbolRole!]
+    roles: [SymbolRole!]!
     # We can add diagnostics etc. here in the future if needed.
 }
 
@@ -488,13 +576,6 @@ extend type Query {
         range: RangeInput!
 
         """
-        Filter to allow customization of returned results.
-
-        STATUS(July 29 2024): Currently unimplemented.
-        """
-        filter: UsagesFilter
-
-        """
         When specified, indicates that this request should be paginated and
         the first N results (relative to the cursor) should be returned. i.e.
         how many results to return per page.
@@ -606,74 +687,6 @@ input PositionInput {
     character: Int!
 }
 
-# NOTE(id: filter-vs-comparator-terminology)
-#
-# 'Filter' is used for complex objects whereas 'Comparator' is used
-# for primitive objects.
-
-"""
-An empty filter allows all kinds of usages for all paths in all repositories.
-
-However, if the symbol used for lookup is a file-local symbol or a
-repository-local symbol, then usages will automatically be limited to the
-same file or same repository respectively.
-
-EXPERIMENTAL: This type may make backwards-incompatible changes in the future.
-"""
-input UsagesFilter {
-    # Design Rationale:
-    #
-    # 1. The ref panel did separate queries for 'this repo' vs 'all other repos'
-    #    https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/client/web/src/enterprise/codeintel/searchBased.ts?L105:13-105:23#tab=references
-    #    That requires `NOT` (at least for a `repo`).
-    # 2. The ref panel has a way to specify paths for filtering. This requires AND.
-    #    AND will not be part of the first implementation pass. However,
-    #    it would allow fetching less data instead of post-filtering client-side.
-    # 3. Currently, the ref panel has a setting for only showing precise results.
-    #    Once syntactic is added, if we want to allow the user to specify either
-    #    syntactic or precise (but not search-based), we'd need OR.
-    #    OR will also not be needed for the first implementation pass.
-    """
-    Negate another UsageFilter. For example, this can be used to find matches
-    outside of a specific repository.
-    """
-    not: UsagesFilter
-    """
-    Filter for limiting which repositories to find the usages in.
-    For cross-repository symbols as well as search-based results,
-    an empty value will find results across the Sourcegraph instance.
-    """
-    repository: RepositoryFilter
-    # TODO(id: usagesForSymbol-v2)
-    # and: [UsagesFilter!]
-    # or: [UsagesFilter!]
-    # path: PathFilter
-    # kind: SymbolUsageKindComparator
-    # provenance: CodeGraphDataProvenanceComparator
-}
-
-"""
-EXPERIMENTAL: This type may make backwards-incompatible changes in the future.
-"""
-input RepositoryFilter {
-    """
-    Compare the repository by name.
-    """
-    name: StringComparator!
-}
-
-"""
-EXPERIMENTAL: This type may make backwards-incompatible changes in the future.
-"""
-input StringComparator {
-    """
-    Checks for exact equality.
-    """
-    # EXTENSION: We may want to allow glob patterns in the future here,
-    # that could be used by both RepositoryFilter and PathFilter.
-    equals: String
-}
-
 """
 EXPERIMENTAL: This type may make backwards-incompatible changes in the future.
 """
@@ -722,6 +735,36 @@ EXPERIMENTAL: This type may make backwards-incompatible changes in the future.
 type Usage {
     """
     Information about the symbol itself.
+
+    This symbol may or may not match the exact input symbol (as specified
+    by the source range or directly).
+
+    Example: On doing usagesForSymbol for a class Dog which inherits from
+    Animal, and is a superclass for Poodle, there may be usages like:
+        {
+           symbol: { name: "<other stuff> Dog#", ... }
+           usageKind: DEFINITION,
+           ...
+        }
+        {
+           symbol: { name: "<other stuff>" Dog#", ... }
+           usageKind: REFERENCE,
+           ...
+        }
+        {
+           symbol: { name: "<other stuff> Animal#", ... }
+           usageKind: IMPLEMENTATION,
+           ...
+        }
+        {
+           symbol: { name: "<other stuff> Poodle#", ... }
+           usageKind: SUPER,
+           ...
+        }
+
+    This information is not provided for search-based usages, because
+    they do not have corresponding SCIP symbols which can be used for
+    further queries.
     """
     symbol: SymbolInformation
 

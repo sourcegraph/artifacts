@@ -3861,6 +3861,356 @@ type CodeIntelligenceCommitGraph {
 }
 
 """
+Detailed information about repository Git statistics.
+"""
+type GitRepositoryStatistics {
+    """
+    Information about loose objects in the repository.
+    """
+    looseObjects: GitLooseObjectsInfo!
+
+    """
+    Information about packfiles in the repository.
+    """
+    packfiles: GitPackfilesInfo!
+
+    """
+    Information about references in the repository.
+    """
+    references: GitReferencesInfo!
+
+    """
+    Information about the repository's commit graph.
+    """
+    commitGraph: GitCommitGraphInfo!
+
+    """
+    Information about recommended optimization strategies.
+    """
+    optimizationStrategy: GitOptimizationStrategyInfo!
+}
+
+"""
+Information about loose objects in a Git repository.
+"""
+type GitLooseObjectsInfo {
+    """
+    The number of loose objects.
+    """
+    count: BigInt!
+
+    """
+    The total size of all loose objects in bytes.
+    """
+    size: BigInt!
+
+    """
+    The number of stale loose objects.
+    """
+    staleCount: BigInt!
+
+    """
+    The total size of stale loose objects in bytes.
+    """
+    staleSize: BigInt!
+
+    """
+    The number of garbage files in the loose-objects shards.
+    """
+    garbageCount: BigInt!
+
+    """
+    The total size of garbage in the loose-objects shards in bytes.
+    """
+    garbageSize: BigInt!
+}
+
+"""
+Information about packfiles in a Git repository.
+"""
+type GitPackfilesInfo {
+    """
+    The number of all packfiles, including stale and kept ones.
+    """
+    count: BigInt!
+
+    """
+    The total size of all packfiles in bytes, including stale and kept ones.
+    """
+    size: BigInt!
+
+    """
+    The number of reverse indices.
+    """
+    reverseIndexCount: BigInt!
+
+    """
+    The number of cruft packfiles which have a .mtimes file.
+    """
+    cruftCount: BigInt!
+
+    """
+    The size of cruft packfiles which have a .mtimes file in bytes.
+    """
+    cruftSize: BigInt!
+
+    """
+    The number of .keep packfiles.
+    """
+    keepCount: BigInt!
+
+    """
+    The size of .keep packfiles in bytes.
+    """
+    keepSize: BigInt!
+
+    """
+    The number of garbage files.
+    """
+    garbageCount: BigInt!
+
+    """
+    The total size of all garbage files in bytes.
+    """
+    garbageSize: BigInt!
+
+    """
+    Information about the bitmap, if any exists.
+    """
+    bitmap: GitBitmapInfo
+
+    """
+    Information about the multi-pack-index, if any exists.
+    """
+    multiPackIndex: GitMultiPackIndexInfo
+
+    """
+    Information about the bitmap for the multi-pack-index, if any exists.
+    """
+    multiPackIndexBitmap: GitBitmapInfo
+
+    """
+    The timestamp of the last full repack, if known.
+    """
+    lastFullRepack: DateTime
+}
+
+"""
+Information about a bitmap index in a Git repository.
+"""
+type GitBitmapInfo {
+    """
+    Whether the bitmap exists.
+    """
+    exists: Boolean!
+
+    """
+    The version of the bitmap.
+    """
+    version: Int
+
+    """
+    Whether the name hash cache extension exists in the bitmap.
+    """
+    hasHashCache: Boolean
+
+    """
+    Whether the lookup table exists in the bitmap.
+    """
+    hasLookupTable: Boolean
+}
+
+"""
+Information about a multi-pack-index in a Git repository.
+"""
+type GitMultiPackIndexInfo {
+    """
+    Whether the multi-pack-index exists.
+    """
+    exists: Boolean!
+
+    """
+    The version of the multi-pack-index.
+    """
+    version: Int
+
+    """
+    The count of packfiles that the multi-pack-index tracks.
+    """
+    packfileCount: BigInt
+}
+
+"""
+Information about references in a Git repository.
+"""
+type GitReferencesInfo {
+    """
+    The number of unpacked, loose references that exist.
+    """
+    looseReferencesCount: BigInt!
+
+    """
+    The size of the packed-refs file in bytes.
+    """
+    packedReferencesSize: BigInt!
+
+    """
+    Details of individual reftable files, if any.
+    """
+    reftableTables: [GitReftableTable!]
+
+    """
+    The number of unrecognized files in the reftable directory.
+    """
+    reftableUnrecognizedFilesCount: BigInt
+
+    """
+    The reference backend name of the repository.
+    """
+    referenceBackendName: String
+}
+
+"""
+Information about a reftable in a Git repository.
+"""
+type GitReftableTable {
+    """
+    The size in bytes.
+    """
+    size: BigInt!
+
+    """
+    The min_update_index of the reftable.
+    """
+    updateIndexMin: BigInt!
+
+    """
+    The max_update_index of the reftable.
+    """
+    updateIndexMax: BigInt!
+}
+
+"""
+Detailed information about a Git commit graph.
+"""
+type GitCommitGraphInfo {
+    """
+    Whether the commit graph exists for this repository.
+    """
+    exists: Boolean!
+
+    """
+    The length of the commit graph chain, if it exists.
+    If the repository has a monolithic commit graph rather than a chain,
+    this value will be 0.
+    """
+    chainLength: BigInt!
+
+    """
+    Whether the commit graph has bloom filters. Bloom filters help determine
+    if a specific path was changed in a commit.
+    """
+    hasBloomFilters: Boolean!
+
+    """
+    Whether the commit graph has generation data. Generation data (stored as
+    corrected committer date) helps determine commit ancestry relationships.
+    """
+    hasGenerationData: Boolean!
+
+    """
+    Whether the commit graph has generation data overflow, which handles cases
+    where the corrected committer date requires more than 31 bits to represent.
+    """
+    hasGenerationDataOverflow: Boolean!
+}
+
+"""
+Information about recommended optimization strategies for a repository.
+"""
+type GitOptimizationStrategyInfo {
+    """
+    Whether the repository needs to be repacked and how.
+    """
+    shouldRepackObjects: Boolean!
+
+    """
+    Configuration for how objects should be repacked.
+    """
+    repackObjectsConfig: GitRepackObjectsConfig
+
+    """
+    Whether the repository has stale objects that should be pruned.
+    """
+    shouldPruneObjects: Boolean!
+
+    """
+    Configuration for how objects should be pruned.
+    """
+    pruneObjectsConfig: GitPruneObjectsConfig
+
+    """
+    Whether the repository's references need to be repacked.
+    """
+    shouldRepackReferences: Boolean!
+
+    """
+    Whether we need to write the commit-graph.
+    """
+    shouldWriteCommitGraph: Boolean!
+
+    """
+    Configuration for how the commit-graph should be written.
+    """
+    writeCommitGraphConfig: GitWriteCommitGraphConfig
+}
+
+"""
+Configuration for repacking objects in a Git repository.
+"""
+type GitRepackObjectsConfig {
+    """
+    The strategy for repacking objects.
+    """
+    strategy: String!
+
+    """
+    Whether reachability bitmaps should be written.
+    """
+    writeBitmap: Boolean!
+
+    """
+    Whether a multi-pack index should be written.
+    """
+    writeMultiPackIndex: Boolean!
+
+    """
+    The cutoff date for expiring unreachable cruft objects.
+    """
+    cruftExpireBefore: DateTime
+}
+
+"""
+Configuration for pruning objects in a Git repository.
+"""
+type GitPruneObjectsConfig {
+    """
+    The cutoff date for expiring unreachable objects.
+    """
+    expireBefore: DateTime
+}
+
+"""
+Configuration for writing a commit graph in a Git repository.
+"""
+type GitWriteCommitGraphConfig {
+    """
+    Whether to replace the entire commit-graph chain.
+    """
+    replaceChain: Boolean!
+}
+
+"""
 A reference to another Sourcegraph instance.
 """
 type Redirect {
@@ -3966,6 +4316,13 @@ type MirrorRepositoryInfo {
     Only site admins can access this field. Null is returned otherwise.
     """
     shard: String
+    """
+    Statistics about the repository's Git objects, references, and internal structure.
+    This information is useful for repository optimization and debugging purposes.
+    Null, if the repo is not currently cloned.
+    Only site admins may perform this query.
+    """
+    repositoryStatistics: GitRepositoryStatistics
 }
 
 """
@@ -4037,6 +4394,11 @@ type ExternalRepository {
     Example: For GitHub.com, this is "https://github.com/".
     """
     serviceID: String!
+
+    """
+    The kind of external service where this repository resides.
+    """
+    serviceKind: ExternalServiceKind!
 }
 
 """
@@ -4258,7 +4620,16 @@ type RepositoryComparison {
         A list of paths or directories used to filter the diffs
         """
         paths: [String!]
+        """
+        Filter files by path containing this search string
+        """
+        query: String
     ): FileDiffConnection!
+    """
+    The total number of files changed in this comparison.
+    This is more efficient than counting all file diffs when only the total count is needed.
+    """
+    totalDiffCount: Int!
 }
 
 """

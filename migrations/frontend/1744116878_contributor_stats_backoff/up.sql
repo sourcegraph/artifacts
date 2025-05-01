@@ -1,0 +1,1 @@
+ALTER TABLE contributor_repos ADD COLUMN IF NOT EXISTS last_processed TIMESTAMP WITH TIME ZONE;

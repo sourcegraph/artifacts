@@ -1,17 +1,3 @@
--- Perform migration here.
---
--- See /migrations/README.md. Highlights:
---  * Make migrations idempotent (use IF EXISTS)
---  * Make migrations backwards-compatible (old readers/writers must continue to work)
---  * If you are using CREATE INDEX CONCURRENTLY, then make sure that only one statement
---    is defined per file, and that each such statement is NOT wrapped in a transaction.
---    Each such migration must also declare "createIndexConcurrently: true" in their
---    associated metadata.yaml file.
---  * If you are modifying Postgres extensions, you must also declare "privileged: true"
---    in the associated metadata.yaml file.
---  * If you are inserting data, ensure your table is marked as a data table and that it
---    inserts for all tenants.
-
 -- Not generated columns because we parse the external timestamps in Go.
 ALTER TABLE agent_changesets ADD COLUMN IF NOT EXISTS external_created_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE agent_changesets ADD COLUMN IF NOT EXISTS external_updated_at TIMESTAMP WITH TIME ZONE;
