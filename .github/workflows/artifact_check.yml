@@ -23,6 +23,10 @@ jobs:
         id: get_latest_release
         run: |
           LATEST_RELEASE=$(curl --fail -s -H "Authorization: Bearer ${{ secrets.PRIVATE_SG_ACCESS_TOKEN }}" https://api.github.com/repos/sourcegraph/sourcegraph/releases/latest | jq -r .tag_name)
+          if [ -z "$LATEST_RELEASE" ]; then
+            echo "unable the fetch releases from github"
+            exit 1
+          fi
           echo "latest_release=${LATEST_RELEASE}" >> $GITHUB_OUTPUT
 
       - name: Read TAG file
