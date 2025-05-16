@@ -3850,6 +3850,11 @@
           "description": "Whether to enable verbose logging of requests. When enabled, grep for 'OpenAICompatible' in the frontend container logs to see the requests Cody makes to the endpoint.",
           "type": "boolean",
           "default": false
+        },
+        "useLegacyCompletions": {
+          "description": "If true (default), uses the /completions endpoint for autocomplete requests. If false, uses the /chat/completions endpoint for all requests, including autocomplete.",
+          "type": "boolean",
+          "default": true
         }
       }
     },
@@ -3870,6 +3875,13 @@
           "accessTokenQuery": {
             "description": "Ignored when accessToken is set; this is a configuration for fetching a provider access token over HTTP.",
             "$ref": "#/definitions/AccessTokenQuery"
+          },
+          "headers": {
+            "description": "Optional static headers that should be sent with requests to this endpoint. If provided, both accessToken and accessTokenQuery will be ignored and no 'Authorization' header will be set unless configured here.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         }
       }
