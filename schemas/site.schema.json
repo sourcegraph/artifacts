@@ -340,6 +340,11 @@
               "type": "integer",
               "default": 1000,
               "minimum": 1
+            },
+            "allowCodeInsights": {
+              "description": "Allow Code Insights to run on repositories that use sub-repo permissions",
+              "type": "boolean",
+              "default": false
             }
           }
         },
@@ -626,6 +631,16 @@
               "default": false
             }
           }
+        },
+        "deepSearch.enabled": {
+          "description": "Enable/disable the Deep Search feature",
+          "type": "boolean",
+          "default": false
+        },
+        "deepSearch.model": {
+          "description": "The model reference to use for DeepSearch. We only support Anthropic Claude 3.7 Sonnet.",
+          "type": "string",
+          "default": "anthropic::2024-10-22::claude-3-7-sonnet-latest"
         }
       },
       "examples": [
@@ -744,6 +759,14 @@
       "type": "boolean",
       "group": "BatchChanges",
       "default": false
+    },
+    "batchChanges.templateLibrary.displayLimit": {
+      "description": "Maximum number of batch spec templates to display in the template library UI. Default is 20.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 20,
+      "group": "BatchChanges"
     },
     "batchChanges.changesetsRetention": {
       "description": "How long changesets will be retained after they have been detached from a batch change.",
@@ -3445,7 +3468,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit", "tools"]
+            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit", "tools", "fallback"]
           },
           "examples": [["chat", "autocomplete", "vision", "reasoning", "edit", "tools"]]
         },
@@ -3570,6 +3593,11 @@
           "description": "The qualified name of the model to use for code completion, in '${ProviderID}::${APIVersionID}::${ModelID}' format",
           "type": "string",
           "examples": [["anthropic::2023-06-01::claude-3-sonnet", "openai::2024-02-01::gpt-4-turbo"]]
+        },
+        "fallbackChat": {
+          "description": "The qualified name of the model to use for unlimited chat, in '${ProviderID}::${APIVersionID}::${ModelID}' format",
+          "type": "string",
+          "examples": [["google::v1::gemini-2.0-flash"]]
         }
       }
     },
@@ -3583,7 +3611,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit", "tools"]
+            "enum": ["autocomplete", "chat", "vision", "reasoning", "edit", "tools", "fallback"]
           },
           "examples": [["chat", "autocomplete", "vision", "reasoning", "edit", "tools"]]
         },
@@ -4651,7 +4679,10 @@
         "url": {
           "type": "string",
           "description": "URL of the Gerrit instance, such as https://gerrit-review.googlesource.com or https://gerrit.example.com.",
-          "default": "https://gerrit-review.googlesource.com/"
+          "default": "https://gerrit-review.googlesource.com/",
+          "!go": {
+            "typeName": "NormalizedURL"
+          }
         },
         "displayName": {
           "$ref": "#/definitions/AuthProviderCommon/properties/displayName"
@@ -4683,6 +4714,14 @@
           "type": "string",
           "const": "azureDevOps"
         },
+        "url": {
+          "type": "string",
+          "description": "Endpoint to authorize with Entra. Required for Entra ID App registrations (all connections created after April 2025)",
+          "example": "https://login.microsoftonline.com/00000002-0000-0000-c000-000000000000",
+          "!go": {
+            "typeName": "NormalizedURL"
+          }
+        },
         "clientID": {
           "type": "string",
           "description": "The app ID of the Azure OAuth app."
@@ -4711,8 +4750,10 @@
         },
         "apiScope": {
           "type": "string",
-          "description": "The OAuth API scope that should be used",
-          "default": "vso.code,vso.identity,vso.project"
+          "description": "DEPRECATED: The OAuth API scope that should be used",
+          "default": "vso.code,vso.identity,vso.project",
+          "deprecated": true,
+          "deprecationMessage": "Deprecated because this changed with the change to Entra Apps. Configure the scopes you want to grant within Entra under API permissions instead."
         },
         "allowOrgs": {
           "description": "Restricts new logins and signups (if allowSignup is true) to members of these Azure DevOps organizations only. Existing sessions won't be invalidated. Leave empty or unset for no org restrictions.",

@@ -1,0 +1,5 @@
+ALTER TABLE external_service_repos DROP CONSTRAINT IF EXISTS external_service_repos_repo_id_external_service_id_unique;
+
+COMMIT AND CHAIN;
+
+ALTER TABLE sub_repo_permissions DROP CONSTRAINT IF EXISTS sub_repo_permissions_repo_id_user_id_version_uindex;

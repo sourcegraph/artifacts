@@ -31,7 +31,8 @@ CREATE TYPE audit_log_operation AS ENUM (
 CREATE TYPE batch_changes_changeset_ui_publication_state AS ENUM (
     'UNPUBLISHED',
     'DRAFT',
-    'PUBLISHED'
+    'PUBLISHED',
+    'PUSHED_ONLY'
 );
 
 CREATE TYPE cm_email_priority AS ENUM (
@@ -147,6 +148,7 @@ CREATE FUNCTION changesets_computed_state_ensure() RETURNS trigger
         WHEN NEW.reconciler_state = 'failed' THEN 'FAILED'
         WHEN NEW.reconciler_state = 'scheduled' THEN 'SCHEDULED'
         WHEN NEW.reconciler_state != 'completed' THEN 'PROCESSING'
+        WHEN NEW.ui_publication_state = 'PUSHED_ONLY' THEN 'PUSHED_ONLY'
         WHEN NEW.publication_state = 'UNPUBLISHED' THEN 'UNPUBLISHED'
         ELSE NEW.external_state
     END AS computed_state;
@@ -368,8 +370,8 @@ CREATE FUNCTION func_insert_gitserver_repo() RETURNS trigger
     AS $$
 BEGIN
 INSERT INTO gitserver_repos
-(repo_id, shard_id)
-VALUES (NEW.id, '');
+(repo_id)
+VALUES (NEW.id);
 RETURN NULL;
 END;
 $$;
@@ -1135,8 +1137,11 @@ CREATE TABLE batch_spec_library_records (
     created_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by_user_id integer,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    labels text[] DEFAULT '{}'::text[]
 );
+
+COMMENT ON COLUMN batch_spec_library_records.labels IS 'Array of labels associated with this batch spec, such as "featured". Used for filtering and categorization.';
 
 CREATE SEQUENCE batch_spec_library_records_id_seq
     START WITH 1
@@ -1359,7 +1364,7 @@ CREATE TABLE changeset_specs (
     commit_author_email text,
     type text NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    CONSTRAINT changeset_specs_published_valid_values CHECK (((published = 'true'::text) OR (published = 'false'::text) OR (published = '"draft"'::text) OR (published IS NULL)))
+    CONSTRAINT changeset_specs_published_valid_values CHECK (((published = 'true'::text) OR (published = 'false'::text) OR (published = '"draft"'::text) OR (published = '"push-only"'::text) OR (published IS NULL)))
 );
 
 CREATE TABLE changesets (
@@ -1408,6 +1413,7 @@ CREATE TABLE changesets (
     previous_failure_message text,
     commit_verification jsonb DEFAULT '{}'::jsonb NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    auto_merge_method text,
     CONSTRAINT changesets_batch_change_ids_check CHECK ((jsonb_typeof(batch_change_ids) = 'object'::text)),
     CONSTRAINT changesets_external_id_check CHECK ((external_id <> ''::text)),
     CONSTRAINT changesets_external_service_type_not_blank CHECK ((external_service_type <> ''::text)),
@@ -1544,6 +1550,34 @@ CREATE SEQUENCE changeset_specs_id_seq
     CACHE 1;
 
 ALTER SEQUENCE changeset_specs_id_seq OWNED BY changeset_specs.id;
+
+CREATE TABLE changeset_sync_jobs (
+    id bigint NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL,
+    changeset_id integer NOT NULL,
+    priority integer DEFAULT 100 NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE changeset_sync_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE changeset_sync_jobs_id_seq OWNED BY changeset_sync_jobs.id;
 
 CREATE SEQUENCE changesets_id_seq
     START WITH 1
@@ -2497,7 +2531,9 @@ CREATE TABLE exhaustive_search_jobs (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     queued_at timestamp with time zone DEFAULT now(),
     is_aggregated boolean DEFAULT false NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    description text,
+    CONSTRAINT exhaustive_search_jobs_description_length_check CHECK ((length(description) <= 200))
 );
 
 CREATE SEQUENCE exhaustive_search_jobs_id_seq
@@ -2854,7 +2890,6 @@ CREATE VIEW gitserver_relocator_jobs_with_repo_name WITH (security_invoker='true
 CREATE TABLE gitserver_repos (
     repo_id integer NOT NULL,
     clone_status text DEFAULT 'not_cloned'::text NOT NULL,
-    shard_id text NOT NULL,
     last_error text,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     last_fetched timestamp with time zone,
@@ -4162,6 +4197,25 @@ CREATE SEQUENCE package_repo_versions_id_seq
 
 ALTER SEQUENCE package_repo_versions_id_seq OWNED BY package_repo_versions.id;
 
+CREATE TABLE pending_repo_permissions (
+    id bigint NOT NULL,
+    bind_id text NOT NULL,
+    permission text NOT NULL,
+    service_type text NOT NULL,
+    service_id text NOT NULL,
+    repo_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE pending_repo_permissions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE pending_repo_permissions_id_seq OWNED BY pending_repo_permissions.id;
+
 CREATE TABLE permission_sync_jobs (
     id integer NOT NULL,
     state text DEFAULT 'queued'::text,
@@ -4415,7 +4469,8 @@ CREATE VIEW reconciler_changesets WITH (security_invoker='true') AS
     c.external_fork_namespace,
     c.detached_at,
     c.previous_failure_message,
-    c.tenant_id
+    c.tenant_id,
+    c.auto_merge_method
    FROM (changesets c
      JOIN repo r ON ((r.id = c.repo_id)))
   WHERE ((r.deleted_at IS NULL) AND (EXISTS ( SELECT 1
@@ -4488,7 +4543,8 @@ CREATE TABLE repo_cleanup_jobs (
     cancel boolean DEFAULT false NOT NULL,
     repository_id integer NOT NULL,
     priority integer DEFAULT 1 NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    eager_optimize boolean DEFAULT false NOT NULL
 );
 
 CREATE SEQUENCE repo_cleanup_jobs_id_seq
@@ -5515,6 +5571,8 @@ ALTER TABLE ONLY changeset_jobs ALTER COLUMN id SET DEFAULT nextval('changeset_j
 
 ALTER TABLE ONLY changeset_specs ALTER COLUMN id SET DEFAULT nextval('changeset_specs_id_seq'::regclass);
 
+ALTER TABLE ONLY changeset_sync_jobs ALTER COLUMN id SET DEFAULT nextval('changeset_sync_jobs_id_seq'::regclass);
+
 ALTER TABLE ONLY changesets ALTER COLUMN id SET DEFAULT nextval('changesets_id_seq'::regclass);
 
 ALTER TABLE ONLY cm_action_jobs ALTER COLUMN id SET DEFAULT nextval('cm_action_jobs_id_seq'::regclass);
@@ -5670,6 +5728,8 @@ ALTER TABLE ONLY own_signal_recent_contribution ALTER COLUMN id SET DEFAULT next
 ALTER TABLE ONLY package_repo_filters ALTER COLUMN id SET DEFAULT nextval('package_repo_filters_id_seq'::regclass);
 
 ALTER TABLE ONLY package_repo_versions ALTER COLUMN id SET DEFAULT nextval('package_repo_versions_id_seq'::regclass);
+
+ALTER TABLE ONLY pending_repo_permissions ALTER COLUMN id SET DEFAULT nextval('pending_repo_permissions_id_seq'::regclass);
 
 ALTER TABLE ONLY permission_sync_jobs ALTER COLUMN id SET DEFAULT nextval('permission_sync_jobs_id_seq'::regclass);
 
@@ -5828,6 +5888,9 @@ ALTER TABLE ONLY changeset_jobs
 ALTER TABLE ONLY changeset_specs
     ADD CONSTRAINT changeset_specs_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY changeset_sync_jobs
+    ADD CONSTRAINT changeset_sync_jobs_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_pkey PRIMARY KEY (id);
 
@@ -5934,6 +5997,9 @@ ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_pkey PRIMARY KEY (entitlement_id, user_id);
 
 ALTER TABLE ONLY entitlements
+    ADD CONSTRAINT entitlements_name_type_tenant_unique UNIQUE (name, type, tenant_id);
+
+ALTER TABLE ONLY entitlements
     ADD CONSTRAINT entitlements_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY event_logs
@@ -5980,9 +6046,6 @@ ALTER TABLE ONLY explicit_permissions_bitbucket_projects_jobs
 
 ALTER TABLE ONLY external_service_repos
     ADD CONSTRAINT external_service_repos_pkey PRIMARY KEY (repo_id, external_service_id);
-
-ALTER TABLE ONLY external_service_repos
-    ADD CONSTRAINT external_service_repos_repo_id_external_service_id_unique UNIQUE (repo_id, external_service_id);
 
 ALTER TABLE ONLY external_service_sync_jobs
     ADD CONSTRAINT external_service_sync_jobs_pkey PRIMARY KEY (id);
@@ -6179,6 +6242,12 @@ ALTER TABLE ONLY package_repo_filters
 ALTER TABLE ONLY package_repo_versions
     ADD CONSTRAINT package_repo_versions_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY pending_repo_permissions
+    ADD CONSTRAINT pending_repo_permissions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY pending_repo_permissions
+    ADD CONSTRAINT pending_repo_permissions_service_perm_object_unique UNIQUE (permission, service_type, service_id, repo_id, tenant_id, bind_id);
+
 ALTER TABLE ONLY permission_sync_jobs
     ADD CONSTRAINT permission_sync_jobs_pkey PRIMARY KEY (id);
 
@@ -6286,9 +6355,6 @@ ALTER TABLE ONLY settings
 
 ALTER TABLE ONLY sub_repo_permissions
     ADD CONSTRAINT sub_repo_permissions_pkey PRIMARY KEY (repo_id, user_id, version);
-
-ALTER TABLE ONLY sub_repo_permissions
-    ADD CONSTRAINT sub_repo_permissions_repo_id_user_id_version_uindex UNIQUE (repo_id, user_id, version);
 
 ALTER TABLE ONLY survey_responses
     ADD CONSTRAINT survey_responses_pkey PRIMARY KEY (id);
@@ -6472,6 +6538,12 @@ CREATE INDEX changeset_specs_title ON changeset_specs USING btree (title);
 
 CREATE UNIQUE INDEX changeset_specs_unique_rand_id ON changeset_specs USING btree (rand_id, tenant_id);
 
+CREATE INDEX changeset_sync_jobs_dequeue_idx ON changeset_sync_jobs USING btree (state, process_after);
+
+CREATE INDEX changeset_sync_jobs_dequeue_order_idx ON changeset_sync_jobs USING btree (priority DESC, COALESCE(process_after, queued_at), id, tenant_id);
+
+CREATE UNIQUE INDEX changeset_sync_jobs_one_concurrent_per_changeset ON changeset_sync_jobs USING btree (changeset_id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text]));
+
 CREATE INDEX changesets_batch_change_ids ON changesets USING gin (batch_change_ids);
 
 CREATE INDEX changesets_bitbucket_cloud_metadata_source_commit_idx ON changesets USING btree (((((metadata -> 'source'::text) -> 'commit'::text) ->> 'hash'::text)));
@@ -6596,7 +6668,7 @@ CREATE INDEX gitserver_repos_not_explicitly_cloned_idx ON gitserver_repos USING 
 
 CREATE INDEX gitserver_repos_schedule_order_idx ON gitserver_repos USING btree (((timezone('UTC'::text, last_fetch_attempt_at) + LEAST(GREATEST((((last_fetched - last_changed) / (2)::double precision) * ((failed_fetch_attempts + 1))::double precision), '00:00:45'::interval), '08:00:00'::interval))) DESC, repo_id);
 
-CREATE INDEX gitserver_repos_shard_id ON gitserver_repos USING btree (shard_id, repo_id);
+CREATE INDEX idx_changeset_sync_jobs_changeset_id ON changeset_sync_jobs USING btree (changeset_id, tenant_id);
 
 CREATE INDEX idx_repo_cleanup_jobs_repository_id ON repo_cleanup_jobs USING btree (tenant_id, repository_id);
 
@@ -7080,6 +7152,12 @@ ALTER TABLE ONLY changeset_specs
 
 ALTER TABLE ONLY changeset_specs
     ADD CONSTRAINT changeset_specs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY changeset_sync_jobs
+    ADD CONSTRAINT changeset_sync_jobs_changeset_id_fkey FOREIGN KEY (changeset_id) REFERENCES changesets(id) ON DELETE CASCADE DEFERRABLE;
+
+ALTER TABLE ONLY changeset_sync_jobs
+    ADD CONSTRAINT changeset_sync_jobs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
 
 ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_changeset_spec_id_fkey FOREIGN KEY (current_spec_id) REFERENCES changeset_specs(id) DEFERRABLE;
@@ -7632,6 +7710,8 @@ ALTER TABLE changeset_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE changeset_specs ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE changeset_sync_jobs ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE changesets ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE cm_action_jobs ENABLE ROW LEVEL SECURITY;
@@ -7824,6 +7904,8 @@ ALTER TABLE package_repo_filters ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE package_repo_versions ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE pending_repo_permissions ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE permission_sync_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
@@ -7933,6 +8015,8 @@ CREATE POLICY tenant_isolation_policy ON changeset_events USING ((tenant_id = ( 
 CREATE POLICY tenant_isolation_policy ON changeset_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON changeset_specs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON changeset_sync_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON changesets USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
@@ -8125,6 +8209,8 @@ CREATE POLICY tenant_isolation_policy ON ownership_path_stats USING ((tenant_id 
 CREATE POLICY tenant_isolation_policy ON package_repo_filters USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON package_repo_versions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON pending_repo_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON permission_sync_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 

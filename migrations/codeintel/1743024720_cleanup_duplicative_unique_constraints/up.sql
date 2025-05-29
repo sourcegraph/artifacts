@@ -1,0 +1,1 @@
+ALTER TABLE codeintel_last_reconcile DROP CONSTRAINT IF EXISTS codeintel_last_reconcile_dump_id_key;

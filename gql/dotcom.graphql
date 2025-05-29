@@ -96,6 +96,10 @@ type CodyGatewayRateLimit {
     """
     allowedModels: [String!]!
     """
+    Whether or not using fallback models is allowed.
+    """
+    allowedFallbackModels: Boolean!
+    """
     Requests per time interval.
     """
     limit: BigInt!

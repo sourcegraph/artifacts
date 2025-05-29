@@ -28,6 +28,20 @@ extend type Mutation {
         """
         id: ID!
     ): EmptyResponse!
+
+    """
+    Update a search job. This allows modifying metadata like the description.
+    """
+    updateSearchJob(
+        """
+        The ID of the search job to update.
+        """
+        id: ID!
+        """
+        The description of the search job.
+        """
+        description: String!
+    ): SearchJob!
 }
 
 extend type Query {
@@ -138,7 +152,7 @@ A search job.
 """
 type SearchJob implements Node {
     """
-    The ID of the search job.
+    The GraphQL ID of the search job.
     """
     id: ID!
     """
@@ -177,6 +191,14 @@ type SearchJob implements Node {
     The repository stats for the search job.
     """
     repoStats: SearchJobStats!
+    """
+    The database ID of the search job.
+    """
+    databaseID: Int!
+    """
+    The description of the search job.
+    """
+    description: String!
 }
 
 """

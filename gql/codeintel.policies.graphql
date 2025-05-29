@@ -109,6 +109,9 @@ extend type Mutation {
         retentionEnabled: Boolean!
         retentionDurationHours: Int
         retainIntermediateCommits: Boolean!
+        """
+        Does this policy enable precise auto-indexing?
+        """
         indexingEnabled: Boolean!
         syntacticIndexingEnabled: Boolean
         indexCommitMaxAgeHours: Int
@@ -136,6 +139,9 @@ extend type Mutation {
         retentionEnabled: Boolean!
         retentionDurationHours: Int
         retainIntermediateCommits: Boolean!
+        """
+        Does this policy enable precise auto-indexing?
+        """
         indexingEnabled: Boolean!
         syntacticIndexingEnabled: Boolean
         indexCommitMaxAgeHours: Int
@@ -148,12 +154,63 @@ extend type Mutation {
     ): EmptyResponse
 
     """
+    Resets the list of all unprotected configuration policies to the given list.
+
+    Protected policies are not affected; they can be individually modified using
+    updateCodeIntelligenceConfigurationPolicy.
+
+    EXPERIMENTAL(May 2025): This API may make breaking changes.
+    """
+    # 🚧 CLOUD: This mutation may be used by Cloud automation - please check
+    # before deleting.
+    resetCodeIntelligenceConfigurationPolicies(wantedPolicies: [CodeGraphConfigurationPolicyInput!]!): EmptyResponse
+
+    """
     Deletes the configuration policy with the given identifier.
     """
     # 🚧 CLOUD: This mutation is used by Cloud automation - please do not
     # introduce any breaking changes, and let new parameters be optional with
     # reasonable defaults instead.
     deleteCodeIntelligenceConfigurationPolicy(policy: ID!): EmptyResponse
+}
+
+"""
+Input type for resetting policies
+"""
+input CodeGraphConfigurationPolicyInput {
+    """
+    Name of the managed policy
+    """
+    name: String!
+    """
+    Describes which type of git objects this policy applies to
+    """
+    type: GitObjectType!
+    """
+    Glob pattern matching the name of the matching Git object
+    """
+    pattern: String!
+    """
+    Describes whether this policy specifies a retention duration or not
+    """
+    retentionEnabled: Boolean!
+    """
+    Retention duration (only used if retentionEnabled is true)
+    """
+    retentionDurationHours: Int
+    """
+    Does this policy enable precise auto-indexing?
+    """
+    indexingEnabled: Boolean!
+    """
+    Does this policy enable syntactic indexing?
+    """
+    syntacticIndexingEnabled: Boolean!
+    """
+    The maximum age of a commit to be considered for precise auto-indexing
+    or syntactic indexing.
+    """
+    indexCommitMaxAgeHours: Int
 }
 
 extend type Repository {

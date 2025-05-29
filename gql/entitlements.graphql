@@ -11,7 +11,7 @@ extend type Mutation {
         """
         The type of the entitlement.
         """
-        type: String!
+        type: EntitlementType!
 
         """
         The limit value for this entitlement.
@@ -106,7 +106,7 @@ extend type Query {
         """
         The type of the entitlement.
         """
-        type: String
+        type: EntitlementType
         """
         Whether this is the default entitlement for its type.
         """
@@ -153,7 +153,7 @@ type Entitlement {
     """
     The type of the entitlement.
     """
-    type: String!
+    type: EntitlementType!
 
     """
     The limit value for this entitlement.
@@ -215,4 +215,11 @@ EntitlementWindow represents the available time periods for entitlement enforcem
 enum EntitlementWindow {
     ONE_DAY
     SEVEN_DAYS
+}
+
+"""
+EntitlementType represents the available types of entitlements.
+"""
+enum EntitlementType {
+    COMPLETION_CREDITS
 }

@@ -1,0 +1,1 @@
+ALTER TABLE entitlements DROP CONSTRAINT IF EXISTS entitlements_name_type_tenant_unique;

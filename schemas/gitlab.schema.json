@@ -111,7 +111,7 @@
       ]
     },
     "exclude": {
-      "description": "A list of projects to never mirror from this GitLab instance. Takes precedence over \"projects\" and \"projectQuery\" configuration. Supports excluding by name ({\"name\": \"group/name\"}) or by ID ({\"id\": 42}).",
+      "description": "A list of projects to never mirror from this GitLab instance. Takes precedence over \"projects\" and \"projectQuery\" configuration. You can exclude projects by: name ({\"name\": \"group/name\"}), ID ({\"id\": 42}), regular expression matching pattern ({\"pattern\": \"^group\\/project-.*\"}), or by excluding empty repositories ({\"emptyRepos\": true}).",
       "type": "array",
       "items": {
         "type": "object",

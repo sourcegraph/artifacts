@@ -1,0 +1,2 @@
+name: Drop gitserver_repos.shard_id column
+parents: [1741986933]

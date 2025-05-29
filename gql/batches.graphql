@@ -41,7 +41,7 @@ type ChangesetCounts {
 }
 
 """
-The publication state of a changeset on Sourcegraph
+The publication state of a changeset on Sourcegraph as represented in the `frontend` database's `changesets` table.
 """
 enum ChangesetPublicationState {
     """
@@ -115,6 +115,24 @@ enum ChangesetReviewState {
 }
 
 """
+The merge method to use when auto-merging changesets.
+"""
+enum MergeMethod {
+    """
+    Create a merge commit when merging the changeset.
+    """
+    MERGE
+    """
+    Rebase and merge the changeset commits individually.
+    """
+    REBASE
+    """
+    Squash the changeset's commits into one commit and merge it.
+    """
+    SQUASH
+}
+
+"""
 The state of checks (e.g., for continuous integration) on a changeset.
 """
 enum ChangesetCheckState {
@@ -142,7 +160,7 @@ type ChangesetLabel {
 }
 
 """
-The visual state a changeset is currently in.
+The state a changeset is currently in, when viewed in the UI. In the frontend React app, this corresponds to a changeset's ChangesetSpecPublicationStateInput.publicationState value.
 """
 enum ChangesetState {
     """
@@ -194,6 +212,10 @@ enum ChangesetState {
     The changeset is published, not being reconciled and has been deleted on the code host.
     """
     DELETED
+    """
+    The changeset has not been published, but code has been pushed to a branch on the code host. Note: this is NOT an *operation*, this is the state of code on the code host.
+    """
+    PUSHED_ONLY
 }
 
 """
@@ -824,6 +846,14 @@ enum ChangesetSpecOperation {
     The changeset is rebased on top of the latest changes on the target branch.
     """
     REBASE
+    """
+    Enable auto-merge on the changeset (experimental, GitHub only).
+    """
+    AUTO_MERGE
+    """
+    Push code to code host on new branch, but do not start a merge request.
+    """
+    PUSH_ONLY
 }
 
 """
@@ -1005,7 +1035,7 @@ type ExistingChangesetReference {
 }
 
 """
-A quadruple that represents all possible states of the published value: true, false, 'draft', or null.
+A quadruple that represents all possible states of the published value: true, false, 'draft', or null. Note: this will also include `"pushed-only"` if the 'push-only-changesets' frontend feature flag is set to 'true'.
 """
 scalar PublishedValue
 
@@ -1403,6 +1433,10 @@ extend type Mutation {
         The batch spec template content.
         """
         spec: String!
+        """
+        Labels associated with this batch spec, such as "featured". Used for filtering and categorization.
+        """
+        labels: [String!]
     ): BatchSpecLibraryRecord!
 
     """
@@ -1423,6 +1457,10 @@ extend type Mutation {
         The new batch spec template content.
         """
         spec: String!
+        """
+        Labels associated with this batch spec, such as "featured". Used for filtering and categorization.
+        """
+        labels: [String!]
     ): BatchSpecLibraryRecord!
 
     """
@@ -1864,6 +1902,17 @@ extend type Mutation {
     rebaseChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
 
     """
+    Enable auto-merge for multiple changesets.
+
+    The mergeMethod parameter defaults to SQUASH if omitted.
+
+    Currently only supported for GitHub changesets.
+
+    Experimental: This API is likely to change in the future.
+    """
+    enableAutoMergeChangesets(batchChange: ID!, changesets: [ID!]!, mergeMethod: MergeMethod): BulkOperation!
+
+    """
     Merge multiple changesets. If squash is true, the commits will be squashed
     into a single commit on code hosts that support squash-and-merge.
 
@@ -1898,6 +1947,14 @@ extend type Mutation {
     to be retryable.
     """
     retryBatchSpecWorkspaceExecution(batchSpecWorkspaces: [ID!]!): EmptyResponse!
+
+    """
+    Retry execution of a changeset spec by finding its associated workspace and retrying it.
+
+    Note: this will delete and reexecute all changesets associated with the changeset's workspace. This is normally
+    just the specified changeset, but it could be more changesets, such as when using transformChanges (https://sourcegraph.com/docs/batch-changes/batch-spec-yaml-reference#transformchanges)
+    """
+    retryChangesetSpecExecution(changesetSpec: ID!): EmptyResponse!
 
     """
     Requeue all workspaces in the batch spec for execution. Previous results and
@@ -1938,6 +1995,11 @@ type BatchSpecLibraryRecord {
     The batch spec template content.
     """
     spec: String!
+
+    """
+    Labels associated with this batch spec, such as "featured". Used for filtering and categorization.
+    """
+    labels: [String!]!
 }
 
 """
@@ -1978,6 +2040,11 @@ extend type Query {
         Search for templates matching this query.
         """
         search: String
+
+        """
+        Filter templates by one or more labels.
+        """
+        labelFilter: [String!]
     ): BatchSpecLibraryConnection
 
     """
@@ -3054,6 +3121,14 @@ enum BulkOperationType {
     Rebase changesets.
     """
     REBASE
+    """
+    Enable auto-merge for changesets (experimental, GitHub only).
+    """
+    AUTO_MERGE
+    """
+    Only push code to new branch on code host, do not start a new merge request.
+    """
+    PUSH_ONLY
 }
 
 """

@@ -51,6 +51,21 @@ type EmptyResponse {
 }
 
 """
+Optimization strategies that can be used for repository optimization
+"""
+enum GitOptimizationStrategy {
+    """
+    Heuristic strategy optimizes only what Git determines needs optimization
+    """
+    HEURISTIC
+
+    """
+    Eager strategy forces a full optimization regardless of current state
+    """
+    EAGER
+}
+
+"""
 An object with an ID.
 """
 interface Node {
@@ -166,6 +181,25 @@ type Mutation {
         The mirror repository to update.
         """
         repository: ID!
+    ): EmptyResponse!
+    """
+    Schedule the mirror repository to be optimized. Optimization
+    occurs automatically, so this should not normally be needed.
+
+    Only site admins may perform this mutation.
+    """
+    optimizeMirrorRepository(
+        """
+        The mirror repository to optimize.
+        """
+        repository: ID!
+
+        """
+        The optimization strategy to use.
+        HEURISTIC (default) optimizes only what's needed based on Git's assessment.
+        EAGER forces a full optimization regardless of current state.
+        """
+        strategy: GitOptimizationStrategy = HEURISTIC
     ): EmptyResponse!
     """
     Force Zoekt to reindex the repository right now. Reindexing occurs
@@ -1742,7 +1776,7 @@ type Query {
     """
     Retrieve the list of defined feature flags
     """
-    featureFlags: [FeatureFlag!]!
+    featureFlags(search: String, type: String): [FeatureFlag!]!
 
     """
     Retrieve a feature flag
@@ -4300,6 +4334,18 @@ type MirrorRepositoryInfo {
     """
     updateQueue: UpdateQueue
     """
+    The state of this repository in the cleanup schedule.
+    """
+    cleanupSchedule: UpdateSchedule
+    """
+    The state of this repository in the cleanup queue.
+    """
+    cleanupQueue: CleanupQueue
+    """
+    When the repository was last successfully cleaned.
+    """
+    lastCleanedAt: DateTime
+    """
     The last error message, if any, returned when fetching or cloning the repo
     """
     lastError: String
@@ -4372,6 +4418,22 @@ type UpdateQueue {
     True if the repo is currently updating.
     """
     updating: Boolean!
+}
+
+"""
+The state of a repository in the cleanup queue.
+"""
+type CleanupQueue {
+    """
+    The index of the repo in the cleanup queue.
+    Optimizing repos are placed at the end of the queue until they finish optimizing
+    so don't display this if optimizing is true.
+    """
+    index: Int!
+    """
+    True if the repo is currently being optimized.
+    """
+    optimizing: Boolean!
 }
 
 """
@@ -5149,6 +5211,11 @@ type LanguageStatistics {
     The total number of lines in the language.
     """
     totalLines: Int!
+
+    """
+    The total number of files in the language.
+    """
+    totalFiles: Int!
 }
 
 """

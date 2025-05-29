@@ -27,6 +27,10 @@ extend type Query {
         Query for usage records created after the given time.
         """
         createdAfter: DateTime
+        """
+        Query for all usages records which share an interaction ID.
+        """
+        interactionID: String
     ): CompletionCreditsUsageConnection!
 
     """

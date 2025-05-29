@@ -403,9 +403,6 @@ ALTER TABLE ONLY rockskip_symbols ALTER COLUMN id SET DEFAULT nextval('rockskip_
 ALTER TABLE ONLY tenants ALTER COLUMN id SET DEFAULT nextval('tenants_id_seq'::regclass);
 
 ALTER TABLE ONLY codeintel_last_reconcile
-    ADD CONSTRAINT codeintel_last_reconcile_dump_id_key UNIQUE (dump_id);
-
-ALTER TABLE ONLY codeintel_last_reconcile
     ADD CONSTRAINT codeintel_last_reconcile_pkey PRIMARY KEY (dump_id);
 
 ALTER TABLE ONLY codeintel_scip_document_lookup

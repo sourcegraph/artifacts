@@ -114,6 +114,11 @@ extend type Query {
         List of prompt IDs to exclude.
         """
         exclude: [ID!]
+
+        """
+        List of prompt IDs to include.
+        """
+        include: [ID!]
     ): PromptsConnection!
 }
 
@@ -258,6 +263,7 @@ enum PromptsOrderBy {
     PROMPT_NAME_WITH_OWNER
     PROMPT_UPDATED_AT
     PROMPT_RECOMMENDED
+    PROMPT_RELEVANCE
 }
 
 """
