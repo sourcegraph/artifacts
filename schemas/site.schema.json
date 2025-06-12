@@ -638,9 +638,9 @@
           "default": false
         },
         "deepSearch.model": {
-          "description": "The model reference to use for DeepSearch. We only support Anthropic Claude 3.7 Sonnet.",
+          "description": "The model reference to use for DeepSearch. We only support Anthropic Claude Sonnet 4.",
           "type": "string",
-          "default": "anthropic::2024-10-22::claude-3-7-sonnet-latest"
+          "default": "anthropic::2024-10-22::claude-sonnet-4-latest"
         }
       },
       "examples": [
