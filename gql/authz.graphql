@@ -15,6 +15,35 @@ extend type Mutation {
         """
         userPermissions: [UserPermissionInput!]!
     ): EmptyResponse!
+
+    """
+    Add permission for a single user to access a repository. This operation preserves existing permissions.
+    """
+    addRepositoryPermissionForUser(
+        """
+        The repository permission specification - either a specific repository or unrestricted access.
+        Unrestricted access is currently only supported for service accounts.
+        """
+        permission: RepositoryPermissionInput!
+        """
+        The user identifier and permission level to add.
+        """
+        userID: ID!
+    ): EmptyResponse!
+
+    """
+    Remove permission for a single user to access a repository. This operation preserves other existing permissions.
+    """
+    removeRepositoryPermissionForUser(
+        """
+        The repository to remove permission from.
+        """
+        repository: ID!
+        """
+        The bindID (username or email) of the user whose permission to remove.
+        """
+        userID: ID!
+    ): EmptyResponse!
     """
     Set 'unrestricted' to true or false on a set of repositories. Repositories with
     'unrestricted' true will be visible to all users on the Sourcegraph instance.
@@ -298,6 +327,20 @@ input UserPermissionInput {
 }
 
 """
+Input type for repository permission specification - either a specific repository or unrestricted access.
+"""
+input RepositoryPermissionInput {
+    """
+    The repository ID to grant permission for. Mutually exclusive with wildcard.
+    """
+    repository: ID
+    """
+    Whether to grant unrestricted access to all repositories. Mutually exclusive with repository.
+    """
+    wildcard: Boolean
+}
+
+"""
 A user (identified either by username or email address) with its repository permission.
 """
 type UserPermission {
@@ -463,6 +506,10 @@ type UserPermissionsInfo {
         Search query to filter repositories based on name.
         """
         query: String
+        """
+        The source of the permission.
+        """
+        source: PermissionSource
     ): PermissionsInfoRepositoriesConnection
 }
 

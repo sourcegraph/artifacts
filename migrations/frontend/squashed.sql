@@ -909,6 +909,15 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION update_deepsearch_conversations_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
 CREATE FUNCTION update_own_aggregate_recent_contribution() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -1151,6 +1160,30 @@ CREATE SEQUENCE batch_spec_library_records_id_seq
     CACHE 1;
 
 ALTER SEQUENCE batch_spec_library_records_id_seq OWNED BY batch_spec_library_records.id;
+
+CREATE TABLE batch_spec_library_variables (
+    id bigint NOT NULL,
+    batch_spec_library_record_id bigint NOT NULL,
+    name text NOT NULL,
+    regex_rule text NOT NULL,
+    placeholder text,
+    description text,
+    level text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    mandatory boolean DEFAULT false NOT NULL,
+    CONSTRAINT batch_spec_library_variables_level_check CHECK ((level = ANY (ARRAY['error'::text, 'warn'::text, 'info'::text])))
+);
+
+CREATE SEQUENCE batch_spec_library_variables_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_spec_library_variables_id_seq OWNED BY batch_spec_library_variables.id;
 
 CREATE TABLE batch_spec_resolution_jobs (
     id bigint NOT NULL,
@@ -2284,6 +2317,48 @@ CREATE SEQUENCE critical_and_site_config_id_seq
 
 ALTER SEQUENCE critical_and_site_config_id_seq OWNED BY critical_and_site_config.id;
 
+CREATE TABLE deepsearch_conversations (
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    edit_token uuid DEFAULT gen_random_uuid(),
+    read_token uuid DEFAULT gen_random_uuid(),
+    user_id integer,
+    data jsonb,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE deepsearch_conversations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_conversations_id_seq OWNED BY deepsearch_conversations.id;
+
+CREATE TABLE deepsearch_references (
+    id integer NOT NULL,
+    conversation_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    repo_id integer,
+    file_path text DEFAULT ''::text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON COLUMN deepsearch_references.file_path IS 'File path can be empty because some agent tools only produce repo or commit information but not file content. We use empty string as the sentinel value so that the unique constraint works correctly';
+
+CREATE SEQUENCE deepsearch_references_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_references_id_seq OWNED BY deepsearch_references.id;
+
 CREATE TABLE entitlement_grants (
     entitlement_id integer NOT NULL,
     user_id integer NOT NULL,
@@ -2935,6 +3010,214 @@ CREATE SEQUENCE global_state_id_seq
     CACHE 1;
 
 ALTER SEQUENCE global_state_id_seq OWNED BY global_state.id;
+
+CREATE TABLE idp_authorize_codes (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    opaque_id text NOT NULL,
+    client_id text NOT NULL,
+    session_id bigint NOT NULL,
+    active boolean NOT NULL,
+    hashed_code text NOT NULL,
+    requested_at timestamp with time zone NOT NULL,
+    requested_scopes text[] NOT NULL,
+    granted_scopes text[] NOT NULL,
+    requested_audience text[] NOT NULL,
+    granted_audience text[] NOT NULL,
+    request_form jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE idp_authorize_codes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_authorize_codes_id_seq OWNED BY idp_authorize_codes.id;
+
+CREATE TABLE idp_clients (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    opaque_id text NOT NULL,
+    name text NOT NULL,
+    hashed_secret text NOT NULL,
+    rotated_hashes jsonb NOT NULL,
+    redirect_uris text[] NOT NULL,
+    grant_types text[] NOT NULL,
+    response_types text[] NOT NULL,
+    scopes text[] NOT NULL,
+    public boolean NOT NULL,
+    audience text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_clients_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_clients_id_seq OWNED BY idp_clients.id;
+
+CREATE TABLE idp_device_auth_requests (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    opaque_id text NOT NULL,
+    client_id text NOT NULL,
+    session_id bigint NOT NULL,
+    hashed_device_code_signature text NOT NULL,
+    hashed_user_code_signature text NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    user_code_state smallint DEFAULT 0 NOT NULL,
+    requested_at timestamp with time zone NOT NULL,
+    requested_scopes text[] NOT NULL,
+    granted_scopes text[] NOT NULL,
+    requested_audience text[] NOT NULL,
+    granted_audience text[] NOT NULL,
+    request_form jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_device_auth_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_device_auth_requests_id_seq OWNED BY idp_device_auth_requests.id;
+
+CREATE TABLE idp_id_tokens (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    opaque_id text NOT NULL,
+    client_id text NOT NULL,
+    session_id bigint NOT NULL,
+    hashed_authorize_code text NOT NULL,
+    requested_at timestamp with time zone NOT NULL,
+    requested_scopes text[] NOT NULL,
+    granted_scopes text[] NOT NULL,
+    requested_audience text[] NOT NULL,
+    granted_audience text[] NOT NULL,
+    request_form jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_id_tokens_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_id_tokens_id_seq OWNED BY idp_id_tokens.id;
+
+CREATE TABLE idp_pkce_requests (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    opaque_id text NOT NULL,
+    client_id text NOT NULL,
+    session_id bigint NOT NULL,
+    hashed_signature text NOT NULL,
+    requested_at timestamp with time zone NOT NULL,
+    requested_scopes text[] NOT NULL,
+    granted_scopes text[] NOT NULL,
+    requested_audience text[] NOT NULL,
+    granted_audience text[] NOT NULL,
+    request_form jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_pkce_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_pkce_requests_id_seq OWNED BY idp_pkce_requests.id;
+
+CREATE TABLE idp_secrets (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    oidc_global_secret text NOT NULL,
+    oidc_jwk_private_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE idp_secrets IS 'Stores tenant-specific OIDC configuration secrets including global secrets and JWK private keys';
+
+CREATE SEQUENCE idp_secrets_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_secrets_id_seq OWNED BY idp_secrets.id;
+
+CREATE TABLE idp_sessions (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    client_id text NOT NULL,
+    claims jsonb NOT NULL,
+    headers jsonb NOT NULL,
+    expires_at jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_sessions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_sessions_id_seq OWNED BY idp_sessions.id;
+
+CREATE TABLE idp_tokens (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    opaque_id text NOT NULL,
+    type text NOT NULL,
+    client_id text NOT NULL,
+    session_id bigint NOT NULL,
+    active boolean NOT NULL,
+    hashed_signature text NOT NULL,
+    requested_at timestamp with time zone NOT NULL,
+    requested_scopes text[] NOT NULL,
+    granted_scopes text[] NOT NULL,
+    requested_audience text[] NOT NULL,
+    granted_audience text[] NOT NULL,
+    request_form jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_tokens_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_tokens_id_seq OWNED BY idp_tokens.id;
 
 CREATE TABLE insights_query_runner_jobs (
     id integer NOT NULL,
@@ -4394,6 +4677,8 @@ CREATE TABLE users (
     completed_post_signup boolean DEFAULT false NOT NULL,
     cody_pro_enabled_at timestamp with time zone,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    service_account boolean DEFAULT false NOT NULL,
+    unrestricted_repo_access boolean DEFAULT false NOT NULL,
     CONSTRAINT users_display_name_max_length CHECK ((char_length(display_name) <= 255)),
     CONSTRAINT users_username_max_length CHECK ((char_length((username)::text) <= 255)),
     CONSTRAINT users_username_valid_chars CHECK ((username OPERATOR(~) '^\w(?:\w|[-.](?=\w))*-?$'::citext))
@@ -4658,44 +4943,6 @@ CREATE SEQUENCE repo_paths_id_seq
     CACHE 1;
 
 ALTER SEQUENCE repo_paths_id_seq OWNED BY repo_paths.id;
-
-CREATE TABLE repo_pending_permissions (
-    repo_id integer NOT NULL,
-    permission text NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    user_ids_ints bigint[] DEFAULT '{}'::integer[] NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    id bigint NOT NULL
-);
-
-CREATE SEQUENCE repo_pending_permissions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE repo_pending_permissions_id_seq OWNED BY repo_pending_permissions.id;
-
-CREATE TABLE repo_permissions (
-    repo_id integer NOT NULL,
-    permission text NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    synced_at timestamp with time zone,
-    user_ids_ints integer[] DEFAULT '{}'::integer[] NOT NULL,
-    unrestricted boolean DEFAULT false NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    id bigint NOT NULL
-);
-
-CREATE SEQUENCE repo_permissions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE repo_permissions_id_seq OWNED BY repo_permissions.id;
 
 CREATE TABLE repo_statistics (
     total bigint DEFAULT 0 NOT NULL,
@@ -5246,48 +5493,6 @@ CREATE SEQUENCE user_onboarding_tour_id_seq
 
 ALTER SEQUENCE user_onboarding_tour_id_seq OWNED BY user_onboarding_tour.id;
 
-CREATE TABLE user_pending_permissions (
-    id bigint NOT NULL,
-    bind_id text NOT NULL,
-    permission text NOT NULL,
-    object_type text NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    service_type text NOT NULL,
-    service_id text NOT NULL,
-    object_ids_ints integer[] DEFAULT '{}'::integer[] NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
-CREATE SEQUENCE user_pending_permissions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE user_pending_permissions_id_seq OWNED BY user_pending_permissions.id;
-
-CREATE TABLE user_permissions (
-    user_id integer NOT NULL,
-    permission text NOT NULL,
-    object_type text NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    synced_at timestamp with time zone,
-    object_ids_ints integer[] DEFAULT '{}'::integer[] NOT NULL,
-    migrated boolean DEFAULT true,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    id bigint NOT NULL
-);
-
-CREATE SEQUENCE user_permissions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE user_permissions_id_seq OWNED BY user_permissions.id;
-
 CREATE VIEW user_relevant_repos WITH (security_invoker='true') AS
  SELECT u.id AS user_id,
     cd.repo_id,
@@ -5553,6 +5758,8 @@ ALTER TABLE ONLY batch_spec_execution_cache_entries ALTER COLUMN id SET DEFAULT 
 
 ALTER TABLE ONLY batch_spec_library_records ALTER COLUMN id SET DEFAULT nextval('batch_spec_library_records_id_seq'::regclass);
 
+ALTER TABLE ONLY batch_spec_library_variables ALTER COLUMN id SET DEFAULT nextval('batch_spec_library_variables_id_seq'::regclass);
+
 ALTER TABLE ONLY batch_spec_resolution_jobs ALTER COLUMN id SET DEFAULT nextval('batch_spec_resolution_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_spec_workspace_execution_jobs ALTER COLUMN id SET DEFAULT nextval('batch_spec_workspace_execution_jobs_id_seq'::regclass);
@@ -5621,6 +5828,10 @@ ALTER TABLE ONLY contributor_jobs ALTER COLUMN id SET DEFAULT nextval('contribut
 
 ALTER TABLE ONLY critical_and_site_config ALTER COLUMN id SET DEFAULT nextval('critical_and_site_config_id_seq'::regclass);
 
+ALTER TABLE ONLY deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('deepsearch_conversations_id_seq'::regclass);
+
+ALTER TABLE ONLY deepsearch_references ALTER COLUMN id SET DEFAULT nextval('deepsearch_references_id_seq'::regclass);
+
 ALTER TABLE ONLY entitlements ALTER COLUMN id SET DEFAULT nextval('entitlements_id_seq'::regclass);
 
 ALTER TABLE ONLY event_logs ALTER COLUMN id SET DEFAULT nextval('event_logs_id_seq'::regclass);
@@ -5656,6 +5867,22 @@ ALTER TABLE ONLY github_apps ALTER COLUMN id SET DEFAULT nextval('github_apps_id
 ALTER TABLE ONLY gitserver_relocator_jobs ALTER COLUMN id SET DEFAULT nextval('gitserver_relocator_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY global_state ALTER COLUMN id SET DEFAULT nextval('global_state_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_authorize_codes ALTER COLUMN id SET DEFAULT nextval('idp_authorize_codes_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_clients ALTER COLUMN id SET DEFAULT nextval('idp_clients_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_device_auth_requests ALTER COLUMN id SET DEFAULT nextval('idp_device_auth_requests_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_id_tokens ALTER COLUMN id SET DEFAULT nextval('idp_id_tokens_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_pkce_requests ALTER COLUMN id SET DEFAULT nextval('idp_pkce_requests_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_secrets ALTER COLUMN id SET DEFAULT nextval('idp_secrets_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_sessions ALTER COLUMN id SET DEFAULT nextval('idp_sessions_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_tokens ALTER COLUMN id SET DEFAULT nextval('idp_tokens_id_seq'::regclass);
 
 ALTER TABLE ONLY insights_query_runner_jobs ALTER COLUMN id SET DEFAULT nextval('insights_query_runner_jobs_id_seq'::regclass);
 
@@ -5755,10 +5982,6 @@ ALTER TABLE ONLY repo_embedding_jobs ALTER COLUMN id SET DEFAULT nextval('repo_e
 
 ALTER TABLE ONLY repo_paths ALTER COLUMN id SET DEFAULT nextval('repo_paths_id_seq'::regclass);
 
-ALTER TABLE ONLY repo_pending_permissions ALTER COLUMN id SET DEFAULT nextval('repo_pending_permissions_id_seq'::regclass);
-
-ALTER TABLE ONLY repo_permissions ALTER COLUMN id SET DEFAULT nextval('repo_permissions_id_seq'::regclass);
-
 ALTER TABLE ONLY repo_statistics ALTER COLUMN id SET DEFAULT nextval('repo_statistics_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_update_jobs ALTER COLUMN id SET DEFAULT nextval('repo_update_jobs_id_seq'::regclass);
@@ -5790,10 +6013,6 @@ ALTER TABLE ONLY user_emails ALTER COLUMN id SET DEFAULT nextval('user_emails_id
 ALTER TABLE ONLY user_external_accounts ALTER COLUMN id SET DEFAULT nextval('user_external_accounts_id_seq'::regclass);
 
 ALTER TABLE ONLY user_onboarding_tour ALTER COLUMN id SET DEFAULT nextval('user_onboarding_tour_id_seq'::regclass);
-
-ALTER TABLE ONLY user_pending_permissions ALTER COLUMN id SET DEFAULT nextval('user_pending_permissions_id_seq'::regclass);
-
-ALTER TABLE ONLY user_permissions ALTER COLUMN id SET DEFAULT nextval('user_permissions_id_seq'::regclass);
 
 ALTER TABLE ONLY user_repo_permissions ALTER COLUMN id SET DEFAULT nextval('user_repo_permissions_id_seq'::regclass);
 
@@ -5845,6 +6064,9 @@ ALTER TABLE ONLY batch_spec_execution_cache_entries
 
 ALTER TABLE ONLY batch_spec_library_records
     ADD CONSTRAINT batch_spec_library_records_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_spec_library_variables
+    ADD CONSTRAINT batch_spec_library_variables_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY batch_spec_resolution_jobs
     ADD CONSTRAINT batch_spec_resolution_jobs_batch_spec_id_unique UNIQUE (batch_spec_id);
@@ -5993,6 +6215,15 @@ ALTER TABLE ONLY contributor_repos
 ALTER TABLE ONLY critical_and_site_config
     ADD CONSTRAINT critical_and_site_config_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY deepsearch_conversations
+    ADD CONSTRAINT deepsearch_conversations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_references
+    ADD CONSTRAINT deepsearch_references_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_references
+    ADD CONSTRAINT deepsearch_references_repo_filepath_unique UNIQUE (conversation_id, repo_id, file_path);
+
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_pkey PRIMARY KEY (entitlement_id, user_id);
 
@@ -6091,6 +6322,60 @@ ALTER TABLE ONLY global_state
 
 ALTER TABLE ONLY global_state
     ADD CONSTRAINT global_state_site_id_unique UNIQUE (site_id, tenant_id);
+
+ALTER TABLE ONLY idp_authorize_codes
+    ADD CONSTRAINT idp_authorize_codes_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_authorize_codes
+    ADD CONSTRAINT idp_authorize_codes_unique UNIQUE (opaque_id, tenant_id);
+
+ALTER TABLE ONLY idp_clients
+    ADD CONSTRAINT idp_clients_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_clients
+    ADD CONSTRAINT idp_clients_unique UNIQUE (opaque_id, tenant_id);
+
+ALTER TABLE ONLY idp_device_auth_requests
+    ADD CONSTRAINT idp_device_auth_requests_device_code_signature_unique UNIQUE (hashed_device_code_signature, tenant_id);
+
+ALTER TABLE ONLY idp_device_auth_requests
+    ADD CONSTRAINT idp_device_auth_requests_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_device_auth_requests
+    ADD CONSTRAINT idp_device_auth_requests_unique UNIQUE (opaque_id, tenant_id);
+
+ALTER TABLE ONLY idp_device_auth_requests
+    ADD CONSTRAINT idp_device_auth_requests_user_code_signature_unique UNIQUE (hashed_user_code_signature, tenant_id);
+
+ALTER TABLE ONLY idp_id_tokens
+    ADD CONSTRAINT idp_id_tokens_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_id_tokens
+    ADD CONSTRAINT idp_id_tokens_unique UNIQUE (opaque_id, tenant_id);
+
+ALTER TABLE ONLY idp_pkce_requests
+    ADD CONSTRAINT idp_pkce_requests_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_pkce_requests
+    ADD CONSTRAINT idp_pkce_requests_unique UNIQUE (opaque_id, tenant_id);
+
+ALTER TABLE ONLY idp_secrets
+    ADD CONSTRAINT idp_secrets_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_secrets
+    ADD CONSTRAINT idp_secrets_tenant_unique UNIQUE (tenant_id);
+
+ALTER TABLE ONLY idp_sessions
+    ADD CONSTRAINT idp_sessions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_sessions
+    ADD CONSTRAINT idp_sessions_unique UNIQUE (id, tenant_id);
+
+ALTER TABLE ONLY idp_tokens
+    ADD CONSTRAINT idp_tokens_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_tokens
+    ADD CONSTRAINT idp_tokens_unique UNIQUE (opaque_id, type, tenant_id);
 
 ALTER TABLE ONLY insights_query_runner_jobs_dependencies
     ADD CONSTRAINT insights_query_runner_jobs_dependencies_pkey PRIMARY KEY (id);
@@ -6308,18 +6593,6 @@ ALTER TABLE ONLY repo_paths
 ALTER TABLE ONLY repo_paths
     ADD CONSTRAINT repo_paths_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY repo_pending_permissions
-    ADD CONSTRAINT repo_pending_permissions_perm_unique UNIQUE (repo_id, permission);
-
-ALTER TABLE ONLY repo_pending_permissions
-    ADD CONSTRAINT repo_pending_permissions_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY repo_permissions
-    ADD CONSTRAINT repo_permissions_perm_unique UNIQUE (repo_id, permission);
-
-ALTER TABLE ONLY repo_permissions
-    ADD CONSTRAINT repo_permissions_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY repo
     ADD CONSTRAINT repo_pkey PRIMARY KEY (id);
 
@@ -6416,18 +6689,6 @@ ALTER TABLE ONLY user_external_accounts
 ALTER TABLE ONLY user_onboarding_tour
     ADD CONSTRAINT user_onboarding_tour_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY user_pending_permissions
-    ADD CONSTRAINT user_pending_permissions_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY user_pending_permissions
-    ADD CONSTRAINT user_pending_permissions_service_perm_object_unique UNIQUE (service_type, service_id, permission, object_type, bind_id, tenant_id);
-
-ALTER TABLE ONLY user_permissions
-    ADD CONSTRAINT user_permissions_perm_object_unique UNIQUE (user_id, permission, object_type);
-
-ALTER TABLE ONLY user_permissions
-    ADD CONSTRAINT user_permissions_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY user_repo_permissions
     ADD CONSTRAINT user_repo_permissions_perms_unique_idx UNIQUE (user_id, user_external_account_id, repo_id);
 
@@ -6502,6 +6763,8 @@ CREATE UNIQUE INDEX batch_changes_unique_user_id ON batch_changes USING btree (n
 
 CREATE UNIQUE INDEX batch_spec_library_records_name_idx ON batch_spec_library_records USING btree (tenant_id, name);
 
+CREATE INDEX batch_spec_library_variables_library_record_id_idx ON batch_spec_library_variables USING btree (batch_spec_library_record_id);
+
 CREATE INDEX batch_spec_resolution_jobs_state ON batch_spec_resolution_jobs USING btree (state);
 
 CREATE INDEX batch_spec_workspace_execution_jobs_batch_spec_workspace_id ON batch_spec_workspace_execution_jobs USING btree (batch_spec_workspace_id);
@@ -6515,6 +6778,8 @@ CREATE INDEX batch_spec_workspace_execution_jobs_state ON batch_spec_workspace_e
 CREATE INDEX batch_spec_workspace_files_rand_id ON batch_spec_workspace_files USING btree (rand_id);
 
 CREATE INDEX batch_spec_workspaces_batch_spec_id ON batch_spec_workspaces USING btree (batch_spec_id);
+
+CREATE INDEX batch_spec_workspaces_changeset_spec_ids_gin_idx ON batch_spec_workspaces USING gin (changeset_spec_ids);
 
 CREATE INDEX batch_spec_workspaces_id_batch_spec_id ON batch_spec_workspaces USING btree (id, batch_spec_id);
 
@@ -6668,7 +6933,33 @@ CREATE INDEX gitserver_repos_not_explicitly_cloned_idx ON gitserver_repos USING 
 
 CREATE INDEX gitserver_repos_schedule_order_idx ON gitserver_repos USING btree (((timezone('UTC'::text, last_fetch_attempt_at) + LEAST(GREATEST((((last_fetched - last_changed) / (2)::double precision) * ((failed_fetch_attempts + 1))::double precision), '00:00:45'::interval), '08:00:00'::interval))) DESC, repo_id);
 
+CREATE INDEX idp_secrets_tenant_id_idx ON idp_secrets USING btree (tenant_id);
+
 CREATE INDEX idx_changeset_sync_jobs_changeset_id ON changeset_sync_jobs USING btree (changeset_id, tenant_id);
+
+CREATE INDEX idx_idp_authorize_codes_hashed_code ON idp_authorize_codes USING hash (hashed_code);
+
+CREATE INDEX idx_idp_clients_deleted_at ON idp_clients USING btree (deleted_at);
+
+CREATE INDEX idx_idp_device_auth_requests_deleted_at ON idp_device_auth_requests USING btree (deleted_at);
+
+CREATE INDEX idx_idp_device_auth_requests_hashed_device_code_signature ON idp_device_auth_requests USING hash (hashed_device_code_signature);
+
+CREATE INDEX idx_idp_device_auth_requests_hashed_user_code_signature ON idp_device_auth_requests USING hash (hashed_user_code_signature);
+
+CREATE INDEX idx_idp_id_tokens_deleted_at ON idp_id_tokens USING btree (deleted_at);
+
+CREATE INDEX idx_idp_id_tokens_hashed_authorize_code ON idp_id_tokens USING hash (hashed_authorize_code);
+
+CREATE INDEX idx_idp_pkce_requests_deleted_at ON idp_pkce_requests USING btree (deleted_at);
+
+CREATE INDEX idx_idp_pkce_requests_hashed_signature ON idp_pkce_requests USING hash (hashed_signature);
+
+CREATE INDEX idx_idp_sessions_deleted_at ON idp_sessions USING btree (deleted_at);
+
+CREATE INDEX idx_idp_tokens_deleted_at ON idp_tokens USING btree (deleted_at);
+
+CREATE INDEX idx_idp_tokens_hashed_signature ON idp_tokens USING hash (hashed_signature);
 
 CREATE INDEX idx_repo_cleanup_jobs_repository_id ON repo_cleanup_jobs USING btree (tenant_id, repository_id);
 
@@ -6888,8 +7179,6 @@ CREATE INDEX repo_name_lower_trgm_idx ON repo USING gin (name_lower gin_trgm_ops
 
 CREATE INDEX repo_non_deleted_id_name_idx ON repo USING btree (id, name) WHERE (deleted_at IS NULL);
 
-CREATE INDEX repo_permissions_unrestricted_true_idx ON repo_permissions USING btree (unrestricted) WHERE unrestricted;
-
 CREATE INDEX repo_private ON repo USING btree (private);
 
 CREATE INDEX repo_stars_desc_id_desc_idx ON repo USING btree (stars DESC NULLS LAST, id DESC) WHERE ((deleted_at IS NULL) AND (blocked IS NULL));
@@ -7050,6 +7339,8 @@ CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_insert AFTER INSERT ON synta
 
 CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_update BEFORE UPDATE OF commit, state, num_resets, num_failures, worker_hostname, failure_message ON syntactic_scip_indexing_jobs FOR EACH ROW EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_update();
 
+CREATE TRIGGER update_deepsearch_conversations_updated_at BEFORE UPDATE ON deepsearch_conversations FOR EACH ROW EXECUTE FUNCTION update_deepsearch_conversations_updated_at();
+
 CREATE TRIGGER update_own_aggregate_recent_contribution AFTER INSERT ON own_signal_recent_contribution FOR EACH ROW EXECUTE FUNCTION update_own_aggregate_recent_contribution();
 
 CREATE TRIGGER versions_insert BEFORE INSERT ON versions FOR EACH ROW EXECUTE FUNCTION versions_insert_row_trigger();
@@ -7104,6 +7395,9 @@ ALTER TABLE ONLY batch_changes_site_credentials
 
 ALTER TABLE ONLY batch_spec_execution_cache_entries
     ADD CONSTRAINT batch_spec_execution_cache_entries_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE DEFERRABLE;
+
+ALTER TABLE ONLY batch_spec_library_variables
+    ADD CONSTRAINT batch_spec_library_variables_batch_spec_library_record_id_fkey FOREIGN KEY (batch_spec_library_record_id) REFERENCES batch_spec_library_records(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY batch_spec_resolution_jobs
     ADD CONSTRAINT batch_spec_resolution_jobs_batch_spec_id_fkey FOREIGN KEY (batch_spec_id) REFERENCES batch_specs(id) ON DELETE CASCADE DEFERRABLE;
@@ -7278,6 +7572,15 @@ ALTER TABLE ONLY contributor_jobs
 
 ALTER TABLE ONLY contributor_repos
     ADD CONSTRAINT contributor_repos_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_conversations
+    ADD CONSTRAINT deepsearch_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_references
+    ADD CONSTRAINT deepsearch_references_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_references
+    ADD CONSTRAINT deepsearch_references_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
@@ -7690,6 +7993,8 @@ ALTER TABLE batch_spec_execution_cache_entries ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_spec_library_records ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE batch_spec_library_variables ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE batch_spec_resolution_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_spec_workspace_execution_jobs ENABLE ROW LEVEL SECURITY;
@@ -7768,6 +8073,10 @@ ALTER TABLE contributor_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE contributor_repos ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE deepsearch_references ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlements ENABLE ROW LEVEL SECURITY;
@@ -7815,6 +8124,22 @@ ALTER TABLE gitserver_repos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gitserver_repos_sync_output ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE global_state ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_authorize_codes ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_clients ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_device_auth_requests ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_id_tokens ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_pkce_requests ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_secrets ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_sessions ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_tokens ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE insights_query_runner_jobs ENABLE ROW LEVEL SECURITY;
 
@@ -7936,10 +8261,6 @@ ALTER TABLE repo_kvps ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_paths ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE repo_pending_permissions ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE repo_permissions ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE repo_statistics ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_update_jobs ENABLE ROW LEVEL SECURITY;
@@ -7995,6 +8316,8 @@ CREATE POLICY tenant_isolation_policy ON batch_changes_site_credentials USING ((
 CREATE POLICY tenant_isolation_policy ON batch_spec_execution_cache_entries USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_spec_library_records USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON batch_spec_library_variables USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_spec_resolution_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
@@ -8074,6 +8397,10 @@ CREATE POLICY tenant_isolation_policy ON contributor_jobs USING ((( SELECT (curr
 
 CREATE POLICY tenant_isolation_policy ON contributor_repos USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON deepsearch_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON deepsearch_references USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON entitlements USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8121,6 +8448,22 @@ CREATE POLICY tenant_isolation_policy ON gitserver_repos USING ((( SELECT (curre
 CREATE POLICY tenant_isolation_policy ON gitserver_repos_sync_output USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON global_state USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_authorize_codes USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_clients USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_device_auth_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_id_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_pkce_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_secrets USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_sessions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON insights_query_runner_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
@@ -8242,10 +8585,6 @@ CREATE POLICY tenant_isolation_policy ON repo_kvps USING ((tenant_id = ( SELECT 
 
 CREATE POLICY tenant_isolation_policy ON repo_paths USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON repo_pending_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON repo_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
 CREATE POLICY tenant_isolation_policy ON repo_statistics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON repo_update_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
@@ -8294,10 +8633,6 @@ CREATE POLICY tenant_isolation_policy ON user_external_accounts USING ((tenant_i
 
 CREATE POLICY tenant_isolation_policy ON user_onboarding_tour USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON user_pending_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON user_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
 CREATE POLICY tenant_isolation_policy ON user_repo_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON user_roles USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8329,10 +8664,6 @@ ALTER TABLE user_emails ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_external_accounts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE user_onboarding_tour ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE user_pending_permissions ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE user_permissions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE user_repo_permissions ENABLE ROW LEVEL SECURITY;
 
@@ -8371,8 +8702,9 @@ SELECT pg_catalog.setval('own_signal_configurations_id_seq', 3, true);
 INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (1, '2023-01-04 16:29:41.195966+00', true, 'USER', 1);
 INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (2, '2023-01-04 16:29:41.195966+00', true, 'SITE_ADMINISTRATOR', 1);
 INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (4, '2024-10-30 11:54:24.127459+00', true, 'WORKSPACE_ADMINISTRATOR', 1);
+INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (5, '2025-06-17 14:47:24.127459+00', true, 'SERVICE_ACCOUNT', 1);
 
-SELECT pg_catalog.setval('roles_id_seq', 4, true);
+SELECT pg_catalog.setval('roles_id_seq', 5, true);
 
 INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 

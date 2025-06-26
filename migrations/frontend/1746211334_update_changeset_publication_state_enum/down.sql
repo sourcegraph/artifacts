@@ -1,5 +1,4 @@
 -- Down migration that handles the PUSHED_ONLY enum value
--- This version is simplified for testing - just focusing on the enum change
 
 -- Explicitly DROP the views that might reference ui_publication_state
 DO $$

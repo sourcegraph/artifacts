@@ -112,6 +112,7 @@ enum ChangesetReviewState {
     PENDING
     COMMENTED
     DISMISSED
+    NOT_APPLICABLE
 }
 
 """
@@ -608,6 +609,10 @@ type ChangesetsStats {
     The count of changesets that are complete (i.e in a merged or closed state) and not archived or deleted.
     """
     percentComplete: Int!
+    """
+    The count of pushed-only changesets.
+    """
+    pushedOnly: Int!
 }
 
 """
@@ -638,6 +643,10 @@ type RepoChangesetsStats {
     The count of all changesets.
     """
     total: Int!
+    """
+    The count of pushed-only changesets.
+    """
+    pushedOnly: Int!
 }
 
 """
@@ -668,6 +677,10 @@ type GlobalChangesetsStats {
     The count of all changesets.
     """
     total: Int!
+    """
+    The count of pushed-only changesets.
+    """
+    pushedOnly: Int!
 }
 
 """
@@ -728,6 +741,36 @@ type ChangesetEventConnection {
     Pagination information.
     """
     pageInfo: PageInfo!
+}
+
+"""
+Input type for creating or updating a batch spec library variable.
+"""
+input BatchSpecLibraryVariableInput {
+    """
+    The name of the library variable.
+    """
+    name: String!
+
+    """
+    The description of the library variable.
+    """
+    description: String!
+
+    """
+    The regex pattern to match against in the batch spec.
+    """
+    pattern: String!
+
+    """
+    The level of the library variable (ERROR, WARNING, or INFO). Will be used to display an alert when the input doesn't match the pattern.
+    """
+    level: BatchSpecLibraryVariableLevel!
+
+    """
+    If the variable is mandatory when filling out values.
+    """
+    mandatory: Boolean!
 }
 
 """
@@ -853,7 +896,7 @@ enum ChangesetSpecOperation {
     """
     Push code to code host on new branch, but do not start a merge request.
     """
-    PUSH_ONLY
+    PUSHED_ONLY
 }
 
 """
@@ -1035,7 +1078,7 @@ type ExistingChangesetReference {
 }
 
 """
-A quadruple that represents all possible states of the published value: true, false, 'draft', or null. Note: this will also include `"pushed-only"` if the 'push-only-changesets' frontend feature flag is set to 'true'.
+A quadruple that represents all possible states of the published value: true, false, 'draft', 'pushed-only', or null.
 """
 scalar PublishedValue
 
@@ -1437,6 +1480,10 @@ extend type Mutation {
         Labels associated with this batch spec, such as "featured". Used for filtering and categorization.
         """
         labels: [String!]
+        """
+        Library variables to associate with this batch spec template.
+        """
+        libraryVariables: [BatchSpecLibraryVariableInput!]
     ): BatchSpecLibraryRecord!
 
     """
@@ -1461,6 +1508,10 @@ extend type Mutation {
         Labels associated with this batch spec, such as "featured". Used for filtering and categorization.
         """
         labels: [String!]
+        """
+        Library variables to associate with this batch spec template.
+        """
+        libraryVariables: [BatchSpecLibraryVariableInput!]
     ): BatchSpecLibraryRecord!
 
     """
@@ -1936,6 +1987,13 @@ extend type Mutation {
     publishChangesets(batchChange: ID!, changesets: [ID!]!, draft: Boolean = false): BulkOperation!
 
     """
+    Push code to code host for multiple changesets without creating merge requests.
+
+    Experimental: This API is likely to change in the future.
+    """
+    pushOnlyChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
+
+    """
     Attempts to cancel the execution of the given batch spec. All workspace jobs
     that are QUEUED or PROCESSING will be cancelled. The execution must not have completed yet.
     """
@@ -2000,6 +2058,66 @@ type BatchSpecLibraryRecord {
     Labels associated with this batch spec, such as "featured". Used for filtering and categorization.
     """
     labels: [String!]!
+
+    """
+    Library variables associated with this batch spec template.
+    """
+    libraryVariables: [BatchSpecLibraryVariable!]!
+}
+
+"""
+A library variable for a batch spec.
+"""
+type BatchSpecLibraryVariable {
+    """
+    The unique ID for the library variable.
+    """
+    id: ID!
+
+    """
+    The name of the library variable.
+    """
+    name: String!
+
+    """
+    The description of the library variable.
+    """
+    description: String!
+
+    """
+    The pattern to match against in the batch spec.
+    """
+    pattern: String!
+
+    """
+    The level of the library variable (ERROR, WARNING, or INFO). Will be used to display an alert when the input doesn't match the pattern.
+    """
+    level: BatchSpecLibraryVariableLevel!
+
+    """
+    If the variable is mandatory when filling out values.
+    """
+    mandatory: Boolean!
+}
+
+"""
+The level of a batch spec library variable.
+"""
+enum BatchSpecLibraryVariableLevel {
+    """
+    Errors block submission of the batch spec.
+    """
+    ERROR
+
+    """
+    Warnings show a warning but don't block submission.
+    """
+    WARNING
+
+    """
+    Informational messages that don't block submission.
+    """
+    INFO
 }
 
 """
@@ -2020,6 +2138,56 @@ type BatchSpecLibraryConnection {
     A list of batch spec library records.
     """
     nodes: [BatchSpecLibraryRecord!]!
+}
+
+"""
+Input for the renderBatchSpecTemplateWithVariables query.
+"""
+input BatchSpecTemplateVariableInput {
+    """
+    The ID of the variable.
+    """
+    id: ID!
+
+    """
+    The value of the variable.
+    """
+    value: String!
+}
+
+"""
+A validation error for a batch spec template variable.
+"""
+type BatchSpecTemplateVariableValidationError {
+    """
+    The variable that failed validation.
+    """
+    variable: BatchSpecLibraryVariable!
+
+    """
+    The provided value that failed validation.
+    """
+    value: String!
+
+    """
+    The validation error message.
+    """
+    message: String!
+}
+
+"""
+Result of rendering a batch spec template with variables.
+"""
+type RenderBatchSpecTemplateWithVariablesResult {
+    """
+    The rendered batch spec with variables applied.
+    """
+    spec: String!
+
+    """
+    Any validation errors encountered during rendering.
+    """
+    validationErrors: [BatchSpecTemplateVariableValidationError!]!
 }
 
 extend type Query {
@@ -2046,6 +2214,32 @@ extend type Query {
         """
         labelFilter: [String!]
     ): BatchSpecLibraryConnection
+
+    """
+    Fetches a single batch spec template by ID.
+    """
+    getBatchSpecLibraryRecord(id: ID!): BatchSpecLibraryRecord
+
+    """
+    Renders a batch spec template with the provided variable values.
+    Returns the rendered spec and any validation errors.
+    """
+    renderBatchSpecTemplateWithVariables(
+        """
+        The ID of the batch spec library record to render.
+        """
+        id: ID!
+
+        """
+        The variable values to use for rendering.
+        """
+        inputs: [BatchSpecTemplateVariableInput!]!
+    ): RenderBatchSpecTemplateWithVariablesResult!
+
+    """
+    Retrieves changeset specs by their IDs.
+    """
+    getChangesetSpecsByIDs(ids: [ID!]!): ChangesetSpecConnection!
 
     """
     A list of batch changes.
@@ -3126,7 +3320,7 @@ enum BulkOperationType {
     """
     AUTO_MERGE
     """
-    Only push code to new branch on code host, do not start a new merge request.
+    Push code to a code host without making a merge request.
     """
     PUSH_ONLY
 }

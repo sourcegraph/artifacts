@@ -709,6 +709,11 @@ type UsageRange {
     The repository this usage is present in.
     """
     repository: String!
+
+    """
+    The database ID of the repository this usage is present in.
+    """
+    repositoryID: ID!
     """
     TODO(issue: GRAPH-614): 'revision' field should have type GitCommit
     before stabilizing this API.

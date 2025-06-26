@@ -1,0 +1,198 @@
+extend type Query {
+    """
+    Returns the list of IdP clients that exist in the system.
+    These can be used to authenticate with Sourcegraph.
+
+    Requires IDP_CLIENTS#READ permission.
+    """
+    idpClients(first: Int = 50, after: String): IDPClientConnection!
+    """
+    The list of known IdP scopes.
+    """
+    idpScopes: [IDPScope!]!
+    """
+    Get device authorization details by user code for the authorization flow.
+    Returns the client information and requested scopes that the user needs
+    to approve or deny.
+    """
+    deviceAuthorizationByUserCode(userCode: String!): DeviceAuthorizationDetails
+}
+
+extend type Mutation {
+    """
+    Create a new IdP client. The secret will be returned and can never be accessed
+    again.
+
+    Requires IDP_CLIENTS#WRITE permission.
+    """
+    createIDPClient(
+        """
+        A descriptive name for the client. Will be shown to users.
+        """
+        name: String!
+        """
+        The list of permitted redirect URIs.
+        """
+        redirectURIs: [String!]!
+        """
+        The list of scopes this client can request.
+        """
+        scopes: [String!]!
+    ): CreateIDPClientResult!
+    """
+    Update an existing IdP client.
+
+    Requires IDP_CLIENTS#WRITE permission.
+    """
+    updateIDPClient(
+        """
+        The ID of the client to update.
+        """
+        id: ID!
+        """
+        A descriptive name for the client. Will be shown to users.
+        """
+        name: String!
+        """
+        The list of permitted redirect URIs.
+        """
+        redirectURIs: [String!]!
+        """
+        The list of scopes this client can request.
+        """
+        scopes: [String!]!
+    ): IDPClient!
+    """
+    Delete an existing IdP client. Caution: all access tokens issued by this client
+    are no longer usable.
+
+    Requires IDP_CLIENTS#WRITE permission.
+    """
+    deleteIDPClient(id: ID!): EmptyResponse
+    """
+    Make a determination for device authorization. Identified by the user code from
+    the authorization flow.
+    """
+    resolveDeviceAuthorization(
+        """
+        The user code associated with the authorization request to respond to.
+        """
+        userCode: String!
+        """
+        Whether to approve the request.
+        """
+        approve: Boolean!
+    ): EmptyResponse
+}
+
+"""
+The result type for creating a new client. Contains the client and the secret.
+"""
+type CreateIDPClientResult {
+    """
+    The created client.
+    """
+    client: IDPClient!
+    """
+    The client secret, only accessible in this response and never again.
+    """
+    clientSecret: String!
+}
+
+"""
+IdP client represents one client of the Sourcegraph IdP. It can be used via OAuth.
+"""
+type IDPClient implements Node {
+    """
+    An opaque identifier.
+    """
+    id: ID!
+    """
+    The client identifier used for OAuth/OIDC flows.
+    """
+    clientID: String!
+    """
+    A descriptive name for the client. Shown to users.
+    """
+    name: String!
+    """
+    The list of permitted redirect URIs.
+    """
+    redirectURIs: [String!]!
+    """
+    The list of permitted response types.
+    """
+    responseTypes: [String!]!
+    """
+    The list of permitted scopes for this client.
+    """
+    scopes: [String!]!
+    """
+    Whether this idp client is public. Public clients are user-created, private
+    clients are Sourcegraph-owned.
+    """
+    public: Boolean!
+    """
+    The list of acceptable audiences of this client.
+    """
+    audience: [String!]!
+    """
+    The time the client was created.
+    """
+    createdAt: DateTime!
+    """
+    The time the client was last updated.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+A list of IdP clients.
+"""
+type IDPClientConnection {
+    """
+    The current page.
+    """
+    nodes: [IDPClient!]!
+    """
+    The total number of nodes in this connection.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+Descriptive object that describes one available IdP scope.
+"""
+type IDPScope {
+    """
+    The official name of the scope in the API.
+    """
+    name: String!
+    """
+    Short, descriptive text describing the scope.
+    """
+    description: String!
+}
+
+"""
+Device authorization details for a specific user code.
+Contains information about the client requesting access and the scopes being requested.
+"""
+type DeviceAuthorizationDetails {
+    """
+    The client requesting authorization.
+    """
+    client: IDPClient!
+    """
+    The scopes being requested by the client.
+    """
+    requestedScopes: [IDPScope!]!
+    """
+    Whether this authorization request is still valid (not expired, not already processed).
+    """
+    isValid: Boolean!
+}

@@ -7,6 +7,55 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "inventory": {
+      "description": "Settings for repository language stats inventory",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disableEnhancedLanguageDetection": {
+          "description": "Disable more accurate but slower language detection that uses file contents.",
+          "type": "boolean",
+          "default": false
+        },
+        "gitServerConcurrency": {
+          "description": "Number of concurrent requests against the gitserver for getInventory requests. Higher concurrency means faster inventory, but more strain on gitserver.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 4
+        },
+        "redisConcurrency": {
+          "description": "Number of concurrent requests against the redis cache for getInventory requests. Higher concurrency means faster inventory, but more strain on redis cache.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 20
+        },
+        "maxInventoryInMemory": {
+          "description": "When computing the language stats, every nth iteration all loaded files are aggregated into the inventory to reduce the memory footprint. Increasing this value may make the computation run faster, but will require more memory.",
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 1000000,
+          "default": 1000
+        },
+        "timeoutInMinutes": {
+          "description": "Time in minutes before cancelling getInventory requests. Raise this if your repositories are large and need a long time to process.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "default": 5
+        }
+      },
+      "examples": [
+        {
+          "disableEnhancedLanguageDetection": false,
+          "gitServerConcurrency": 4,
+          "redisConcurrency": 20,
+          "maxInventoryInMemory": 1000,
+          "timeoutInMinutes": 5
+        }
+      ]
+    },
     "ssc.apiBaseUrl": {
       "type": "string",
       "default": "https://accounts.sourcegraph.com/cody/api",
@@ -635,12 +684,23 @@
         "deepSearch.enabled": {
           "description": "Enable/disable the Deep Search feature",
           "type": "boolean",
+          "!go": {
+            "pointer": true
+          },
           "default": false
         },
         "deepSearch.model": {
-          "description": "The model reference to use for DeepSearch. We only support Anthropic Claude Sonnet 4.",
+          "description": "The model reference to use for Deep Search.",
           "type": "string",
           "default": "anthropic::2024-10-22::claude-sonnet-4-latest"
+        },
+        "deepSearch.sharing.enabled": {
+          "description": "Enable/disable sharing of Deep Search conversations via read tokens",
+          "type": "boolean",
+          "!go": {
+            "pointer": true
+          },
+          "default": false
         }
       },
       "examples": [
@@ -718,7 +778,7 @@
               },
               {
                 "type": "string",
-                "pattern": "^(unlimited|[0-9]+\\/(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours))$"
+                "pattern": "^(unlimited|[0-9]+/(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours))$"
               }
             ]
           },
@@ -836,7 +896,7 @@
       "description": "Required when using any of the native code host integrations for Phabricator, GitLab, or Bitbucket Server. It is a space-separated list of allowed origins for cross-origin HTTP requests which should be the base URL for your Phabricator, GitLab, or Bitbucket Server instance.",
       "type": "string",
       "examples": ["https://my-phabricator.example.com https://my-bitbucket.example.com https://my-gitlab.example.com"],
-      "pattern": "^((https?:\\/\\/[\\w-\\.]+)( https?:\\/\\/[\\w-\\.]+)*)|\\*$",
+      "pattern": "^((https?://[\\w-.]+)( https?://[\\w-.]+)*)|\\*$",
       "group": "Security"
     },
     "lsifEnforceAuth": {
@@ -1219,7 +1279,7 @@
           "!go": {
             "pointer": true
           },
-          "default": "true"
+          "default": true
         },
         "expirationOptionDays": {
           "description": "Options users will see for the number of days until token expiration. The defaultExpirationDays will be added to the list if not already present.",
@@ -2704,7 +2764,7 @@
       "group": "Cody"
     },
     "cody.restrictUsersFeatureFlag": {
-      "description": "DEPRECATED; see cody.permissions instead. PRIOR DESCRIPTION: Cody to only be enabled for users that have a feature flag labeled \"cody\" set to true. You must create a feature flag with this ID after enabling this setting: https://docs-legacy.sourcegraph.com/dev/how-to/use_feature_flags#create-a-feature-flag. This setting only has an effect if cody.enabled is true.",
+      "description": "DEPRECATED; see cody.permissions instead. PRIOR DESCRIPTION: Cody to only be enabled for users that have a feature flag labeled \"cody\" set to true. You must create a feature flag with this ID after enabling this setting: https://www.notion.so/sourcegraph/How-to-use-feature-flags-70f42bcacd9045d4a55de22f5dd87df0?source=copy_link. This setting only has an effect if cody.enabled is true.",
       "type": "boolean",
       "default": false,
       "!go": {
@@ -3115,9 +3175,6 @@
           "description": "Only for use to override token for attribution gateway access. If 'licenseKey' is set, a default access token is generated.",
           "type": "string"
         }
-      },
-      "!go": {
-        "pointer": true
       }
     },
     "modelConfiguration": {
@@ -3126,9 +3183,6 @@
     "cody.serverSideContext": {
       "description": "Configuration for Server-side context API",
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "group": "Cody",
       "properties": {
         "reranker": {
@@ -3176,9 +3230,6 @@
   "definitions": {
     "SiteModelConfiguration": {
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "description": "BETA FEATURE, only enable if you know what you are doing. If set, Cody will use the new model configuration system and ignore the old 'completions' site configuration entirely.",
       "properties": {
         "sourcegraph": {
@@ -3302,9 +3353,6 @@
     "SourcegraphModelConfig": {
       "description": "If null, Cody will not use Sourcegraph's servers for model discovery.",
       "type": ["object", "null"],
-      "!go": {
-        "pointer": true
-      },
       "properties": {
         "endpoint": {
           "description": "The Cody gateway URL to use for making LLM requests. If null, the production URL for Cody gateway will be used.",
@@ -3330,9 +3378,6 @@
     "ModelFilters": {
       "description": "Filters that allow you to constrain which models are available to users.",
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "default": null,
       "properties": {
         "statusFilter": {
@@ -3574,9 +3619,6 @@
     },
     "DefaultModels": {
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "default": null,
       "properties": {
         "chat": {
@@ -3641,9 +3683,6 @@
     },
     "ClientSideProviderConfig": {
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "default": null,
       "description": "No client-side provider configuration is currently available.",
       "properties": {}
@@ -3651,7 +3690,6 @@
     "ServerSideProviderConfig": {
       "type": "object",
       "!go": {
-        "pointer": true,
         "taggedUnionType": true
       },
       "default": null,
@@ -3932,9 +3970,6 @@
     },
     "ClientSideModelConfig": {
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "default": null,
       "description": "No client-side model configuration is currently available.",
       "properties": {
@@ -3945,9 +3980,6 @@
     },
     "ClientSideModelConfigOpenAICompatible": {
       "type": "object",
-      "!go": {
-        "pointer": true
-      },
       "default": null,
       "description": "Advanced configuration options that are only respected if the model is provided by an openaicompatible provider.",
       "properties": {
@@ -4075,7 +4107,6 @@
     "ServerSideModelConfig": {
       "type": "object",
       "!go": {
-        "pointer": true,
         "taggedUnionType": true
       },
       "default": null,
@@ -4083,12 +4114,15 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["awsBedrockProvisionedThroughput", "openaicompatible"]
+          "enum": ["awsBedrockProvisionedThroughput", "awsBedrock", "openaicompatible"]
         }
       },
       "oneOf": [
         {
           "$ref": "#/definitions/ServerSideModelConfigAwsBedrockProvisionedThroughput"
+        },
+        {
+          "$ref": "#/definitions/ServerSideModelConfigAwsBedrock"
         },
         {
           "$ref": "#/definitions/ServerSideModelConfigOpenAICompatible"
@@ -4105,6 +4139,26 @@
         "type": {
           "type": "string",
           "const": "awsBedrockProvisionedThroughput"
+        },
+        "arn": {
+          "description": "The 'provisioned throughput ARN' to use when sending requests to AWS Bedrock",
+          "type": "string"
+        }
+      }
+    },
+    "ServerSideModelConfigAwsBedrock": {
+      "description": "AWS Bedrock model configuration options.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "awsBedrock"
+        },
+        "latencyOptimization": {
+          "description": "Configures whether to use latency-optimized inference for this model. Available options are 'standard' and 'optimized'. See: https://docs.aws.amazon.com/bedrock/latest/userguide/latency-optimized-inference.html",
+          "type": "string",
+          "enum": ["standard", "optimized"]
         },
         "arn": {
           "description": "The 'provisioned throughput ARN' to use when sending requests to AWS Bedrock",
@@ -4414,8 +4468,12 @@
         },
         "url": {
           "type": "string",
-          "description": "URL of the GitHub instance, such as https://github.com or https://github-enterprise.example.com.",
-          "default": "https://github.com/"
+          "description": "URL of the GitHub instance, such as https://github.com/ or https://github-enterprise.example.com.",
+          "default": "https://github.com/",
+          "pattern": "^https?://",
+          "!go": {
+            "typeName": "NormalizedURL"
+          }
         },
         "clientID": {
           "type": "string",
@@ -4494,7 +4552,11 @@
         "url": {
           "type": "string",
           "description": "URL of the GitLab instance, such as https://gitlab.com or https://gitlab.example.com.",
-          "default": "https://gitlab.com/"
+          "default": "https://gitlab.com/",
+          "pattern": "^https?://",
+          "!go": {
+            "typeName": "NormalizedURL"
+          }
         },
         "ssoURL": {
           "type": "string",
@@ -4579,7 +4641,11 @@
         "url": {
           "type": "string",
           "description": "URL of the Bitbucket Cloud instance.",
-          "default": "https://bitbucket.org/"
+          "default": "https://bitbucket.org/",
+          "pattern": "^https?://",
+          "!go": {
+            "typeName": "NormalizedURL"
+          }
         },
         "clientKey": {
           "type": "string",
@@ -4631,7 +4697,11 @@
         "url": {
           "type": "string",
           "description": "URL of the Bitbucket Server instance.",
-          "example": "https://bitbucket.example.org/"
+          "example": "https://bitbucket.example.org/",
+          "pattern": "^https?://",
+          "!go": {
+            "typeName": "NormalizedURL"
+          }
         },
         "clientID": {
           "type": "string",

@@ -224,6 +224,11 @@ extend type Query {
     Generate an ephemeral set of time series for a code insight, generally for the purposes of live preview.
     """
     searchInsightPreview(input: SearchInsightPreviewInput!): [SearchInsightLivePreviewSeries!]!
+
+    """
+    Generate an ephemeral set of time series for a repository statistics insight, generally for the purposes of live preview.
+    """
+    inventoryStatsPreview(input: InventoryStatsPreviewInput!): [SearchInsightLivePreviewSeries!]!
 }
 
 extend type Mutation {
@@ -822,7 +827,7 @@ input LineChartSearchInsightDataSeriesInput {
 }
 
 """
-Fields that can be grouped on for compute powered insights.
+Fields that can be grouped on for compute powered or repo stats (LANG and REPO only) insights.
 """
 enum GroupByField {
     REPO
@@ -929,6 +934,11 @@ extend type Mutation {
     createPieChartSearchInsight(input: PieChartSearchInsightInput!): InsightViewPayload!
 
     """
+    Create a repository statistics insight.
+    """
+    createInventoryStatsInsight(input: InventoryStatsInsightInput!): InsightViewPayload!
+
+    """
     Update a line chart backed by search insights.
     """
     updateLineChartSearchInsight(id: ID!, input: UpdateLineChartSearchInsightInput!): InsightViewPayload!
@@ -937,6 +947,11 @@ extend type Mutation {
     Update a pie chart backed by search insights.
     """
     updatePieChartSearchInsight(id: ID!, input: UpdatePieChartSearchInsightInput!): InsightViewPayload!
+
+    """
+    Update a repository statistics insight.
+    """
+    updateInventoryStatsInsight(id: ID!, input: UpdateInventoryStatsInsightInput!): InsightViewPayload!
 
     """
     Delete an insight view given the graphql ID.
@@ -1027,7 +1042,7 @@ type InsightView implements Node {
 """
 Defines how the data series is generated.
 """
-union InsightDataSeriesDefinition = SearchInsightDataSeriesDefinition
+union InsightDataSeriesDefinition = SearchInsightDataSeriesDefinition | InventoryStatsDataSeriesDefinition
 
 """
 Defines presentation options for the insight.
@@ -1105,6 +1120,41 @@ type SearchInsightDataSeriesDefinition {
     The field to group results by. (For compute powered insights only.) This field is experimental and should be considered unstable in the API.
     """
     groupBy: GroupByField
+}
+
+"""
+Defines a data series that uses non-search methods (like Inventory) to find info about repos.
+"""
+type InventoryStatsDataSeriesDefinition {
+    """
+    Unique ID for the series.
+    """
+    seriesId: String!
+
+    """
+    The metric being tracked for this series.
+    """
+    metric: InventoryStatsMetric!
+
+    """
+    Group by repo or language (optional).
+    """
+    groupBy: GroupByField
+
+    """
+    How many groups to create before lumping the rest in an 'others' category
+    """
+    groupThreshold: Int
+
+    """
+    A definition of Repositories this series will operate over.
+    """
+    repositoryDefinition: InsightRepositoryDefinition!
+
+    """
+    The scope of time for which the insight data is generated.
+    """
+    timeScope: InsightTimeScope!
 }
 
 """
@@ -1273,6 +1323,50 @@ input SearchSeriesPreviewInput {
 }
 
 """
+Required input to generate a preview for a repository statistics insight.
+"""
+input InventoryStatsPreviewInput {
+    """
+    The scope of repositories.
+    """
+    repositoryScope: RepositoryScopeInput!
+    """
+    The scope of time.
+    """
+    timeScope: TimeScopeInput!
+
+    """
+    The series to generate previews for
+    """
+    series: [InventoryStatsSeriesPreviewInput!]!
+}
+
+"""
+Required input to generate a live preview for a repository statistics series.
+"""
+input InventoryStatsSeriesPreviewInput {
+    """
+    The metric to track for this series.
+    """
+    metric: InventoryStatsMetric!
+
+    """
+    A label for the series. Not used if the metrics will be grouped (labels will be automatically generated).
+    """
+    label: String
+
+    """
+    Group by repo or language (optional).
+    """
+    groupBy: GroupByField
+
+    """
+    How many groups to create before lumping the rest in an 'others' category
+    """
+    groupThreshold: Int
+}
+
+"""
 Input object for a live preview search based code insight.
 """
 type SearchInsightLivePreviewSeries {
@@ -1310,6 +1404,111 @@ input SaveInsightAsNewViewInput {
     The default values for filters and aggregates for this line chart.
     """
     viewControls: InsightViewControlsInput
+}
+
+"""
+Metric types for repository statistics insights.
+"""
+enum InventoryStatsMetric {
+    LINES_OF_CODE
+    BYTES
+    FILE_COUNT
+}
+
+"""
+Input for a repository statistics insight.
+"""
+input InventoryStatsInsightInput {
+    """
+    The series metrics to track (max 3: one of each metric type).
+    """
+    series: [InventoryStatsSeriesInput!]!
+
+    """
+    The scope of repositories.
+    """
+    repositoryScope: RepositoryScopeInput!
+
+    """
+    The scope of time. If provided here it will apply to all series unless overwritten.
+    """
+    timeScope: TimeScopeInput
+
+    """
+    Options for this chart.
+    """
+    options: LineChartOptionsInput!
+
+    """
+    The dashboard IDs with which to associate this insight once created.
+    """
+    dashboards: [ID!]
+
+    """
+    The default values for filters and aggregates for this chart.
+    """
+    viewControls: InsightViewControlsInput
+}
+
+"""
+Input for a repository statistics insight data series.
+"""
+input InventoryStatsSeriesInput {
+    """
+    The metric to track for this series.
+    """
+    metric: InventoryStatsMetric!
+
+    """
+    Group by repo or language (optional).
+    """
+    groupBy: GroupByField
+
+    """
+    How many groups to create before lumping the rest in an 'others' category
+    """
+    groupThreshold: Int
+
+    """
+    Options for this data series. Not used if the metrics will be grouped (labels and colors will be automatically generated).
+    """
+    options: LineChartDataSeriesOptionsInput
+
+    """
+    The scope of time. This time scope can also be provided at the InventoryStatsInsightInput level.
+    If the scope is provided here it will take priority over any other scope provided at a higher level in the input.
+    """
+    timeScope: TimeScopeInput
+}
+
+"""
+Input for updating a repository statistics insight.
+"""
+input UpdateInventoryStatsInsightInput {
+    """
+    The complete list of series metrics to track (max 3).
+    """
+    dataSeries: [InventoryStatsSeriesInput!]!
+
+    """
+    The scope of repositories.
+    """
+    repositoryScope: RepositoryScopeInput
+
+    """
+    The scope of time.
+    """
+    timeScope: TimeScopeInput
+
+    """
+    Options for this chart.
+    """
+    presentationOptions: LineChartOptionsInput!
+
+    """
+    The default values for filters and aggregates for this chart.
+    """
+    viewControls: InsightViewControlsInput!
 }
 
 extend type Query {

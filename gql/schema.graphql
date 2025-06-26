@@ -235,6 +235,11 @@ type Mutation {
         email may be marked as unverified if SMTP and password resets are enabled.
         """
         verifiedEmail: Boolean
+        """
+        Whether this is a service account for automation rather than a regular user account.
+        Service accounts don't have an email or password.
+        """
+        isServiceAccount: Boolean
     ): CreateUserResult!
     """
     Randomize a user's password so that they need to reset it before they can sign in again.
@@ -6480,6 +6485,14 @@ type User implements Node & SettingsSubject & Namespace {
     """
     builtinAuth: Boolean!
     """
+    Whether this account is a service account.
+    """
+    serviceAccount: Boolean!
+    """
+    Whether this account has unrestricted repository access.
+    """
+    unrestrictedRepoAccess: Boolean!
+    """
     The latest settings for the user.
     Only the user and site admins can access this field.
     """
@@ -6673,6 +6686,19 @@ type User implements Node & SettingsSubject & Namespace {
     Evaluates a feature flag for the user. Returns null if the feature flag does not exist.
     """
     evaluateFeatureFlag(flagName: String!): Boolean
+    """
+    Repositories relevant to this user based on their contributions.
+    """
+    relevantRepos(
+        """
+        Returns the first n repositories.
+        """
+        first: Int = 10
+        """
+        Returns repositories after the specified cursor.
+        """
+        after: String
+    ): NewRepositoryConnection!
 }
 
 """
@@ -7297,6 +7323,10 @@ type Site implements SettingsSubject {
     """
     authProviders: AuthProviderConnection!
     """
+    Identifier used to bind users to permissions (username or email)
+    """
+    permissionsUserMappingBindID: PermissionsUserMappingBindID!
+    """
     A list of all user external accounts on this site.
     """
     externalAccounts(
@@ -7398,9 +7428,13 @@ type Site implements SettingsSubject {
         """
         query: String
         """
-        Returns users who have been active in a given period of time.
+        Returns users who are site admins.
         """
         siteAdmin: Boolean
+        """
+        Returns service accounts or non-service accounts.
+        """
+        serviceAccount: Boolean
         """
         Returns users that contain filter in the username field.
         """
@@ -8442,6 +8476,10 @@ type SiteUser {
     Whether or not the user account is locked.
     """
     locked: Boolean!
+    """
+    Whether this account is a service account.
+    """
+    serviceAccount: Boolean!
 }
 
 """
@@ -8470,9 +8508,9 @@ enum SiteUserOrderBy {
     """
     DELETED_AT
     """
-    Whether the user is site admin or not.
+    User type (site admin, service account, regular user).
     """
-    SITE_ADMIN
+    USER_TYPE
 }
 
 """
@@ -10421,6 +10459,16 @@ enum PermissionNamespace {
     Permissions related to the prompts and saved searches library.
     """
     LIBRARY
+
+    """
+    Permissions related to managing repository permissions.
+    """
+    REPO_PERMISSIONS
+
+    """
+    Permissions related to managing IdP clients.
+    """
+    IDP_CLIENTS
 }
 
 """
@@ -10773,6 +10821,78 @@ type PerforceChangelist {
 
 extend type Query {
     """
+    Find repositories where a specific contributor has made commits.
+    """
+    contributorRepositories(
+        """
+        Author name or email address to search for.
+        """
+        author: String!
+        """
+        Returns the first n repositories from the list.
+        """
+        first: Int
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+        """
+        Minimum number of commits the author must have in a repository.
+        """
+        minCommits: Int
+    ): ContributorRepositoryConnection!
+}
+
+"""
+A list of repositories where a contributor has made commits.
+"""
+type ContributorRepositoryConnection {
+    """
+    A list of repositories where contributions were made.
+    """
+    nodes: [ContributorRepository!]!
+    """
+    The total count of repositories in the connection.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+A repository where a contributor has made commits.
+"""
+type ContributorRepository {
+    """
+    The repository where contributions were made.
+    """
+    repository: Repository!
+
+    """
+    The author name from git commits.
+    """
+    authorName: String!
+
+    """
+    The author email from git commits.
+    """
+    authorEmail: String!
+
+    """
+    Number of commits by this author in this repository.
+    """
+    commitCount: Int!
+
+    """
+    Date of the most recent commit by this author.
+    """
+    mostRecentCommitDate: DateTime!
+}
+
+extend type Query {
+    """
     List of all configured code hosts on this instance.
 
     Site-admin only.
@@ -10850,4 +10970,12 @@ type CodeHost implements Node {
     All external services that refer to this code host.
     """
     externalServices(first: Int = 50, after: String): ExternalServiceConnection!
+}
+
+"""
+The configured user attribute used to map permissions.
+"""
+enum PermissionsUserMappingBindID {
+    USERNAME
+    EMAIL
 }

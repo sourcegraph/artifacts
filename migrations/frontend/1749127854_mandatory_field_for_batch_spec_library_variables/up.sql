@@ -1,0 +1,2 @@
+ALTER TABLE batch_spec_library_variables
+ADD COLUMN IF NOT EXISTS mandatory BOOLEAN NOT NULL DEFAULT FALSE;

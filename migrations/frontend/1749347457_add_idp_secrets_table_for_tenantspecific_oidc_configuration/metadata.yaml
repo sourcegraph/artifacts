@@ -1,0 +1,2 @@
+name: Add idp_secrets table for tenant-specific OIDC configuration
+parents: [1749132007]
