@@ -7666,10 +7666,6 @@ type SchemaDriftSummary {
     The SQL to fix the schema drift
     """
     statements: [String!]
-    """
-    The Sourcegraph URL that contains the potential fix
-    """
-    urlHint: String
 }
 
 """
