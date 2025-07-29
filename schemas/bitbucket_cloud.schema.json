@@ -18,12 +18,37 @@
         },
         {
           "not": { "required": ["appPassword"] }
+        },
+        {
+          "not": { "required": ["apiToken"] }
         }
       ]
     },
     {
-      "required": ["username", "appPassword"],
-      "not": { "required": ["accessToken"] }
+      "allOf": [
+        {
+          "required": ["username", "appPassword"]
+        },
+        {
+          "not": { "required": ["accessToken"] }
+        },
+        {
+          "not": { "required": ["apiToken"] }
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "required": ["username", "apiToken"]
+        },
+        {
+          "not": { "required": ["accessToken"] }
+        },
+        {
+          "not": { "required": ["appPassword"] }
+        }
+      ]
     }
   ],
   "properties": {
@@ -91,11 +116,15 @@
       "type": "string"
     },
     "appPassword": {
-      "description": "The app password to use when authenticating to the Bitbucket Cloud. Also set the corresponding \"username\" field.",
+      "description": "The app password to use when authenticating to the Bitbucket Cloud. Also set the corresponding \"username\" field.\n🚨 NOTE 🚨: Please use the \"apiToken\" field instead of this field, since Bitbucket Cloud is deprecating app passwords as of June 9, 2026. See https://www.atlassian.com/blog/bitbucket/bitbucket-cloud-transitions-to-api-tokens-enhancing-security-with-app-password-deprecation for more details.",
       "type": "string"
     },
     "accessToken": {
       "description": "The workspace access token to use when authenticating with Bitbucket Cloud.",
+      "type": "string"
+    },
+    "apiToken": {
+      "description": "The API token to use when authenticating with Bitbucket Cloud.",
       "type": "string"
     },
     "gitURLType": {

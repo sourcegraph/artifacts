@@ -140,6 +140,7 @@ enum ChangesetCheckState {
     PENDING
     PASSED
     FAILED
+    UNAVAILABLE
 }
 
 """
@@ -758,14 +759,14 @@ input BatchSpecLibraryVariableInput {
     description: String!
 
     """
+    The display name of the library variable. The frontend will show the value of `name` if displayName is omitted.
+    """
+    displayName: String
+
+    """
     The regex pattern to match against in the batch spec.
     """
     pattern: String!
-
-    """
-    The level of the library variable (ERROR, WARNING, or INFO). Will be used to display an alert when the input doesn't match the pattern.
-    """
-    level: BatchSpecLibraryVariableLevel!
 
     """
     If the variable is mandatory when filling out values.
@@ -1544,7 +1545,7 @@ extend type Mutation {
     createChangesetSpec(
         """
         The raw changeset spec (as JSON). See
-        https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/schema/changeset_spec.schema.json
+        https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/changeset_spec.schema.json
         for the JSON Schema that describes the structure of this input.
         """
         changesetSpec: String!
@@ -1564,7 +1565,7 @@ extend type Mutation {
     createChangesetSpecs(
         """
         The raw changeset specs (as JSON). See
-        https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/schema/changeset_spec.schema.json
+        https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/changeset_spec.schema.json
         for the JSON Schema that describes the structure of this input.
         """
         changesetSpecs: [String!]!
@@ -1623,7 +1624,7 @@ extend type Mutation {
 
         """
         The batch spec as YAML (or the equivalent JSON). See
-        https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/schema/batch_spec.schema.json
+        https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/batch_spec.schema.json
         for the JSON Schema that describes the structure of this input.
         """
         batchSpec: String!
@@ -1673,6 +1674,17 @@ extend type Mutation {
     ): BatchChange!
 
     """
+    Creates a batch change with a complete batch spec in a single atomic operation.
+    This avoids the foreign key constraint issues present in the two-step workflows that starts with createEmptyBatchChange.
+    """
+    createBatchChangeWithSpec(
+        """
+        The input containing the batch change details and raw batch spec.
+        """
+        input: CreateBatchChangeWithSpecInput!
+    ): BatchChange!
+
+    """
     Creates a batch spec and triggers a job to evaluate the workspaces. Consumers need to
     poll the batch spec until the resolution is completed to get a full list of all
     workspaces. This might become streaming so the results will come in over time.
@@ -1684,7 +1696,7 @@ extend type Mutation {
     createBatchSpecFromRaw(
         """
         The raw batch spec as YAML (or the equivalent JSON). See
-        https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/schema/batch_spec.schema.json
+        https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/batch_spec.schema.json
         for the JSON Schema that describes the structure of this input.
         """
         batchSpec: String!
@@ -1736,7 +1748,7 @@ extend type Mutation {
 
         """
         The raw batch spec as YAML (or the equivalent JSON). See
-        https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/schema/batch_spec.schema.json
+        https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/batch_spec.schema.json
         for the JSON Schema that describes the structure of this input.
         """
         batchSpec: String!
@@ -1769,7 +1781,7 @@ extend type Mutation {
     upsertBatchSpecInput(
         """
         The raw batch spec as YAML (or the equivalent JSON). See
-        https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/schema/batch_spec.schema.json
+        https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/batch_spec.schema.json
         for the JSON Schema that describes the structure of this input.
         """
         batchSpec: String!
@@ -2085,14 +2097,14 @@ type BatchSpecLibraryVariable {
     description: String!
 
     """
+    The display name of the library variable. The frontend will show the value of `name` if displayName is omitted.
+    """
+    displayName: String
+
+    """
     The pattern to match against in the batch spec.
     """
     pattern: String!
-
-    """
-    The level of the library variable (ERROR, WARNING, or INFO). Will be used to display an alert when the input doesn't match the pattern.
-    """
-    level: BatchSpecLibraryVariableLevel!
 
     """
     If the variable is mandatory when filling out values.
@@ -2101,23 +2113,18 @@ type BatchSpecLibraryVariable {
 }
 
 """
-The level of a batch spec library variable.
+Enum for filtering batch spec library records by type.
 """
-enum BatchSpecLibraryVariableLevel {
+enum BatchSpecLibraryRecordType {
     """
-    Errors block submission of the batch spec.
+    Records that have library variables (templates).
     """
-    ERROR
+    TEMPLATE
 
     """
-    Warnings show a warning but don't block submission.
+    Records that don't have library variables (examples).
     """
-    WARNING
-
-    """
-    Informational messages that don't block submission.
-    """
-    INFO
+    EXAMPLE
 }
 
 """
@@ -2199,6 +2206,7 @@ extend type Query {
         Returns the first n batch changes from the list.
         """
         first: Int = 50
+
         """
         Opaque pagination cursor.
         """
@@ -2213,6 +2221,11 @@ extend type Query {
         Filter templates by one or more labels.
         """
         labelFilter: [String!]
+
+        """
+        Filter templates by type (template or example).
+        """
+        type: BatchSpecLibraryRecordType
     ): BatchSpecLibraryConnection
 
     """
@@ -4040,6 +4053,28 @@ input ChangesetSpecPublicationStateInput {
     The desired publication state.
     """
     publicationState: PublishedValue!
+}
+
+"""
+Input for creating a batch change with a complete batch spec.
+"""
+input CreateBatchChangeWithSpecInput {
+    """
+    The name of the batch change to create.
+    """
+    name: String!
+
+    """
+    The raw batch spec as YAML (or the equivalent JSON). See
+    https://sourcegraph.com/github.com/sourcegraph/artifacts/-/blob/schemas/batch_spec.schema.json
+    for the JSON Schema that describes the structure of this input.
+    """
+    rawSpec: String!
+
+    """
+    The namespace (either a user or organization) that this batch change should belong to.
+    """
+    namespace: ID!
 }
 
 """

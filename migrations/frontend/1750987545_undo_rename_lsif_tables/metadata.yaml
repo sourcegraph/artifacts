@@ -1,0 +1,3 @@
+name: undo_rename_lsif_tables
+parents: [1750717920]
+bestEffortTerminateBlockingTransactions: true

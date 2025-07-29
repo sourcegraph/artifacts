@@ -1,0 +1,2 @@
+name: Add redirect_uris column to idp_user_consents table
+parents: [1750989324, 1751017549]

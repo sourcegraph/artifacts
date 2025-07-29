@@ -16,6 +16,13 @@ extend type Query {
     to approve or deny.
     """
     deviceAuthorizationByUserCode(userCode: String!): DeviceAuthorizationDetails
+    """
+    Get consent details for a consent flow ID from the authorization flow.
+    Returns the client information and requested scopes that the user needs
+    to approve or deny. Can only be requested by the user who began the authorization
+    flow.
+    """
+    consentDetails(consentID: String!): ConsentDetails
 }
 
 extend type Mutation {
@@ -31,6 +38,11 @@ extend type Mutation {
         """
         name: String!
         """
+        A detailed description of what this client does and why it needs access.
+        Will be shown to users on consent screens.
+        """
+        description: String
+        """
         The list of permitted redirect URIs.
         """
         redirectURIs: [String!]!
@@ -38,6 +50,19 @@ extend type Mutation {
         The list of scopes this client can request.
         """
         scopes: [String!]!
+        """
+        Whether this is a public client.
+
+        Public clients don't need to present a client secret. This is suitable for
+        single-page applications, mobile apps, and CLI tools. The client supports
+        device flow authentication.
+
+        Private clients need to provide the client secret for authorization flows.
+        Suitable for server-side applications, internal services, and M2M use-cases.
+
+        This setting cannot be changed after creation.
+        """
+        public: Boolean!
     ): CreateIDPClientResult!
     """
     Update an existing IdP client.
@@ -53,6 +78,11 @@ extend type Mutation {
         A descriptive name for the client. Will be shown to users.
         """
         name: String!
+        """
+        A detailed description of what this client does and why it needs access.
+        Will be shown to users on consent screens.
+        """
+        description: String
         """
         The list of permitted redirect URIs.
         """
@@ -83,6 +113,65 @@ extend type Mutation {
         """
         approve: Boolean!
     ): EmptyResponse
+    """
+    Revoke the UserConsentedIDPClient consent.
+    This will invalidate all access tokens and refresh tokens issued to this client
+    for the current user, and force a consent prompt for the next authorization flow.
+
+    Can only be called by the user who owns the consent, or a site-admin.
+    """
+    revokeIDPClientConsent(consentID: ID!): EmptyResponse
+    """
+    Create a new M2M (Machine-to-Machine) credential for a service account.
+    This creates an IDP client that can use client credentials flow to obtain
+    access tokens with the service account as the subject.
+
+    Requires IDP_CLIENTS#WRITE_IMPERSONATION permission.
+    """
+    createM2MCredential(
+        """
+        The ID of the service account for which to create the M2M credential.
+        """
+        userID: ID!
+        """
+        A descriptive name for the credential. Will be shown in the credentials list.
+        """
+        name: String!
+        """
+        A detailed description of what this credential is used for.
+        """
+        description: String
+        """
+        The list of scopes this credential can request.
+        """
+        scopes: [String!]!
+    ): CreateM2MCredentialResult!
+    """
+    Delete an M2M credential for a service account.
+    This will delete the associated IDP client and invalidate all access tokens.
+
+    Requires IDP_CLIENTS#WRITE_IMPERSONATION permission.
+    """
+    deleteM2MCredential(id: ID!): EmptyResponse
+}
+
+extend type User {
+    """
+    Get the list of consents for IdP clients that this user has granted.
+    These IdP clients can complete an authorization code flow without consent again
+    and access tokens for these IdPs and the user as subject are permitted.
+
+    Can only be called by the user themselves, or a site-admin.
+    """
+    consentedIDPClients(first: Int = 50, after: String): UserConsentedIDPClientConnection!
+    """
+    Get the list of M2M (Machine-to-Machine) credentials for this service account.
+    Each credential corresponds to an IDP client that can use the client credentials
+    flow to obtain access tokens with this service account as the subject.
+
+    Only available for service accounts and requires IDP_CLIENTS#READ permission.
+    """
+    m2mCredentials(first: Int = 50, after: String): M2MCredentialConnection!
 }
 
 """
@@ -116,6 +205,11 @@ type IDPClient implements Node {
     """
     name: String!
     """
+    A detailed description of what this client does and why it needs access.
+    Shown to users on consent screens.
+    """
+    description: String
+    """
     The list of permitted redirect URIs.
     """
     redirectURIs: [String!]!
@@ -128,8 +222,14 @@ type IDPClient implements Node {
     """
     scopes: [String!]!
     """
-    Whether this idp client is public. Public clients are user-created, private
-    clients are Sourcegraph-owned.
+    Whether this is a public client.
+
+    Public clients don't need to present a client secret. This is suitable for
+    single-page applications, mobile apps, and CLI tools. The client supports
+    device flow authentication.
+
+    Private clients need to provide the client secret for authorization flows.
+    Suitable for server-side applications, internal services, and M2M use-cases.
     """
     public: Boolean!
     """
@@ -195,4 +295,130 @@ type DeviceAuthorizationDetails {
     Whether this authorization request is still valid (not expired, not already processed).
     """
     isValid: Boolean!
+}
+
+"""
+Consent details for an authorization code flow.
+Contains information about the client requesting access and the scopes being requested.
+"""
+type ConsentDetails {
+    """
+    The client requesting authorization.
+    """
+    client: IDPClient!
+    """
+    The scopes being requested by the client.
+    """
+    requestedScopes: [IDPScope!]!
+}
+
+"""
+Represents a user's consent record for an IdP client.
+Contains information about what scopes were granted and when.
+"""
+type UserConsentedIDPClient implements Node {
+    """
+    The unique identifier for this consent record.
+    """
+    id: ID!
+    """
+    The IdP client that the user consented to.
+    """
+    client: IDPClient!
+    """
+    The scopes that the user granted to this client.
+    """
+    grantedScopes: [IDPScope!]!
+    """
+    The time when the user first granted consent to this client.
+    """
+    consentedAt: DateTime!
+}
+
+"""
+A paginated list of user consented IdP clients.
+"""
+type UserConsentedIDPClientConnection {
+    """
+    The current page of consented clients.
+    """
+    nodes: [UserConsentedIDPClient!]!
+    """
+    The total number of consented clients for this user.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+Represents an M2M (Machine-to-Machine) credential for a service account.
+Each credential corresponds to an IDP client that can use client credentials flow.
+"""
+type M2MCredential implements Node {
+    """
+    The unique identifier for this M2M credential.
+    """
+    id: ID!
+    """
+    A descriptive name for the credential.
+    """
+    name: String!
+    """
+    A detailed description of what this credential is used for.
+    """
+    description: String
+    """
+    The underlying IDP client that implements this credential.
+    """
+    client: IDPClient!
+    """
+    The scopes that this credential can request.
+    """
+    scopes: [IDPScope!]!
+    """
+    The time when this credential was created.
+    """
+    createdAt: DateTime!
+    """
+    The time when this credential was last updated.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+A paginated list of M2M credentials.
+"""
+type M2MCredentialConnection {
+    """
+    The current page of M2M credentials.
+    """
+    nodes: [M2MCredential!]!
+    """
+    The total number of M2M credentials for this service account.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+The result type for creating a new M2M credential. Contains the credential and
+the client secret.
+"""
+type CreateM2MCredentialResult {
+    """
+    The created M2M credential.
+    """
+    credential: M2MCredential!
+    """
+    The client secret for the underlying IDP client, only accessible in this
+    response and never again.
+    This is used for client credentials flow authentication.
+    """
+    clientSecret: String!
 }

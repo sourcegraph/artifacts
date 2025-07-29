@@ -31,7 +31,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^\\/[\\/\\S]+\\/$"
+        "pattern": "^\\/[\\/ \\S]+\\/$"
       },
       "examples": [["//Sourcegraph/", "//Engineering/Cloud/"]]
     },

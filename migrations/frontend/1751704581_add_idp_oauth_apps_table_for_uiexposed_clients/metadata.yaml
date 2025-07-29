@@ -1,0 +1,2 @@
+name: Add idp_oauth_apps table for UI-exposed clients
+parents: [1750989324, 1751017549]

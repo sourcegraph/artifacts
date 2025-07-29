@@ -1,0 +1,374 @@
+extend type Query {
+    """
+    Contains queries relevant for this workspace. Not available outside of a Workspaces
+    environment.
+
+    DO NOT DEPEND ON ANY RESOLVERS IN THIS OBJECT, THIS IS NOT A STABLE API.
+    """
+    workspace: WorkspaceQuery!
+}
+
+extend type Mutation {
+    """
+    Contains mutations relevant for this workspace. Not available outside of a Workspaces
+    environment.
+
+    DO NOT DEPEND ON ANY RESOLVERS IN THIS OBJECT, THIS IS NOT A STABLE API.
+    """
+    workspace: WorkspaceMutation!
+}
+
+"""
+Contains queries relevant for this workspace. Not available outside of a Workspaces
+environment.
+"""
+type WorkspaceQuery {
+    """
+    The list of code hosts available to this workspace.
+    """
+    codeHosts: [WorkspaceCodeHost!]!
+
+    """
+    The applicable limits for repositories synced with this workspace.
+    """
+    limits: WorkspaceLimits!
+
+    """
+    The list of repositories currently selected for cloning across all code hosts.
+    """
+    selectedRepositories: [WorkspaceRepository!]!
+}
+
+"""
+Limits for the workspace.
+"""
+type WorkspaceLimits {
+    """
+    The maximum number of repositories that can be synced with the workspace.
+    """
+    maximumRepositoryCount: Int!
+    """
+    The maximum size of all selected repositories combined that can be synced with
+    the workspace.
+    """
+    maximumRepositorySizeBytes: BigInt!
+}
+
+"""
+Represents a repository from a specific code hosting provider.
+"""
+input RepositorySpecInput {
+    """
+    The code host kind for this repository.
+    """
+    kind: WorkspaceCodeHostKind!
+
+    """
+    The repository name in provider-specific format:
+    - GitHub: "owner/repo"
+    - GitLab: "group/project"
+    - Bitbucket Cloud: "workspace/repository" or "workspace/project/repository"
+    """
+    name: String!
+}
+
+"""
+Contains mutations relevant for this workspace. Not available outside of a Workspaces
+environment.
+"""
+type WorkspaceMutation {
+    """
+    Sets the set of to be mirrored repositories from all configured providers.
+    Enforces cumulative workspace limits across all providers.
+
+    Each repository must specify its provider explicitly to avoid ambiguity.
+    """
+    setRepositories(repositories: [RepositorySpecInput!]!): EmptyResponse
+
+    """
+    Sets the authentication token for GitLab.com integration.
+    This token is used to authenticate with GitLab.com for accessing projects and groups.
+
+    The token should have appropriate read permissions for repositories the user wants to sync.
+    """
+    setGitLabToken(token: String!): EmptyResponse
+
+    """
+    Sets the authentication details for Bitbucket Cloud integration.
+    This details are used to authenticate with Bitbucket Cloud for accessing repositories.
+
+    The details should have appropriate read permissions for repositories the user wants to sync.
+    """
+    setBitbucketCloudToken(username: String!, apiToken: String!): EmptyResponse
+
+    """
+    Disconnects the given code host integration from this workspace.
+    This will remove authentication tokens and all associated configuration and selected
+    repositories.
+    """
+    disconnectWorkspaceCodeHost(id: ID!): EmptyResponse
+}
+
+"""
+A connection to a list of workspace repositories.
+"""
+type WorkspaceRepositoryConnection {
+    """
+    A list of repositories.
+    """
+    nodes: [WorkspaceRepository!]!
+
+    """
+    The total count of repositories in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+The possible kinds of a workspace.
+"""
+enum WorkspaceCodeHostKind {
+    """
+    Currently GitHub.com only via a Sourcegraph-owned GitHub App.
+    """
+    GITHUB
+    """
+    Currently GitLab.com only via a user-provided access token.
+    """
+    GITLAB
+    """
+    Currently Bitbucket.org only via api token.
+    """
+    BITBUCKET_CLOUD
+}
+
+"""
+A code host that is connected to the current workspace.
+"""
+type WorkspaceCodeHost implements Node {
+    """
+    Opaque identifier.
+    """
+    id: ID!
+    """
+    A human-readable name of the code host to show to the user.
+    """
+    name: String!
+    """
+    The kind of code host this object refers to.
+    """
+    kind: WorkspaceCodeHostKind!
+    """
+    Indicates whether a connection to this code host has been established.
+    """
+    isConnected: Boolean!
+    """
+    The scopes that are available to the current user to pick repositories from.
+    Scopes are defined as a flat-hierarchy list of code-host specific concepts.
+
+    Scopes can only be queried when the code host is connected.
+
+    Currently, for GitHub scopes are organizations.
+    For GitLab, scopes are top-level groups.
+    For Bitbucket Cloud, scopes are workspaces.
+    """
+    scopes(
+        """
+        Pagination arg.
+        """
+        first: Int!
+        """
+        Pagination arg.
+        """
+        after: String
+    ): WorkspaceScopeConnection!
+    """
+    Code-host specific information.
+    """
+    details: WorkspaceCodeHostDetails!
+}
+
+"""
+Code-host specific information. Can be used for customized UIs.
+"""
+union WorkspaceCodeHostDetails = WorkspaceGitHubDetails | WorkspaceGitLabDetails | WorkspaceBitbucketCloudDetails
+
+"""
+GitHub specific information.
+"""
+type WorkspaceGitHubDetails {
+    """
+    The name of the GitHub App.
+    """
+    name: String!
+    """
+    The client ID of the OAuth provider backing the GitHub App.
+    """
+    clientID: String!
+    """
+    The URL of the GitHub App page on GitHub.
+    """
+    appURL: String!
+    """
+    The URL of the GitHub authenticator.
+    """
+    authenticationURL: String!
+}
+
+"""
+GitLab specific information.
+"""
+type WorkspaceGitLabDetails {
+    """
+    Placeholder because empty types are not permitted.
+    """
+    nothingYet: EmptyResponse
+}
+
+"""
+Bitbucket specific information.
+"""
+type WorkspaceBitbucketCloudDetails {
+    """
+    Username used for the Bitbucket Cloud workspace connection.
+    """
+    connectionUsername: String
+}
+
+"""
+A connection to a list of workspace scopes.
+"""
+type WorkspaceScopeConnection {
+    """
+    A list of workspace scopes.
+    """
+    nodes: [WorkspaceScope!]!
+
+    """
+    The total count of workspace scopes in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+A workspace scope is a grouping of repositories on the code host that is logical
+and searchable for repositories.
+
+On GitHub, this is an organization.
+On GitLab, this is a top-level group.
+On Bitbucket, this is a workspace.
+"""
+type WorkspaceScope implements Node {
+    """
+    Opaque identifier.
+    """
+    id: ID!
+
+    """
+    A human-readable name for the scope. This may be presented to the user.
+    """
+    name: String!
+
+    """
+    Code host that this scope belongs to.
+    """
+    codeHost: WorkspaceCodeHost!
+
+    """
+    The optional avatar URL of the scope.
+    """
+    avatarURL: String
+
+    """
+    A link to the scope on the code host.
+    """
+    url: String!
+
+    """
+    API to list / search repositories that belong to this scope.
+
+    This will only return repositories that can be accessed and cloned given the credential
+    we have.
+    """
+    repositories(
+        """
+        Pagination arg.
+        """
+        first: Int!
+        """
+        Pagination arg.
+        """
+        after: String
+        """
+        An optional search term when searching for a repo. Leave blank to apply no filtering.
+        """
+        search: String
+    ): WorkspaceRepositoryConnection!
+}
+
+"""
+A repository from a code host, can be connected to the workspace.
+"""
+type WorkspaceRepository {
+    """
+    ID of the repository on the code host (for example, the GitHub GraphQL ID,
+    notably not the Sourcegraph GraphQL ID).
+    """
+    externalID: String!
+
+    """
+    The kind of the code host this repository belongs to.
+    """
+    codeHostKind: WorkspaceCodeHostKind!
+
+    """
+    Full name of the repository.
+    """
+    name: String!
+
+    """
+    The web URL of this repository (ex. "https://github.com/foo/bar").
+    """
+    url: String!
+
+    """
+    Whether the repository is private.
+    """
+    isPrivate: Boolean!
+
+    """
+    Disk usage in kibibytes.
+    Null, if the size cannot be fetched from the code host. Such repos can not be
+    selected, they are merely returned for informational purposes.
+    """
+    diskUsageKibibytes: BigInt
+
+    """
+    Information and status related to mirroring, if this repository is a mirror
+    of another repository (e.g., on some code host). In this case, the remote
+    source repository is external to Sourcegraph and the mirror is maintained by
+    the Sourcegraph site (not the other way around).
+
+    Null, if the repo has not yet been synced.
+
+    This field is available to all workspace admins independent of repo authz,
+    so that admins with different privileges can still effectively manage repositories.
+    """
+    mirrorInfo: MirrorRepositoryInfo
+
+    """
+    The repository on Sourcegraph. Null, if not yet synced, or not accessible by the
+    requesting user.
+    """
+    repository: Repository
+}

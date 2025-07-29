@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS deepsearch_conversations_read_token_idx;

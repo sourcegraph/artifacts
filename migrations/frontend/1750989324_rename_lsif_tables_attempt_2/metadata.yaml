@@ -1,0 +1,3 @@
+name: rename_lsif_tables_attempt_2
+parents: [1750987545]
+bestEffortTerminateBlockingTransactions: true

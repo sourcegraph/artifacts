@@ -386,44 +386,6 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION func_lsif_uploads_delete() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    BEGIN
-        UPDATE lsif_uploads_audit_logs
-        SET record_deleted_at = NOW()
-        WHERE upload_id IN (
-            SELECT id FROM OLD
-        );
-
-        RETURN NULL;
-    END;
-$$;
-
-CREATE FUNCTION func_lsif_uploads_insert() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    BEGIN
-        INSERT INTO lsif_uploads_audit_logs
-        (upload_id, commit, root, repository_id, uploaded_at,
-        indexer, indexer_version, upload_size, associated_index_id,
-        content_type, tenant_id,
-        operation, transition_columns)
-        VALUES (
-            NEW.id, NEW.commit, NEW.root, NEW.repository_id, NEW.uploaded_at,
-            NEW.indexer, NEW.indexer_version, NEW.upload_size, NEW.associated_index_id,
-            NEW.content_type, NEW.tenant_id,
-            'create', func_lsif_uploads_transition_columns_diff(
-                (NULL, NULL, NULL, NULL, NULL, NULL),
-                func_row_to_lsif_uploads_transition_columns(NEW)
-            )
-        );
-        RETURN NULL;
-    END;
-$$;
-
-COMMENT ON FUNCTION func_lsif_uploads_insert() IS 'Transforms a record from the lsif_uploads table into an `lsif_uploads_transition_columns` type variable.';
-
 CREATE FUNCTION func_lsif_uploads_transition_columns_diff(old lsif_uploads_transition_columns, new lsif_uploads_transition_columns) RETURNS hstore[]
     LANGUAGE plpgsql
     AS $$
@@ -462,36 +424,6 @@ $$;
 
 COMMENT ON FUNCTION func_lsif_uploads_transition_columns_diff(old lsif_uploads_transition_columns, new lsif_uploads_transition_columns) IS 'Diffs two `lsif_uploads_transition_columns` values into an array of hstores, where each hstore is in the format {"column"=>"<column name>", "old"=>"<previous value>", "new"=>"<new value>"}.';
 
-CREATE FUNCTION func_lsif_uploads_update() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    DECLARE
-        diff hstore[];
-    BEGIN
-        diff = func_lsif_uploads_transition_columns_diff(
-            func_row_to_lsif_uploads_transition_columns(OLD),
-            func_row_to_lsif_uploads_transition_columns(NEW)
-        );
-
-        IF (array_length(diff, 1) > 0) THEN
-            INSERT INTO lsif_uploads_audit_logs
-            (reason, upload_id, commit, root, repository_id, uploaded_at,
-            indexer, indexer_version, upload_size, associated_index_id,
-            content_type, tenant_id,
-            operation, transition_columns)
-            VALUES (
-                COALESCE(current_setting('codeintel.lsif_uploads_audit.reason', true), ''),
-                NEW.id, NEW.commit, NEW.root, NEW.repository_id, NEW.uploaded_at,
-                NEW.indexer, NEW.indexer_version, NEW.upload_size, NEW.associated_index_id,
-                NEW.content_type, NEW.tenant_id,
-                'modify', diff
-            );
-        END IF;
-
-        RETURN NEW;
-    END;
-$$;
-
 CREATE FUNCTION func_package_repo_filters_updated_at() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -527,6 +459,74 @@ BEGIN
     RETURN (rec.commit, rec.state, rec.num_resets, rec.num_failures, rec.worker_hostname,
             rec.failure_message);
 END;
+$$;
+
+CREATE FUNCTION func_scip_uploads_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        UPDATE lsif_uploads_audit_logs
+        SET record_deleted_at = NOW()
+        WHERE upload_id IN (
+            SELECT id FROM OLD
+        );
+
+        RETURN NULL;
+    END;
+$$;
+
+CREATE FUNCTION func_scip_uploads_insert() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        INSERT INTO lsif_uploads_audit_logs
+        (upload_id, commit, root, repository_id, uploaded_at,
+        indexer, indexer_version, upload_size, associated_index_id,
+        content_type, tenant_id,
+        operation, transition_columns)
+        VALUES (
+            NEW.id, NEW.commit, NEW.root, NEW.repository_id, NEW.uploaded_at,
+            NEW.indexer, NEW.indexer_version, NEW.upload_size, NEW.associated_index_id,
+            NEW.content_type, NEW.tenant_id,
+            'create', func_lsif_uploads_transition_columns_diff(
+                (NULL, NULL, NULL, NULL, NULL, NULL),
+                func_row_to_lsif_uploads_transition_columns(NEW)
+            )
+        );
+        RETURN NULL;
+    END;
+$$;
+
+COMMENT ON FUNCTION func_scip_uploads_insert() IS 'Transforms a record from the lsif_uploads table into an `lsif_uploads_transition_columns` type variable.';
+
+CREATE FUNCTION func_scip_uploads_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+        diff hstore[];
+    BEGIN
+        diff = func_lsif_uploads_transition_columns_diff(
+            func_row_to_lsif_uploads_transition_columns(OLD),
+            func_row_to_lsif_uploads_transition_columns(NEW)
+        );
+
+        IF (array_length(diff, 1) > 0) THEN
+            INSERT INTO lsif_uploads_audit_logs
+            (reason, upload_id, commit, root, repository_id, uploaded_at,
+            indexer, indexer_version, upload_size, associated_index_id,
+            content_type, tenant_id,
+            operation, transition_columns)
+            VALUES (
+                COALESCE(current_setting('codeintel.lsif_uploads_audit.reason', true), ''),
+                NEW.id, NEW.commit, NEW.root, NEW.repository_id, NEW.uploaded_at,
+                NEW.indexer, NEW.indexer_version, NEW.upload_size, NEW.associated_index_id,
+                NEW.content_type, NEW.tenant_id,
+                'modify', diff
+            );
+        END IF;
+
+        RETURN NEW;
+    END;
 $$;
 
 CREATE FUNCTION func_syntactic_scip_indexing_jobs_delete() RETURNS trigger
@@ -1173,6 +1173,7 @@ CREATE TABLE batch_spec_library_variables (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     mandatory boolean DEFAULT false NOT NULL,
+    display_name text,
     CONSTRAINT batch_spec_library_variables_level_check CHECK ((level = ANY (ARRAY['error'::text, 'warn'::text, 'info'::text])))
 );
 
@@ -2338,6 +2339,26 @@ CREATE SEQUENCE deepsearch_conversations_id_seq
 
 ALTER SEQUENCE deepsearch_conversations_id_seq OWNED BY deepsearch_conversations.id;
 
+CREATE TABLE deepsearch_quota (
+    id integer NOT NULL,
+    user_id integer NOT NULL,
+    quota integer DEFAULT 0 NOT NULL,
+    quota_date date DEFAULT CURRENT_DATE,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE deepsearch_quota_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_quota_id_seq OWNED BY deepsearch_quota.id;
+
 CREATE TABLE deepsearch_references (
     id integer NOT NULL,
     conversation_id integer NOT NULL,
@@ -3053,7 +3074,8 @@ CREATE TABLE idp_clients (
     audience text[] NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    deleted_at timestamp with time zone
+    deleted_at timestamp with time zone,
+    description text
 );
 
 CREATE SEQUENCE idp_clients_id_seq
@@ -3064,6 +3086,35 @@ CREATE SEQUENCE idp_clients_id_seq
     CACHE 1;
 
 ALTER SEQUENCE idp_clients_id_seq OWNED BY idp_clients.id;
+
+CREATE TABLE idp_consent_requests (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    request_id text NOT NULL,
+    client_id text NOT NULL,
+    user_id bigint NOT NULL,
+    requested_scopes text[] NOT NULL,
+    requested_audiences text[] NOT NULL,
+    redirect_uri text NOT NULL,
+    session_id bigint NOT NULL,
+    response_types text[] NOT NULL,
+    response_mode text NOT NULL,
+    state text,
+    request_form jsonb NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE idp_consent_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_consent_requests_id_seq OWNED BY idp_consent_requests.id;
 
 CREATE TABLE idp_device_auth_requests (
     id bigint NOT NULL,
@@ -3122,6 +3173,22 @@ CREATE SEQUENCE idp_id_tokens_id_seq
 
 ALTER SEQUENCE idp_id_tokens_id_seq OWNED BY idp_id_tokens.id;
 
+CREATE TABLE idp_oauth_apps (
+    id integer NOT NULL,
+    client_id text NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE idp_oauth_apps_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_oauth_apps_id_seq OWNED BY idp_oauth_apps.id;
+
 CREATE TABLE idp_pkce_requests (
     id bigint NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -3168,6 +3235,23 @@ CREATE SEQUENCE idp_secrets_id_seq
     CACHE 1;
 
 ALTER SEQUENCE idp_secrets_id_seq OWNED BY idp_secrets.id;
+
+CREATE TABLE idp_service_account_m2m_clients (
+    id integer NOT NULL,
+    client_id text NOT NULL,
+    service_account_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE idp_service_account_m2m_clients_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_service_account_m2m_clients_id_seq OWNED BY idp_service_account_m2m_clients.id;
 
 CREATE TABLE idp_sessions (
     id bigint NOT NULL,
@@ -3218,6 +3302,29 @@ CREATE SEQUENCE idp_tokens_id_seq
     CACHE 1;
 
 ALTER SEQUENCE idp_tokens_id_seq OWNED BY idp_tokens.id;
+
+CREATE TABLE idp_user_consents (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    client_id text NOT NULL,
+    scopes text[] NOT NULL,
+    granted_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    redirect_uris text[] DEFAULT '{}'::text[] NOT NULL
+);
+
+CREATE SEQUENCE idp_user_consents_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE idp_user_consents_id_seq OWNED BY idp_user_consents.id;
 
 CREATE TABLE insights_query_runner_jobs (
     id integer NOT NULL,
@@ -3420,7 +3527,7 @@ COMMENT ON COLUMN lsif_dirty_repositories.update_token IS 'This value is increme
 
 COMMENT ON COLUMN lsif_dirty_repositories.updated_at IS 'The time the update_token value was last updated.';
 
-CREATE TABLE lsif_uploads (
+CREATE TABLE scip_uploads (
     id integer NOT NULL,
     commit text NOT NULL,
     root text DEFAULT ''::text NOT NULL,
@@ -3460,37 +3567,37 @@ CREATE TABLE lsif_uploads (
     CONSTRAINT lsif_uploads_commit_valid_chars CHECK ((commit ~ '^[a-z0-9]{40}$'::text))
 );
 
-COMMENT ON TABLE lsif_uploads IS 'Stores metadata about an LSIF index uploaded by a user.';
+COMMENT ON TABLE scip_uploads IS 'Stores metadata about an LSIF index uploaded by a user.';
 
-COMMENT ON COLUMN lsif_uploads.id IS 'Used as a logical foreign key with the (disjoint) codeintel database.';
+COMMENT ON COLUMN scip_uploads.id IS 'Used as a logical foreign key with the (disjoint) codeintel database.';
 
-COMMENT ON COLUMN lsif_uploads.commit IS 'A 40-char revhash. Note that this commit may not be resolvable in the future.';
+COMMENT ON COLUMN scip_uploads.commit IS 'A 40-char revhash. Note that this commit may not be resolvable in the future.';
 
-COMMENT ON COLUMN lsif_uploads.root IS 'The path for which the index can resolve code intelligence relative to the repository root.';
+COMMENT ON COLUMN scip_uploads.root IS 'The path for which the index can resolve code intelligence relative to the repository root.';
 
-COMMENT ON COLUMN lsif_uploads.indexer IS 'The name of the indexer that produced the index file. If not supplied by the user it will be pulled from the index metadata.';
+COMMENT ON COLUMN scip_uploads.indexer IS 'The name of the indexer that produced the index file. If not supplied by the user it will be pulled from the index metadata.';
 
-COMMENT ON COLUMN lsif_uploads.num_parts IS 'The number of parts src-cli split the upload file into.';
+COMMENT ON COLUMN scip_uploads.num_parts IS 'The number of parts src-cli split the upload file into.';
 
-COMMENT ON COLUMN lsif_uploads.uploaded_parts IS 'The index of parts that have been successfully uploaded.';
+COMMENT ON COLUMN scip_uploads.uploaded_parts IS 'The index of parts that have been successfully uploaded.';
 
-COMMENT ON COLUMN lsif_uploads.upload_size IS 'The size of the index file (in bytes).';
+COMMENT ON COLUMN scip_uploads.upload_size IS 'The size of the index file (in bytes).';
 
-COMMENT ON COLUMN lsif_uploads.num_references IS 'Deprecated in favor of reference_count.';
+COMMENT ON COLUMN scip_uploads.num_references IS 'Deprecated in favor of reference_count.';
 
-COMMENT ON COLUMN lsif_uploads.expired IS 'Whether or not this upload data is no longer protected by any data retention policy.';
+COMMENT ON COLUMN scip_uploads.expired IS 'Whether or not this upload data is no longer protected by any data retention policy.';
 
-COMMENT ON COLUMN lsif_uploads.last_retention_scan_at IS 'The last time this upload was checked against data retention policies.';
+COMMENT ON COLUMN scip_uploads.last_retention_scan_at IS 'The last time this upload was checked against data retention policies.';
 
-COMMENT ON COLUMN lsif_uploads.reference_count IS 'The number of references to this upload data from other upload records (via lsif_references).';
+COMMENT ON COLUMN scip_uploads.reference_count IS 'The number of references to this upload data from other upload records (via lsif_references).';
 
-COMMENT ON COLUMN lsif_uploads.indexer_version IS 'The version of the indexer that produced the index file. If not supplied by the user it will be pulled from the index metadata.';
+COMMENT ON COLUMN scip_uploads.indexer_version IS 'The version of the indexer that produced the index file. If not supplied by the user it will be pulled from the index metadata.';
 
-COMMENT ON COLUMN lsif_uploads.last_referenced_scan_at IS 'The last time this upload was known to be referenced by another (possibly expired) index.';
+COMMENT ON COLUMN scip_uploads.last_referenced_scan_at IS 'The last time this upload was known to be referenced by another (possibly expired) index.';
 
-COMMENT ON COLUMN lsif_uploads.last_traversal_scan_at IS 'The last time this upload was known to be reachable by a non-expired index.';
+COMMENT ON COLUMN scip_uploads.last_traversal_scan_at IS 'The last time this upload was known to be reachable by a non-expired index.';
 
-COMMENT ON COLUMN lsif_uploads.content_type IS 'The content type of the upload record. For now, the default value is `application/x-ndjson+lsif` to backfill existing records. This will change as we remove LSIF support.';
+COMMENT ON COLUMN scip_uploads.content_type IS 'The content type of the upload record. For now, the default value is `application/x-ndjson+lsif` to backfill existing records. This will change as we remove LSIF support.';
 
 CREATE VIEW lsif_dumps WITH (security_invoker='true') AS
  SELECT id,
@@ -3516,17 +3623,8 @@ CREATE VIEW lsif_dumps WITH (security_invoker='true') AS
     last_retention_scan_at,
     finished_at AS processed_at,
     tenant_id
-   FROM lsif_uploads u
+   FROM scip_uploads u
   WHERE ((state = 'completed'::text) OR (state = 'deleting'::text));
-
-CREATE SEQUENCE lsif_dumps_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE lsif_dumps_id_seq OWNED BY lsif_uploads.id;
 
 CREATE VIEW lsif_dumps_with_repository_name WITH (security_invoker='true') AS
  SELECT u.id,
@@ -3695,7 +3793,7 @@ COMMENT ON TABLE lsif_last_retention_scan IS 'Tracks the last time uploads a rep
 
 COMMENT ON COLUMN lsif_last_retention_scan.last_retention_scan_at IS 'The last time uploads of this repository were checked against data retention policies.';
 
-CREATE TABLE lsif_nearest_uploads (
+CREATE TABLE scip_nearest_uploads (
     repository_id integer NOT NULL,
     commit_bytea bytea NOT NULL,
     uploads jsonb NOT NULL,
@@ -3703,22 +3801,21 @@ CREATE TABLE lsif_nearest_uploads (
     id bigint NOT NULL
 );
 
-COMMENT ON TABLE lsif_nearest_uploads IS 'Associates commits with the complete set of uploads visible from that commit. Every commit with upload data is present in this table.';
+COMMENT ON TABLE scip_nearest_uploads IS 'Associates commits with the complete set of uploads visible from that commit. Every commit with upload data is present in this table.';
 
-COMMENT ON COLUMN lsif_nearest_uploads.commit_bytea IS 'A 40-char revhash. Note that this commit may not be resolvable in the future.';
+COMMENT ON COLUMN scip_nearest_uploads.commit_bytea IS 'A 40-char revhash. Note that this commit may not be resolvable in the future.';
 
-COMMENT ON COLUMN lsif_nearest_uploads.uploads IS 'Encodes an {upload_id => distance} map that includes an entry for every upload visible from the commit. There is always at least one entry with a distance of zero.';
+COMMENT ON COLUMN scip_nearest_uploads.uploads IS 'Encodes an {upload_id => distance} map that includes an entry for every upload visible from the commit. There is always at least one entry with a distance of zero.';
 
-CREATE SEQUENCE lsif_nearest_uploads_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
+CREATE VIEW lsif_nearest_uploads WITH (security_invoker='true') AS
+ SELECT repository_id,
+    commit_bytea,
+    uploads,
+    tenant_id,
+    id
+   FROM scip_nearest_uploads;
 
-ALTER SEQUENCE lsif_nearest_uploads_id_seq OWNED BY lsif_nearest_uploads.id;
-
-CREATE TABLE lsif_nearest_uploads_links (
+CREATE TABLE scip_nearest_uploads_links (
     repository_id integer NOT NULL,
     commit_bytea bytea NOT NULL,
     ancestor_commit_bytea bytea NOT NULL,
@@ -3727,22 +3824,22 @@ CREATE TABLE lsif_nearest_uploads_links (
     id bigint NOT NULL
 );
 
-COMMENT ON TABLE lsif_nearest_uploads_links IS 'Associates commits with the closest ancestor commit with usable upload data. Together, this table and lsif_nearest_uploads cover all commits with resolvable code intelligence.';
+COMMENT ON TABLE scip_nearest_uploads_links IS 'Associates commits with the closest ancestor commit with usable upload data. Together, this table and lsif_nearest_uploads cover all commits with resolvable code intelligence.';
 
-COMMENT ON COLUMN lsif_nearest_uploads_links.commit_bytea IS 'A 40-char revhash. Note that this commit may not be resolvable in the future.';
+COMMENT ON COLUMN scip_nearest_uploads_links.commit_bytea IS 'A 40-char revhash. Note that this commit may not be resolvable in the future.';
 
-COMMENT ON COLUMN lsif_nearest_uploads_links.ancestor_commit_bytea IS 'The 40-char revhash of the ancestor. Note that this commit may not be resolvable in the future.';
+COMMENT ON COLUMN scip_nearest_uploads_links.ancestor_commit_bytea IS 'The 40-char revhash of the ancestor. Note that this commit may not be resolvable in the future.';
 
-COMMENT ON COLUMN lsif_nearest_uploads_links.distance IS 'The distance bewteen the commits. Parent = 1, Grandparent = 2, etc.';
+COMMENT ON COLUMN scip_nearest_uploads_links.distance IS 'The distance bewteen the commits. Parent = 1, Grandparent = 2, etc.';
 
-CREATE SEQUENCE lsif_nearest_uploads_links_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE lsif_nearest_uploads_links_id_seq OWNED BY lsif_nearest_uploads_links.id;
+CREATE VIEW lsif_nearest_uploads_links WITH (security_invoker='true') AS
+ SELECT repository_id,
+    commit_bytea,
+    ancestor_commit_bytea,
+    distance,
+    tenant_id,
+    id
+   FROM scip_nearest_uploads_links;
 
 CREATE TABLE lsif_packages (
     id integer NOT NULL,
@@ -3830,7 +3927,46 @@ CREATE SEQUENCE lsif_retention_configuration_id_seq
 
 ALTER SEQUENCE lsif_retention_configuration_id_seq OWNED BY lsif_retention_configuration.id;
 
-CREATE TABLE lsif_uploads_audit_logs (
+CREATE VIEW lsif_uploads WITH (security_invoker='true') AS
+ SELECT id,
+    commit,
+    root,
+    uploaded_at,
+    state,
+    failure_message,
+    started_at,
+    finished_at,
+    repository_id,
+    indexer,
+    num_parts,
+    uploaded_parts,
+    process_after,
+    num_resets,
+    upload_size,
+    num_failures,
+    associated_index_id,
+    committed_at,
+    commit_last_checked_at,
+    worker_hostname,
+    last_heartbeat_at,
+    execution_logs,
+    num_references,
+    expired,
+    last_retention_scan_at,
+    reference_count,
+    indexer_version,
+    queued_at,
+    cancel,
+    uncompressed_size,
+    last_referenced_scan_at,
+    last_traversal_scan_at,
+    last_reconcile_at,
+    content_type,
+    should_reindex,
+    tenant_id
+   FROM scip_uploads;
+
+CREATE TABLE scip_uploads_audit_logs (
     log_timestamp timestamp with time zone DEFAULT now(),
     record_deleted_at timestamp with time zone,
     upload_id integer NOT NULL,
@@ -3850,36 +3986,53 @@ CREATE TABLE lsif_uploads_audit_logs (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
-COMMENT ON COLUMN lsif_uploads_audit_logs.log_timestamp IS 'Timestamp for this log entry.';
+COMMENT ON COLUMN scip_uploads_audit_logs.log_timestamp IS 'Timestamp for this log entry.';
 
-COMMENT ON COLUMN lsif_uploads_audit_logs.record_deleted_at IS 'Set once the upload this entry is associated with is deleted. Once NOW() - record_deleted_at is above a certain threshold, this log entry will be deleted.';
+COMMENT ON COLUMN scip_uploads_audit_logs.record_deleted_at IS 'Set once the upload this entry is associated with is deleted. Once NOW() - record_deleted_at is above a certain threshold, this log entry will be deleted.';
 
-COMMENT ON COLUMN lsif_uploads_audit_logs.transition_columns IS 'Array of changes that occurred to the upload for this entry, in the form of {"column"=>"<column name>", "old"=>"<previous value>", "new"=>"<new value>"}.';
+COMMENT ON COLUMN scip_uploads_audit_logs.transition_columns IS 'Array of changes that occurred to the upload for this entry, in the form of {"column"=>"<column name>", "old"=>"<previous value>", "new"=>"<new value>"}.';
 
-COMMENT ON COLUMN lsif_uploads_audit_logs.reason IS 'The reason/source for this entry.';
+COMMENT ON COLUMN scip_uploads_audit_logs.reason IS 'The reason/source for this entry.';
 
-CREATE SEQUENCE lsif_uploads_audit_logs_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
+CREATE VIEW lsif_uploads_audit_logs WITH (security_invoker='true') AS
+ SELECT log_timestamp,
+    record_deleted_at,
+    upload_id,
+    commit,
+    root,
+    repository_id,
+    uploaded_at,
+    indexer,
+    indexer_version,
+    upload_size,
+    associated_index_id,
+    transition_columns,
+    reason,
+    sequence,
+    operation,
+    content_type,
+    tenant_id
+   FROM scip_uploads_audit_logs;
 
-ALTER SEQUENCE lsif_uploads_audit_logs_seq OWNED BY lsif_uploads_audit_logs.sequence;
-
-CREATE TABLE lsif_uploads_reference_counts (
+CREATE TABLE scip_uploads_reference_counts (
     upload_id integer NOT NULL,
     reference_count integer NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
-COMMENT ON TABLE lsif_uploads_reference_counts IS 'A less hot-path reference count for upload records.';
+COMMENT ON TABLE scip_uploads_reference_counts IS 'A less hot-path reference count for upload records.';
 
-COMMENT ON COLUMN lsif_uploads_reference_counts.upload_id IS 'The identifier of the referenced upload.';
+COMMENT ON COLUMN scip_uploads_reference_counts.upload_id IS 'The identifier of the referenced upload.';
 
-COMMENT ON COLUMN lsif_uploads_reference_counts.reference_count IS 'The number of references to the associated upload from other records (via lsif_references).';
+COMMENT ON COLUMN scip_uploads_reference_counts.reference_count IS 'The number of references to the associated upload from other records (via lsif_references).';
 
-CREATE TABLE lsif_uploads_visible_at_tip (
+CREATE VIEW lsif_uploads_reference_counts WITH (security_invoker='true') AS
+ SELECT upload_id,
+    reference_count,
+    tenant_id
+   FROM scip_uploads_reference_counts;
+
+CREATE TABLE scip_uploads_visible_at_tip (
     repository_id integer NOT NULL,
     upload_id integer NOT NULL,
     branch_or_tag_name text DEFAULT ''::text NOT NULL,
@@ -3888,38 +4041,36 @@ CREATE TABLE lsif_uploads_visible_at_tip (
     id bigint NOT NULL
 );
 
-COMMENT ON TABLE lsif_uploads_visible_at_tip IS 'Associates a repository with the set of LSIF upload identifiers that can serve intelligence for the tip of the default branch.';
+COMMENT ON TABLE scip_uploads_visible_at_tip IS 'Associates a repository with the set of LSIF upload identifiers that can serve intelligence for the tip of the default branch.';
 
-COMMENT ON COLUMN lsif_uploads_visible_at_tip.upload_id IS 'The identifier of the upload visible from the tip of the specified branch or tag.';
+COMMENT ON COLUMN scip_uploads_visible_at_tip.upload_id IS 'The identifier of the upload visible from the tip of the specified branch or tag.';
 
-COMMENT ON COLUMN lsif_uploads_visible_at_tip.branch_or_tag_name IS 'The name of the branch or tag.';
+COMMENT ON COLUMN scip_uploads_visible_at_tip.branch_or_tag_name IS 'The name of the branch or tag.';
 
-COMMENT ON COLUMN lsif_uploads_visible_at_tip.is_default_branch IS 'Whether the specified branch is the default of the repository. Always false for tags.';
+COMMENT ON COLUMN scip_uploads_visible_at_tip.is_default_branch IS 'Whether the specified branch is the default of the repository. Always false for tags.';
 
-CREATE SEQUENCE lsif_uploads_visible_at_tip_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
+CREATE VIEW lsif_uploads_visible_at_tip WITH (security_invoker='true') AS
+ SELECT repository_id,
+    upload_id,
+    branch_or_tag_name,
+    is_default_branch,
+    tenant_id,
+    id
+   FROM scip_uploads_visible_at_tip;
 
-ALTER SEQUENCE lsif_uploads_visible_at_tip_id_seq OWNED BY lsif_uploads_visible_at_tip.id;
-
-CREATE TABLE lsif_uploads_vulnerability_scan (
+CREATE TABLE scip_uploads_vulnerability_scan (
     id bigint NOT NULL,
     upload_id integer NOT NULL,
     last_scanned_at timestamp without time zone DEFAULT now() NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
-CREATE SEQUENCE lsif_uploads_vulnerability_scan_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE lsif_uploads_vulnerability_scan_id_seq OWNED BY lsif_uploads_vulnerability_scan.id;
+CREATE VIEW lsif_uploads_vulnerability_scan WITH (security_invoker='true') AS
+ SELECT id,
+    upload_id,
+    last_scanned_at,
+    tenant_id
+   FROM scip_uploads_vulnerability_scan;
 
 CREATE VIEW lsif_uploads_with_repository_name WITH (security_invoker='true') AS
  SELECT u.id,
@@ -3948,7 +4099,7 @@ CREATE VIEW lsif_uploads_with_repository_name WITH (security_invoker='true') AS
     r.name AS repository_name,
     u.uncompressed_size,
     u.tenant_id
-   FROM (lsif_uploads u
+   FROM (scip_uploads u
      JOIN repo r ON ((r.id = u.repository_id)))
   WHERE (r.deleted_at IS NULL);
 
@@ -5063,6 +5214,123 @@ CREATE SEQUENCE saved_searches_id_seq
 
 ALTER SEQUENCE saved_searches_id_seq OWNED BY saved_searches.id;
 
+CREATE SEQUENCE scip_nearest_uploads_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE scip_nearest_uploads_id_seq OWNED BY scip_nearest_uploads.id;
+
+CREATE SEQUENCE scip_nearest_uploads_links_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE scip_nearest_uploads_links_id_seq OWNED BY scip_nearest_uploads_links.id;
+
+CREATE SEQUENCE scip_uploads_audit_logs_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE scip_uploads_audit_logs_seq OWNED BY scip_uploads_audit_logs.sequence;
+
+CREATE VIEW scip_uploads_for_available_repos WITH (security_invoker='true') AS
+ SELECT u.id,
+    u.commit,
+    u.committed_at,
+    u.root,
+    u.queued_at,
+    u.uploaded_at,
+    u.state,
+    u.failure_message,
+    u.started_at,
+    u.finished_at,
+    u.repository_id,
+    u.indexer,
+    u.indexer_version,
+    u.num_parts,
+    u.uploaded_parts,
+    u.process_after,
+    u.num_resets,
+    u.upload_size,
+    u.num_failures,
+    u.associated_index_id,
+    u.content_type,
+    u.should_reindex,
+    u.expired,
+    u.last_retention_scan_at,
+    r.name AS repository_name,
+    u.uncompressed_size,
+    u.tenant_id
+   FROM (scip_uploads u
+     JOIN repo r ON ((r.id = u.repository_id)))
+  WHERE ((r.deleted_at IS NULL) AND (r.blocked IS NULL));
+
+CREATE SEQUENCE scip_uploads_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE scip_uploads_id_seq OWNED BY scip_uploads.id;
+
+CREATE VIEW scip_uploads_nav_eligible WITH (security_invoker='true') AS
+ SELECT id,
+    commit,
+    committed_at,
+    root,
+    queued_at,
+    uploaded_at,
+    state,
+    failure_message,
+    started_at,
+    finished_at,
+    repository_id,
+    indexer,
+    indexer_version,
+    num_parts,
+    uploaded_parts,
+    process_after,
+    num_resets,
+    upload_size,
+    num_failures,
+    associated_index_id,
+    content_type,
+    should_reindex,
+    expired,
+    last_retention_scan_at,
+    repository_name,
+    uncompressed_size,
+    tenant_id
+   FROM scip_uploads_for_available_repos u
+  WHERE (state = 'completed'::text);
+
+CREATE SEQUENCE scip_uploads_visible_at_tip_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE scip_uploads_visible_at_tip_id_seq OWNED BY scip_uploads_visible_at_tip.id;
+
+CREATE SEQUENCE scip_uploads_vulnerability_scan_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE scip_uploads_vulnerability_scan_id_seq OWNED BY scip_uploads_vulnerability_scan.id;
+
 CREATE TABLE search_context_default (
     user_id integer NOT NULL,
     search_context_id bigint NOT NULL,
@@ -5830,6 +6098,8 @@ ALTER TABLE ONLY critical_and_site_config ALTER COLUMN id SET DEFAULT nextval('c
 
 ALTER TABLE ONLY deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('deepsearch_conversations_id_seq'::regclass);
 
+ALTER TABLE ONLY deepsearch_quota ALTER COLUMN id SET DEFAULT nextval('deepsearch_quota_id_seq'::regclass);
+
 ALTER TABLE ONLY deepsearch_references ALTER COLUMN id SET DEFAULT nextval('deepsearch_references_id_seq'::regclass);
 
 ALTER TABLE ONLY entitlements ALTER COLUMN id SET DEFAULT nextval('entitlements_id_seq'::regclass);
@@ -5872,17 +6142,25 @@ ALTER TABLE ONLY idp_authorize_codes ALTER COLUMN id SET DEFAULT nextval('idp_au
 
 ALTER TABLE ONLY idp_clients ALTER COLUMN id SET DEFAULT nextval('idp_clients_id_seq'::regclass);
 
+ALTER TABLE ONLY idp_consent_requests ALTER COLUMN id SET DEFAULT nextval('idp_consent_requests_id_seq'::regclass);
+
 ALTER TABLE ONLY idp_device_auth_requests ALTER COLUMN id SET DEFAULT nextval('idp_device_auth_requests_id_seq'::regclass);
 
 ALTER TABLE ONLY idp_id_tokens ALTER COLUMN id SET DEFAULT nextval('idp_id_tokens_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_oauth_apps ALTER COLUMN id SET DEFAULT nextval('idp_oauth_apps_id_seq'::regclass);
 
 ALTER TABLE ONLY idp_pkce_requests ALTER COLUMN id SET DEFAULT nextval('idp_pkce_requests_id_seq'::regclass);
 
 ALTER TABLE ONLY idp_secrets ALTER COLUMN id SET DEFAULT nextval('idp_secrets_id_seq'::regclass);
 
+ALTER TABLE ONLY idp_service_account_m2m_clients ALTER COLUMN id SET DEFAULT nextval('idp_service_account_m2m_clients_id_seq'::regclass);
+
 ALTER TABLE ONLY idp_sessions ALTER COLUMN id SET DEFAULT nextval('idp_sessions_id_seq'::regclass);
 
 ALTER TABLE ONLY idp_tokens ALTER COLUMN id SET DEFAULT nextval('idp_tokens_id_seq'::regclass);
+
+ALTER TABLE ONLY idp_user_consents ALTER COLUMN id SET DEFAULT nextval('idp_user_consents_id_seq'::regclass);
 
 ALTER TABLE ONLY insights_query_runner_jobs ALTER COLUMN id SET DEFAULT nextval('insights_query_runner_jobs_id_seq'::regclass);
 
@@ -5902,23 +6180,11 @@ ALTER TABLE ONLY lsif_index_configuration ALTER COLUMN id SET DEFAULT nextval('l
 
 ALTER TABLE ONLY lsif_indexes ALTER COLUMN id SET DEFAULT nextval('lsif_indexes_id_seq'::regclass);
 
-ALTER TABLE ONLY lsif_nearest_uploads ALTER COLUMN id SET DEFAULT nextval('lsif_nearest_uploads_id_seq'::regclass);
-
-ALTER TABLE ONLY lsif_nearest_uploads_links ALTER COLUMN id SET DEFAULT nextval('lsif_nearest_uploads_links_id_seq'::regclass);
-
 ALTER TABLE ONLY lsif_packages ALTER COLUMN id SET DEFAULT nextval('lsif_packages_id_seq'::regclass);
 
 ALTER TABLE ONLY lsif_references ALTER COLUMN id SET DEFAULT nextval('lsif_references_id_seq'::regclass);
 
 ALTER TABLE ONLY lsif_retention_configuration ALTER COLUMN id SET DEFAULT nextval('lsif_retention_configuration_id_seq'::regclass);
-
-ALTER TABLE ONLY lsif_uploads ALTER COLUMN id SET DEFAULT nextval('lsif_dumps_id_seq'::regclass);
-
-ALTER TABLE ONLY lsif_uploads_audit_logs ALTER COLUMN sequence SET DEFAULT nextval('lsif_uploads_audit_logs_seq'::regclass);
-
-ALTER TABLE ONLY lsif_uploads_visible_at_tip ALTER COLUMN id SET DEFAULT nextval('lsif_uploads_visible_at_tip_id_seq'::regclass);
-
-ALTER TABLE ONLY lsif_uploads_vulnerability_scan ALTER COLUMN id SET DEFAULT nextval('lsif_uploads_vulnerability_scan_id_seq'::regclass);
 
 ALTER TABLE ONLY namespace_permissions ALTER COLUMN id SET DEFAULT nextval('namespace_permissions_id_seq'::regclass);
 
@@ -5989,6 +6255,18 @@ ALTER TABLE ONLY repo_update_jobs ALTER COLUMN id SET DEFAULT nextval('repo_upda
 ALTER TABLE ONLY roles ALTER COLUMN id SET DEFAULT nextval('roles_id_seq'::regclass);
 
 ALTER TABLE ONLY saved_searches ALTER COLUMN id SET DEFAULT nextval('saved_searches_id_seq'::regclass);
+
+ALTER TABLE ONLY scip_nearest_uploads ALTER COLUMN id SET DEFAULT nextval('scip_nearest_uploads_id_seq'::regclass);
+
+ALTER TABLE ONLY scip_nearest_uploads_links ALTER COLUMN id SET DEFAULT nextval('scip_nearest_uploads_links_id_seq'::regclass);
+
+ALTER TABLE ONLY scip_uploads ALTER COLUMN id SET DEFAULT nextval('scip_uploads_id_seq'::regclass);
+
+ALTER TABLE ONLY scip_uploads_audit_logs ALTER COLUMN sequence SET DEFAULT nextval('scip_uploads_audit_logs_seq'::regclass);
+
+ALTER TABLE ONLY scip_uploads_visible_at_tip ALTER COLUMN id SET DEFAULT nextval('scip_uploads_visible_at_tip_id_seq'::regclass);
+
+ALTER TABLE ONLY scip_uploads_vulnerability_scan ALTER COLUMN id SET DEFAULT nextval('scip_uploads_vulnerability_scan_id_seq'::regclass);
 
 ALTER TABLE ONLY search_contexts ALTER COLUMN id SET DEFAULT nextval('search_contexts_id_seq'::regclass);
 
@@ -6218,6 +6496,12 @@ ALTER TABLE ONLY critical_and_site_config
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY deepsearch_quota
+    ADD CONSTRAINT deepsearch_quota_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_quota
+    ADD CONSTRAINT deepsearch_quota_user_id_key UNIQUE (user_id);
+
 ALTER TABLE ONLY deepsearch_references
     ADD CONSTRAINT deepsearch_references_pkey PRIMARY KEY (id);
 
@@ -6335,6 +6619,12 @@ ALTER TABLE ONLY idp_clients
 ALTER TABLE ONLY idp_clients
     ADD CONSTRAINT idp_clients_unique UNIQUE (opaque_id, tenant_id);
 
+ALTER TABLE ONLY idp_consent_requests
+    ADD CONSTRAINT idp_consent_requests_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_consent_requests
+    ADD CONSTRAINT idp_consent_requests_unique UNIQUE (request_id, tenant_id);
+
 ALTER TABLE ONLY idp_device_auth_requests
     ADD CONSTRAINT idp_device_auth_requests_device_code_signature_unique UNIQUE (hashed_device_code_signature, tenant_id);
 
@@ -6353,6 +6643,12 @@ ALTER TABLE ONLY idp_id_tokens
 ALTER TABLE ONLY idp_id_tokens
     ADD CONSTRAINT idp_id_tokens_unique UNIQUE (opaque_id, tenant_id);
 
+ALTER TABLE ONLY idp_oauth_apps
+    ADD CONSTRAINT idp_oauth_apps_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_oauth_apps
+    ADD CONSTRAINT idp_oauth_apps_unique UNIQUE (client_id, tenant_id);
+
 ALTER TABLE ONLY idp_pkce_requests
     ADD CONSTRAINT idp_pkce_requests_pkey PRIMARY KEY (id);
 
@@ -6365,6 +6661,12 @@ ALTER TABLE ONLY idp_secrets
 ALTER TABLE ONLY idp_secrets
     ADD CONSTRAINT idp_secrets_tenant_unique UNIQUE (tenant_id);
 
+ALTER TABLE ONLY idp_service_account_m2m_clients
+    ADD CONSTRAINT idp_service_account_m2m_clients_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY idp_service_account_m2m_clients
+    ADD CONSTRAINT idp_service_account_m2m_clients_unique UNIQUE (client_id, tenant_id);
+
 ALTER TABLE ONLY idp_sessions
     ADD CONSTRAINT idp_sessions_pkey PRIMARY KEY (id);
 
@@ -6376,6 +6678,9 @@ ALTER TABLE ONLY idp_tokens
 
 ALTER TABLE ONLY idp_tokens
     ADD CONSTRAINT idp_tokens_unique UNIQUE (opaque_id, type, tenant_id);
+
+ALTER TABLE ONLY idp_user_consents
+    ADD CONSTRAINT idp_user_consents_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY insights_query_runner_jobs_dependencies
     ADD CONSTRAINT insights_query_runner_jobs_dependencies_pkey PRIMARY KEY (id);
@@ -6419,12 +6724,6 @@ ALTER TABLE ONLY lsif_last_index_scan
 ALTER TABLE ONLY lsif_last_retention_scan
     ADD CONSTRAINT lsif_last_retention_scan_pkey PRIMARY KEY (repository_id);
 
-ALTER TABLE ONLY lsif_nearest_uploads_links
-    ADD CONSTRAINT lsif_nearest_uploads_links_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY lsif_nearest_uploads
-    ADD CONSTRAINT lsif_nearest_uploads_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY lsif_packages
     ADD CONSTRAINT lsif_packages_pkey PRIMARY KEY (id);
 
@@ -6436,21 +6735,6 @@ ALTER TABLE ONLY lsif_retention_configuration
 
 ALTER TABLE ONLY lsif_retention_configuration
     ADD CONSTRAINT lsif_retention_configuration_repository_id_key UNIQUE (repository_id);
-
-ALTER TABLE ONLY lsif_uploads_audit_logs
-    ADD CONSTRAINT lsif_uploads_audit_logs_pkey PRIMARY KEY (sequence);
-
-ALTER TABLE ONLY lsif_uploads
-    ADD CONSTRAINT lsif_uploads_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY lsif_uploads_reference_counts
-    ADD CONSTRAINT lsif_uploads_reference_counts_pkey PRIMARY KEY (upload_id);
-
-ALTER TABLE ONLY lsif_uploads_visible_at_tip
-    ADD CONSTRAINT lsif_uploads_visible_at_tip_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY lsif_uploads_vulnerability_scan
-    ADD CONSTRAINT lsif_uploads_vulnerability_scan_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY names
     ADD CONSTRAINT names_pkey PRIMARY KEY (name, tenant_id);
@@ -6610,6 +6894,27 @@ ALTER TABLE ONLY roles
 
 ALTER TABLE ONLY saved_searches
     ADD CONSTRAINT saved_searches_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY scip_nearest_uploads_links
+    ADD CONSTRAINT scip_nearest_uploads_links_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY scip_nearest_uploads
+    ADD CONSTRAINT scip_nearest_uploads_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY scip_uploads_audit_logs
+    ADD CONSTRAINT scip_uploads_audit_logs_pkey PRIMARY KEY (sequence);
+
+ALTER TABLE ONLY scip_uploads
+    ADD CONSTRAINT scip_uploads_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY scip_uploads_reference_counts
+    ADD CONSTRAINT scip_uploads_reference_counts_pkey PRIMARY KEY (upload_id);
+
+ALTER TABLE ONLY scip_uploads_visible_at_tip
+    ADD CONSTRAINT scip_uploads_visible_at_tip_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY scip_uploads_vulnerability_scan
+    ADD CONSTRAINT scip_uploads_vulnerability_scan_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY search_context_default
     ADD CONSTRAINT search_context_default_pkey PRIMARY KEY (user_id);
@@ -6863,6 +7168,10 @@ CREATE INDEX contributor_jobs_repo_id ON contributor_jobs USING btree (repo_id);
 
 CREATE INDEX contributor_repos_repo_id ON contributor_repos USING btree (repo_id);
 
+CREATE INDEX deepsearch_conversations_read_token_idx ON deepsearch_conversations USING hash (read_token);
+
+CREATE INDEX deepsearch_quota_user_id_idx ON deepsearch_quota USING btree (user_id);
+
 CREATE INDEX entitlement_grants_user_id_idx ON entitlement_grants USING btree (user_id);
 
 CREATE INDEX event_logs_anonymous_user_id ON event_logs USING btree (anonymous_user_id);
@@ -6935,11 +7244,21 @@ CREATE INDEX gitserver_repos_schedule_order_idx ON gitserver_repos USING btree (
 
 CREATE INDEX idp_secrets_tenant_id_idx ON idp_secrets USING btree (tenant_id);
 
+CREATE UNIQUE INDEX idp_user_consents_unique_active ON idp_user_consents USING btree (tenant_id, user_id, client_id) WHERE (revoked_at IS NULL);
+
 CREATE INDEX idx_changeset_sync_jobs_changeset_id ON changeset_sync_jobs USING btree (changeset_id, tenant_id);
 
 CREATE INDEX idx_idp_authorize_codes_hashed_code ON idp_authorize_codes USING hash (hashed_code);
 
 CREATE INDEX idx_idp_clients_deleted_at ON idp_clients USING btree (deleted_at);
+
+CREATE INDEX idx_idp_consent_requests_client_id ON idp_consent_requests USING btree (client_id);
+
+CREATE INDEX idx_idp_consent_requests_deleted_at ON idp_consent_requests USING btree (deleted_at);
+
+CREATE INDEX idx_idp_consent_requests_expires_at ON idp_consent_requests USING btree (expires_at);
+
+CREATE INDEX idx_idp_consent_requests_user_id ON idp_consent_requests USING btree (user_id);
 
 CREATE INDEX idx_idp_device_auth_requests_deleted_at ON idp_device_auth_requests USING btree (deleted_at);
 
@@ -6960,6 +7279,10 @@ CREATE INDEX idx_idp_sessions_deleted_at ON idp_sessions USING btree (deleted_at
 CREATE INDEX idx_idp_tokens_deleted_at ON idp_tokens USING btree (deleted_at);
 
 CREATE INDEX idx_idp_tokens_hashed_signature ON idp_tokens USING hash (hashed_signature);
+
+CREATE INDEX idx_idp_user_consents_expires_at ON idp_user_consents USING btree (expires_at) WHERE (expires_at IS NOT NULL);
+
+CREATE INDEX idx_idp_user_consents_user_client ON idp_user_consents USING btree (tenant_id, user_id, client_id);
 
 CREATE INDEX idx_repo_cleanup_jobs_repository_id ON repo_cleanup_jobs USING btree (tenant_id, repository_id);
 
@@ -7027,14 +7350,6 @@ CREATE INDEX lsif_indexes_repository_id_indexer ON lsif_indexes USING btree (rep
 
 CREATE INDEX lsif_indexes_state ON lsif_indexes USING btree (state);
 
-CREATE INDEX lsif_nearest_uploads_links_repository_id_ancestor_commit_bytea ON lsif_nearest_uploads_links USING btree (repository_id, ancestor_commit_bytea);
-
-CREATE INDEX lsif_nearest_uploads_links_repository_id_commit_bytea ON lsif_nearest_uploads_links USING btree (repository_id, commit_bytea);
-
-CREATE INDEX lsif_nearest_uploads_repository_id_commit_bytea ON lsif_nearest_uploads USING btree (repository_id, commit_bytea);
-
-CREATE INDEX lsif_nearest_uploads_uploads ON lsif_nearest_uploads USING gin (uploads);
-
 CREATE INDEX lsif_packages_dump_id ON lsif_packages USING btree (dump_id);
 
 CREATE INDEX lsif_packages_scheme_name_version_dump_id ON lsif_packages USING btree (scheme, name, version, dump_id);
@@ -7042,34 +7357,6 @@ CREATE INDEX lsif_packages_scheme_name_version_dump_id ON lsif_packages USING bt
 CREATE INDEX lsif_references_dump_id ON lsif_references USING btree (dump_id);
 
 CREATE INDEX lsif_references_scheme_name_version_dump_id ON lsif_references USING btree (scheme, name, version, dump_id);
-
-CREATE INDEX lsif_uploads_associated_index_id ON lsif_uploads USING btree (associated_index_id);
-
-CREATE INDEX lsif_uploads_audit_logs_timestamp ON lsif_uploads_audit_logs USING brin (log_timestamp);
-
-CREATE INDEX lsif_uploads_audit_logs_upload_id ON lsif_uploads_audit_logs USING btree (upload_id);
-
-CREATE INDEX lsif_uploads_commit_last_checked_at ON lsif_uploads USING btree (commit_last_checked_at) WHERE (state <> 'deleted'::text);
-
-CREATE INDEX lsif_uploads_committed_at ON lsif_uploads USING btree (committed_at) WHERE (state = 'completed'::text);
-
-CREATE INDEX lsif_uploads_last_reconcile_at ON lsif_uploads USING btree (last_reconcile_at, id) WHERE (state = 'completed'::text);
-
-CREATE INDEX lsif_uploads_repository_id_commit ON lsif_uploads USING btree (repository_id, commit);
-
-CREATE UNIQUE INDEX lsif_uploads_repository_id_commit_root_indexer ON lsif_uploads USING btree (repository_id, commit, root, indexer) WHERE (state = 'completed'::text);
-
-CREATE INDEX lsif_uploads_repository_id_indexer ON lsif_uploads USING btree (repository_id, indexer);
-
-CREATE INDEX lsif_uploads_state ON lsif_uploads USING btree (state);
-
-CREATE INDEX lsif_uploads_uploaded_at_id ON lsif_uploads USING btree (uploaded_at DESC, id) WHERE (state <> 'deleted'::text);
-
-CREATE INDEX lsif_uploads_visible_at_tip_is_default_branch ON lsif_uploads_visible_at_tip USING btree (upload_id) WHERE is_default_branch;
-
-CREATE INDEX lsif_uploads_visible_at_tip_repository_id_upload_id ON lsif_uploads_visible_at_tip USING btree (repository_id, upload_id);
-
-CREATE UNIQUE INDEX lsif_uploads_vulnerability_scan_upload_id ON lsif_uploads_vulnerability_scan USING btree (upload_id);
 
 CREATE INDEX notebook_stars_user_id_idx ON notebook_stars USING btree (user_id);
 
@@ -7196,6 +7483,42 @@ CREATE UNIQUE INDEX repo_update_jobs_one_concurrent_per_repo ON repo_update_jobs
 CREATE INDEX repo_update_jobs_repository_id ON repo_update_jobs USING btree (repository_id);
 
 CREATE INDEX repo_uri_idx ON repo USING btree (uri);
+
+CREATE INDEX scip_nearest_uploads_links_repository_id_ancestor_commit_bytea ON scip_nearest_uploads_links USING btree (repository_id, ancestor_commit_bytea);
+
+CREATE INDEX scip_nearest_uploads_links_repository_id_commit_bytea ON scip_nearest_uploads_links USING btree (repository_id, commit_bytea);
+
+CREATE INDEX scip_nearest_uploads_repository_id_commit_bytea ON scip_nearest_uploads USING btree (repository_id, commit_bytea);
+
+CREATE INDEX scip_nearest_uploads_uploads ON scip_nearest_uploads USING gin (uploads);
+
+CREATE INDEX scip_uploads_associated_index_id ON scip_uploads USING btree (associated_index_id);
+
+CREATE INDEX scip_uploads_audit_logs_timestamp ON scip_uploads_audit_logs USING brin (log_timestamp);
+
+CREATE INDEX scip_uploads_audit_logs_upload_id ON scip_uploads_audit_logs USING btree (upload_id);
+
+CREATE INDEX scip_uploads_commit_last_checked_at ON scip_uploads USING btree (commit_last_checked_at) WHERE (state <> 'deleted'::text);
+
+CREATE INDEX scip_uploads_committed_at ON scip_uploads USING btree (committed_at) WHERE (state = 'completed'::text);
+
+CREATE INDEX scip_uploads_last_reconcile_at ON scip_uploads USING btree (last_reconcile_at, id) WHERE (state = 'completed'::text);
+
+CREATE INDEX scip_uploads_repository_id_commit ON scip_uploads USING btree (repository_id, commit);
+
+CREATE UNIQUE INDEX scip_uploads_repository_id_commit_root_indexer ON scip_uploads USING btree (repository_id, commit, root, indexer) WHERE (state = 'completed'::text);
+
+CREATE INDEX scip_uploads_repository_id_indexer ON scip_uploads USING btree (repository_id, indexer);
+
+CREATE INDEX scip_uploads_state ON scip_uploads USING btree (state);
+
+CREATE INDEX scip_uploads_uploaded_at_id ON scip_uploads USING btree (uploaded_at DESC, id) WHERE (state <> 'deleted'::text);
+
+CREATE INDEX scip_uploads_visible_at_tip_is_default_branch ON scip_uploads_visible_at_tip USING btree (upload_id) WHERE is_default_branch;
+
+CREATE INDEX scip_uploads_visible_at_tip_repository_id_upload_id ON scip_uploads_visible_at_tip USING btree (repository_id, upload_id);
+
+CREATE UNIQUE INDEX scip_uploads_vulnerability_scan_upload_id ON scip_uploads_vulnerability_scan USING btree (upload_id);
 
 CREATE UNIQUE INDEX search_contexts_name_namespace_org_id_unique ON search_contexts USING btree (name, namespace_org_id) WHERE (namespace_org_id IS NOT NULL);
 
@@ -7325,13 +7648,13 @@ CREATE TRIGGER trigger_configuration_policies_update BEFORE UPDATE OF name, patt
 
 CREATE TRIGGER trigger_gitserver_repo_insert AFTER INSERT ON repo FOR EACH ROW EXECUTE FUNCTION func_insert_gitserver_repo();
 
-CREATE TRIGGER trigger_lsif_uploads_delete AFTER DELETE ON lsif_uploads REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_lsif_uploads_delete();
-
-CREATE TRIGGER trigger_lsif_uploads_insert AFTER INSERT ON lsif_uploads FOR EACH ROW EXECUTE FUNCTION func_lsif_uploads_insert();
-
-CREATE TRIGGER trigger_lsif_uploads_update BEFORE UPDATE OF state, num_resets, num_failures, worker_hostname, expired, committed_at ON lsif_uploads FOR EACH ROW EXECUTE FUNCTION func_lsif_uploads_update();
-
 CREATE TRIGGER trigger_package_repo_filters_updated_at BEFORE UPDATE ON package_repo_filters FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION func_package_repo_filters_updated_at();
+
+CREATE TRIGGER trigger_scip_uploads_delete AFTER DELETE ON scip_uploads REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_scip_uploads_delete();
+
+CREATE TRIGGER trigger_scip_uploads_insert AFTER INSERT ON scip_uploads FOR EACH ROW EXECUTE FUNCTION func_scip_uploads_insert();
+
+CREATE TRIGGER trigger_scip_uploads_update BEFORE UPDATE OF state, num_resets, num_failures, worker_hostname, expired, committed_at ON scip_uploads FOR EACH ROW EXECUTE FUNCTION func_scip_uploads_update();
 
 CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_delete AFTER DELETE ON syntactic_scip_indexing_jobs REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_delete();
 
@@ -7576,6 +7899,9 @@ ALTER TABLE ONLY contributor_repos
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY deepsearch_quota
+    ADD CONSTRAINT deepsearch_quota_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY deepsearch_references
     ADD CONSTRAINT deepsearch_references_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
 
@@ -7639,11 +7965,20 @@ ALTER TABLE ONLY feature_flag_overrides
 ALTER TABLE ONLY feature_flag_overrides
     ADD CONSTRAINT feature_flag_overrides_namespace_user_id_fkey FOREIGN KEY (namespace_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY vulnerability_matches
-    ADD CONSTRAINT fk_upload FOREIGN KEY (upload_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
+ALTER TABLE ONLY idp_oauth_apps
+    ADD CONSTRAINT fk_idp_oauth_apps_client_id FOREIGN KEY (client_id, tenant_id) REFERENCES idp_clients(opaque_id, tenant_id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY lsif_uploads_vulnerability_scan
-    ADD CONSTRAINT fk_upload_id FOREIGN KEY (upload_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
+ALTER TABLE ONLY idp_service_account_m2m_clients
+    ADD CONSTRAINT fk_idp_service_account_m2m_clients_client_id FOREIGN KEY (client_id, tenant_id) REFERENCES idp_clients(opaque_id, tenant_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY idp_service_account_m2m_clients
+    ADD CONSTRAINT fk_idp_service_account_m2m_clients_service_account_id FOREIGN KEY (service_account_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY vulnerability_matches
+    ADD CONSTRAINT fk_upload FOREIGN KEY (upload_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY scip_uploads_vulnerability_scan
+    ADD CONSTRAINT fk_upload_id FOREIGN KEY (upload_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY vulnerability_affected_packages
     ADD CONSTRAINT fk_vulnerabilities FOREIGN KEY (vulnerability_id) REFERENCES vulnerabilities(id) ON DELETE CASCADE;
@@ -7670,10 +8005,10 @@ ALTER TABLE ONLY insights_query_runner_jobs_dependencies
     ADD CONSTRAINT insights_query_runner_jobs_dependencies_fk_job_id FOREIGN KEY (job_id) REFERENCES insights_query_runner_jobs(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY lsif_dependency_syncing_jobs
-    ADD CONSTRAINT lsif_dependency_indexing_jobs_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
+    ADD CONSTRAINT lsif_dependency_indexing_jobs_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY lsif_dependency_indexing_jobs
-    ADD CONSTRAINT lsif_dependency_indexing_jobs_upload_id_fkey1 FOREIGN KEY (upload_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
+    ADD CONSTRAINT lsif_dependency_indexing_jobs_upload_id_fkey1 FOREIGN KEY (upload_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY lsif_index_configuration
     ADD CONSTRAINT lsif_index_configuration_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
@@ -7682,16 +8017,13 @@ ALTER TABLE ONLY lsif_indexes
     ADD CONSTRAINT lsif_indexes_matched_policy_id_fkey FOREIGN KEY (matched_policy_id) REFERENCES lsif_configuration_policies(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY lsif_packages
-    ADD CONSTRAINT lsif_packages_dump_id_fkey FOREIGN KEY (dump_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
+    ADD CONSTRAINT lsif_packages_dump_id_fkey FOREIGN KEY (dump_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY lsif_references
-    ADD CONSTRAINT lsif_references_dump_id_fkey FOREIGN KEY (dump_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
+    ADD CONSTRAINT lsif_references_dump_id_fkey FOREIGN KEY (dump_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY lsif_retention_configuration
     ADD CONSTRAINT lsif_retention_configuration_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY lsif_uploads_reference_counts
-    ADD CONSTRAINT lsif_uploads_reference_counts_upload_id_fk FOREIGN KEY (upload_id) REFERENCES lsif_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY names
     ADD CONSTRAINT names_org_id_fkey FOREIGN KEY (org_id) REFERENCES orgs(id) ON UPDATE CASCADE ON DELETE CASCADE;
@@ -7869,6 +8201,9 @@ ALTER TABLE ONLY saved_searches
 
 ALTER TABLE ONLY saved_searches
     ADD CONSTRAINT saved_searches_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
+
+ALTER TABLE ONLY scip_uploads_reference_counts
+    ADD CONSTRAINT scip_uploads_reference_counts_upload_id_fk FOREIGN KEY (upload_id) REFERENCES scip_uploads(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY search_context_default
     ADD CONSTRAINT search_context_default_search_context_id_fkey FOREIGN KEY (search_context_id) REFERENCES search_contexts(id) ON DELETE CASCADE DEFERRABLE;
@@ -8075,6 +8410,8 @@ ALTER TABLE contributor_repos ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE deepsearch_quota ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE deepsearch_references ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
@@ -8129,17 +8466,25 @@ ALTER TABLE idp_authorize_codes ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE idp_clients ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE idp_consent_requests ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE idp_device_auth_requests ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE idp_id_tokens ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_oauth_apps ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE idp_pkce_requests ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE idp_secrets ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE idp_service_account_m2m_clients ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE idp_sessions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE idp_tokens ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE idp_user_consents ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE insights_query_runner_jobs ENABLE ROW LEVEL SECURITY;
 
@@ -8167,25 +8512,11 @@ ALTER TABLE lsif_last_index_scan ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_last_retention_scan ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE lsif_nearest_uploads ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE lsif_nearest_uploads_links ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE lsif_packages ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_references ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_retention_configuration ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE lsif_uploads ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE lsif_uploads_audit_logs ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE lsif_uploads_reference_counts ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE lsif_uploads_visible_at_tip ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE lsif_uploads_vulnerability_scan ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE names ENABLE ROW LEVEL SECURITY;
 
@@ -8270,6 +8601,20 @@ ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE saved_searches ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_nearest_uploads ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_nearest_uploads_links ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_uploads ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_uploads_audit_logs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_uploads_reference_counts ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_uploads_visible_at_tip ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scip_uploads_vulnerability_scan ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE search_context_default ENABLE ROW LEVEL SECURITY;
 
@@ -8399,6 +8744,8 @@ CREATE POLICY tenant_isolation_policy ON contributor_repos USING ((tenant_id = (
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON deepsearch_quota USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON deepsearch_references USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8453,17 +8800,25 @@ CREATE POLICY tenant_isolation_policy ON idp_authorize_codes USING ((tenant_id =
 
 CREATE POLICY tenant_isolation_policy ON idp_clients USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON idp_consent_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON idp_device_auth_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON idp_id_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_oauth_apps USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON idp_pkce_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON idp_secrets USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON idp_service_account_m2m_clients USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON idp_sessions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON idp_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON idp_user_consents USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON insights_query_runner_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
@@ -8491,25 +8846,11 @@ CREATE POLICY tenant_isolation_policy ON lsif_last_index_scan USING ((tenant_id 
 
 CREATE POLICY tenant_isolation_policy ON lsif_last_retention_scan USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON lsif_nearest_uploads USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON lsif_nearest_uploads_links USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
 CREATE POLICY tenant_isolation_policy ON lsif_packages USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON lsif_references USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON lsif_retention_configuration USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON lsif_uploads USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
-CREATE POLICY tenant_isolation_policy ON lsif_uploads_audit_logs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
-CREATE POLICY tenant_isolation_policy ON lsif_uploads_reference_counts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON lsif_uploads_visible_at_tip USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON lsif_uploads_vulnerability_scan USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON names USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8594,6 +8935,20 @@ CREATE POLICY tenant_isolation_policy ON role_permissions USING ((tenant_id = ( 
 CREATE POLICY tenant_isolation_policy ON roles USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON saved_searches USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON scip_nearest_uploads USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON scip_nearest_uploads_links USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON scip_uploads USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON scip_uploads_audit_logs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON scip_uploads_reference_counts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON scip_uploads_visible_at_tip USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON scip_uploads_vulnerability_scan USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON search_context_default USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

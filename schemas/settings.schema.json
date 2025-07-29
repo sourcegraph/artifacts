@@ -492,6 +492,14 @@
         }
       }
     },
+    "cody.chatCodeSyntaxHighlightingEnabled": {
+      "description": "Whether the cody chat code snippets should be code highlighted.",
+      "type": "boolean",
+      "default": true,
+      "!go": {
+        "pointer": true
+      }
+    },
     "cody.notices": {
       "description": "Custom informational messages to display to users at Cody clients locations.\n\nUsually this setting is used in global and organization settings. If set in user settings, the message will only be displayed to that single user.",
       "type": "array",

@@ -1142,11 +1142,6 @@ type InventoryStatsDataSeriesDefinition {
     groupBy: GroupByField
 
     """
-    How many groups to create before lumping the rest in an 'others' category
-    """
-    groupThreshold: Int
-
-    """
     A definition of Repositories this series will operate over.
     """
     repositoryDefinition: InsightRepositoryDefinition!
@@ -1359,11 +1354,6 @@ input InventoryStatsSeriesPreviewInput {
     Group by repo or language (optional).
     """
     groupBy: GroupByField
-
-    """
-    How many groups to create before lumping the rest in an 'others' category
-    """
-    groupThreshold: Int
 }
 
 """
@@ -1463,11 +1453,6 @@ input InventoryStatsSeriesInput {
     Group by repo or language (optional).
     """
     groupBy: GroupByField
-
-    """
-    How many groups to create before lumping the rest in an 'others' category
-    """
-    groupThreshold: Int
 
     """
     Options for this data series. Not used if the metrics will be grouped (labels and colors will be automatically generated).

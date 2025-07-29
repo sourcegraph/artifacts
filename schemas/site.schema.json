@@ -692,7 +692,8 @@
         "deepSearch.model": {
           "description": "The model reference to use for Deep Search.",
           "type": "string",
-          "default": "anthropic::2024-10-22::claude-sonnet-4-latest"
+          "default": "anthropic::2024-10-22::claude-sonnet-4-latest",
+          "deprecationMessage": "Configuring a custom model (BYOK) for Deep Search is deprecated."
         },
         "deepSearch.sharing.enabled": {
           "description": "Enable/disable sharing of Deep Search conversations via read tokens",
