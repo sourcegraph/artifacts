@@ -81,11 +81,6 @@
       "default": "{name}",
       "examples": ["git-codecommit.us-west-1.amazonaws.com/{name}", "git-codecommit.eu-central-1.amazonaws.com/{name}"]
     },
-    "initialRepositoryEnablement": {
-      "description": "Deprecated and ignored field which will be removed entirely in the next release. AWS CodeCommit repositories can no longer be enabled or disabled explicitly. Configure which repositories should not be mirrored via \"exclude\" instead.",
-      "type": "boolean",
-      "default": false
-    },
     "exclude": {
       "description": "A list of repositories to never mirror from AWS CodeCommit. \n\nSupports excluding by name ({\"name\": \"git-codecommit.us-west-1.amazonaws.com/repo-name\"}) or by ARN ({\"id\": \"arn:aws:codecommit:us-west-1:999999999999:name\"}).",
       "type": "array",

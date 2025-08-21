@@ -1,0 +1,3 @@
+name: fix_deepsearch_error_kind_data_types
+parents: [1752580919, 1752194037]
+# Note: Down migration converts ALL strings to numbers, including pre-existing strings

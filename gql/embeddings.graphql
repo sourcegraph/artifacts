@@ -31,7 +31,7 @@ extend type Query {
         Filter by the state of the job.
         """
         state: String
-    ): RepoEmbeddingJobsConnection!
+    ): RepoEmbeddingJobsConnection! @deprecated(reason: "Embeddings are not used")
 }
 
 extend type Mutation {
@@ -40,10 +40,11 @@ extend type Mutation {
     If force is set to true, then the repo will be re-embedded even if there's already an up-to-date embeddings index.
     """
     scheduleRepositoriesForEmbedding(repoNames: [String!]!, force: Boolean): EmptyResponse!
+        @deprecated(reason: "Embeddings are not used")
     """
     Experimental: Cancels the embedding job with the given ID. The job must exist and be in either 'processing' or 'queued' state.
     """
-    cancelRepoEmbeddingJob(job: ID!): EmptyResponse!
+    cancelRepoEmbeddingJob(job: ID!): EmptyResponse! @deprecated(reason: "Embeddings are not used")
 }
 
 """

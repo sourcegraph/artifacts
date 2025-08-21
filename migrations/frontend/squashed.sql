@@ -61,6 +61,12 @@ CREATE TYPE critical_or_site AS ENUM (
     'site'
 );
 
+CREATE TYPE deepsearch_question_status AS ENUM (
+    'processing',
+    'completed',
+    'cancelled'
+);
+
 CREATE TYPE entitlement_type AS ENUM (
     'completion_credits'
 );
@@ -909,7 +915,27 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION update_deepsearch_conversation_updated_at_on_question_change() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    UPDATE deepsearch_conversations 
+    SET updated_at = now() 
+    WHERE id = COALESCE(NEW.conversation_id, OLD.conversation_id);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
 CREATE FUNCTION update_deepsearch_conversations_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION update_deepsearch_questions_updated_at() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -2338,6 +2364,26 @@ CREATE SEQUENCE deepsearch_conversations_id_seq
     CACHE 1;
 
 ALTER SEQUENCE deepsearch_conversations_id_seq OWNED BY deepsearch_conversations.id;
+
+CREATE TABLE deepsearch_questions (
+    id integer NOT NULL,
+    conversation_id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    data jsonb NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    status deepsearch_question_status DEFAULT 'processing'::deepsearch_question_status
+);
+
+CREATE SEQUENCE deepsearch_questions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_questions_id_seq OWNED BY deepsearch_questions.id;
 
 CREATE TABLE deepsearch_quota (
     id integer NOT NULL,
@@ -4826,7 +4872,6 @@ CREATE TABLE users (
     completions_quota integer,
     code_completions_quota integer,
     completed_post_signup boolean DEFAULT false NOT NULL,
-    cody_pro_enabled_at timestamp with time zone,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     service_account boolean DEFAULT false NOT NULL,
     unrestricted_repo_access boolean DEFAULT false NOT NULL,
@@ -6098,6 +6143,8 @@ ALTER TABLE ONLY critical_and_site_config ALTER COLUMN id SET DEFAULT nextval('c
 
 ALTER TABLE ONLY deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('deepsearch_conversations_id_seq'::regclass);
 
+ALTER TABLE ONLY deepsearch_questions ALTER COLUMN id SET DEFAULT nextval('deepsearch_questions_id_seq'::regclass);
+
 ALTER TABLE ONLY deepsearch_quota ALTER COLUMN id SET DEFAULT nextval('deepsearch_quota_id_seq'::regclass);
 
 ALTER TABLE ONLY deepsearch_references ALTER COLUMN id SET DEFAULT nextval('deepsearch_references_id_seq'::regclass);
@@ -6346,6 +6393,9 @@ ALTER TABLE ONLY batch_spec_library_records
 ALTER TABLE ONLY batch_spec_library_variables
     ADD CONSTRAINT batch_spec_library_variables_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY batch_spec_library_variables
+    ADD CONSTRAINT batch_spec_library_variables_record_name_unique UNIQUE (batch_spec_library_record_id, name);
+
 ALTER TABLE ONLY batch_spec_resolution_jobs
     ADD CONSTRAINT batch_spec_resolution_jobs_batch_spec_id_unique UNIQUE (batch_spec_id);
 
@@ -6495,6 +6545,9 @@ ALTER TABLE ONLY critical_and_site_config
 
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_questions
+    ADD CONSTRAINT deepsearch_questions_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY deepsearch_quota
     ADD CONSTRAINT deepsearch_quota_pkey PRIMARY KEY (id);
@@ -7046,8 +7099,6 @@ CREATE INDEX access_tokens_lookup ON access_tokens USING hash (value_sha256) WHE
 
 CREATE INDEX access_tokens_lookup_double_hash ON access_tokens USING hash (digest(value_sha256, 'sha256'::text)) WHERE (deleted_at IS NULL);
 
-CREATE INDEX access_tokens_lookup_internal ON access_tokens USING btree (subject_user_id, internal) INCLUDE (value_sha256) WHERE (deleted_at IS NULL);
-
 CREATE INDEX app_id_idx ON github_app_installs USING btree (app_id);
 
 CREATE UNIQUE INDEX assigned_owners_file_path_owner ON assigned_owners USING btree (file_path_id, owner_user_id);
@@ -7169,6 +7220,8 @@ CREATE INDEX contributor_jobs_repo_id ON contributor_jobs USING btree (repo_id);
 CREATE INDEX contributor_repos_repo_id ON contributor_repos USING btree (repo_id);
 
 CREATE INDEX deepsearch_conversations_read_token_idx ON deepsearch_conversations USING hash (read_token);
+
+CREATE INDEX deepsearch_questions_conversation_id_idx ON deepsearch_questions USING btree (conversation_id);
 
 CREATE INDEX deepsearch_quota_user_id_idx ON deepsearch_quota USING btree (user_id);
 
@@ -7662,7 +7715,11 @@ CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_insert AFTER INSERT ON synta
 
 CREATE TRIGGER trigger_syntactic_scip_indexing_jobs_update BEFORE UPDATE OF commit, state, num_resets, num_failures, worker_hostname, failure_message ON syntactic_scip_indexing_jobs FOR EACH ROW EXECUTE FUNCTION func_syntactic_scip_indexing_jobs_update();
 
+CREATE TRIGGER update_conversation_on_question_change AFTER INSERT OR UPDATE ON deepsearch_questions FOR EACH ROW EXECUTE FUNCTION update_deepsearch_conversation_updated_at_on_question_change();
+
 CREATE TRIGGER update_deepsearch_conversations_updated_at BEFORE UPDATE ON deepsearch_conversations FOR EACH ROW EXECUTE FUNCTION update_deepsearch_conversations_updated_at();
+
+CREATE TRIGGER update_deepsearch_questions_updated_at BEFORE UPDATE ON deepsearch_questions FOR EACH ROW EXECUTE FUNCTION update_deepsearch_questions_updated_at();
 
 CREATE TRIGGER update_own_aggregate_recent_contribution AFTER INSERT ON own_signal_recent_contribution FOR EACH ROW EXECUTE FUNCTION update_own_aggregate_recent_contribution();
 
@@ -7898,6 +7955,9 @@ ALTER TABLE ONLY contributor_repos
 
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_questions
+    ADD CONSTRAINT deepsearch_questions_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY deepsearch_quota
     ADD CONSTRAINT deepsearch_quota_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
@@ -8410,6 +8470,8 @@ ALTER TABLE contributor_repos ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE deepsearch_questions ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE deepsearch_quota ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_references ENABLE ROW LEVEL SECURITY;
@@ -8743,6 +8805,8 @@ CREATE POLICY tenant_isolation_policy ON contributor_jobs USING ((( SELECT (curr
 CREATE POLICY tenant_isolation_policy ON contributor_repos USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON deepsearch_questions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_quota USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

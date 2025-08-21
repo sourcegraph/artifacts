@@ -39,7 +39,7 @@ extend type Query {
         If set to true, then only configuration policies with embeddings enabled are returned.
         If set to false, then configuration policies with embeddings enabled are filtered out.
         """
-        forEmbeddings: Boolean
+        forEmbeddings: Boolean @deprecated(reason: "Embeddings are not used.")
 
         """
         If set to true, then only protected configuration policies are returned.
@@ -120,7 +120,7 @@ extend type Mutation {
         """
         embeddingsEnabled, if not provided, currently defaults to false.
         """
-        embeddingsEnabled: Boolean
+        embeddingsEnabled: Boolean @deprecated(reason: "Embeddings are not used.")
     ): CodeIntelligenceConfigurationPolicy!
 
     """
@@ -150,7 +150,7 @@ extend type Mutation {
         """
         embeddingsEnabled, if not provided, currently defaults to false.
         """
-        embeddingsEnabled: Boolean
+        embeddingsEnabled: Boolean @deprecated(reason: "Embeddings are not used.")
     ): EmptyResponse
 
     """
@@ -347,7 +347,7 @@ type CodeIntelligenceConfigurationPolicy implements Node {
     """
     Whether or not this configuration policy affects embeddings.
     """
-    embeddingsEnabled: Boolean!
+    embeddingsEnabled: Boolean! @deprecated(reason: "Embeddings are not used.")
 }
 
 """

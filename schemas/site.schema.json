@@ -209,6 +209,15 @@
             "pointer": true
           }
         },
+        "preciseCodeNavFlow": {
+          "description": "Configure precise code navigation flow version",
+          "type": "string",
+          "enum": ["v1", "v2"],
+          "default": "v1",
+          "!go": {
+            "pointer": true
+          }
+        },
         "codyContextIgnore": {
           "description": "Enabled filtering of remote Cody context based on repositories ./cody/ignore file",
           "type": "boolean",
@@ -669,6 +678,14 @@
           "description": "When enabled, syntactic indexing jobs will be scheduled for all enabled repos",
           "type": "boolean",
           "default": false
+        },
+        "crossRepoSyntacticCodeNav": {
+          "description": "When enabled, syntactic code navigation will work across repositories",
+          "type": "boolean",
+          "default": false,
+          "!go": {
+            "pointer": true
+          }
         },
         "cody.auditLog": {
           "description": "Configuration for the Cody Audit Log",
@@ -2262,27 +2279,6 @@
           "type": "string",
           "description": "The clientSecret for SAMS production instance."
         },
-        "samsDev.server": {
-          "type": "string",
-          "description": "The server URL for SAMS development instance.",
-          "default": "https://accounts.sgdev.org"
-        },
-        "samsDev.clientID": {
-          "type": "string",
-          "description": "The clientID for SAMS development instance."
-        },
-        "samsDev.clientSecret": {
-          "type": "string",
-          "description": "The clientSecret for SAMS development instance."
-        },
-        "enterprisePortal.enableProxies": {
-          "type": "boolean",
-          "default": true,
-          "!go": {
-            "pointer": true
-          },
-          "description": "Whether to enable Enterprise Portal auth proxies for site admins."
-        },
         "srcCliVersionCache": {
           "description": "Configuration related to the src-cli version cache. This should only be used on sourcegraph.com.",
           "type": "object",
@@ -2334,59 +2330,6 @@
               "description": "The interval between version checks, expressed as a string that can be parsed by Go's time.ParseDuration.",
               "type": "string",
               "default": "1h"
-            }
-          }
-        },
-        "codyGateway": {
-          "description": "Configuration related to the Cody Gateway service management. This should only be used on sourcegraph.com.",
-          "type": "object",
-          "group": "Sourcegraph.com",
-          "properties": {
-            "bigQueryGoogleProjectID": {
-              "description": "The project ID to pull BigQuery Cody Gatewayrelated events from.",
-              "type": "string"
-            },
-            "bigQueryDataset": {
-              "description": "The dataset to pull BigQuery Cody Gateway related events from.",
-              "type": "string"
-            },
-            "bigQueryTable": {
-              "description": "The table in the dataset to pull BigQuery Cody Gateway related events from.",
-              "type": "string"
-            }
-          }
-        },
-        "codyProConfig": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "stripePublishableKey": {
-              "type": "string",
-              "default": null,
-              "description": "Stripe Publishable Key for use in Stripe Checkout, Stripe Elements. This is not considered a secret.",
-              "examples": ["pk_test_...", "pk_live_..."]
-            },
-            "samsBackendOrigin": {
-              "type": "string",
-              "default": "",
-              "description": "Origin of the SAMS backend. (Must match the SAMS OIDC registration in auth.providers.)",
-              "examples": ["https://accounts.sourcegraph.com"]
-            },
-            "sscBackendOrigin": {
-              "type": "string",
-              "default": "",
-              "description": "Origin of the Self-serve Cody backend.",
-              "examples": ["https://accounts.sourcegraph.com"]
-            },
-            "sscBaseUrl": {
-              "type": "string",
-              "default": "https://accounts.sourcegraph.com/cody",
-              "description": "The base URL of the Self-Serve Cody site."
-            },
-            "useEmbeddedUI": {
-              "type": "boolean",
-              "default": false,
-              "description": "Whether Cody Pro UI is served from sourcegraph.com. If false, users are directed to https://accounts.sourcegraph.com/cody to manage their Cody Pro subscription."
             }
           }
         }
@@ -2773,163 +2716,6 @@
       },
       "group": "Cody"
     },
-    "embeddings": {
-      "deprecationMessage": "Deprecated changes to this section will not be respected.",
-      "description": "Configuration for embeddings service.",
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "description": "Toggles whether embedding service is enabled.",
-          "type": "boolean",
-          "!go": {
-            "pointer": true
-          },
-          "default": true
-        },
-        "dimensions": {
-          "description": "The dimensionality of the embedding vectors. Required field if not using the sourcegraph provider.",
-          "type": "integer",
-          "minimum": 0
-        },
-        "model": {
-          "description": "The model used for embedding. A default model will be used for each provider, if not set.",
-          "type": "string"
-        },
-        "accessToken": {
-          "description": "The access token used to authenticate with the external embedding API service. For provider sourcegraph, this is optional.",
-          "type": "string"
-        },
-        "provider": {
-          "type": "string",
-          "description": "The provider to use for generating embeddings. Defaults to sourcegraph.",
-          "enum": ["openai", "azure-openai", "sourcegraph"]
-        },
-        "endpoint": {
-          "type": "string",
-          "description": "The endpoint under which to reach the provider. Sensible default will be used for each provider.",
-          "format": "uri"
-        },
-        "url": {
-          "description": "The url to the external embedding API service. Deprecated, use endpoint instead.",
-          "type": "string",
-          "format": "uri"
-        },
-        "perCommunityUserEmbeddingsMonthlyLimit": {
-          "description": "If > 0, limits the number of tokens allowed to be embedded by a Community user in a month. This is for Self-serve Cody and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perProUserEmbeddingsMonthlyLimit": {
-          "description": "If > 0, limits the number of tokens allowed to be embedded by a Pro user in a month. This is for Self-serve Cody and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "fileFilters": {
-          "description": "Filters that allow you to specify which files in a repository should get embedded.",
-          "type": "object",
-          "properties": {
-            "excludedFilePathPatterns": {
-              "description": "A list of glob patterns that match file paths you want to exclude from embeddings. This is useful to exclude files with low information value (e.g., SVG files, test fixtures, mocks, auto-generated files, etc.).",
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "default": [
-                ".*ignore",
-                ".gitattributes",
-                ".mailmap",
-                "*.csv",
-                "*.svg",
-                "*.xml",
-                "__fixtures__/",
-                "node_modules/",
-                "testdata/",
-                "mocks/",
-                "vendor/"
-              ]
-            },
-            "includedFilePathPatterns": {
-              "description": "A list of glob patterns that match file paths you want to include in embeddings. If specified, all files not matching these include patterns are excluded.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "examples": ["*.go", "*.ts", "*.md", "src/", "cmd/"]
-            },
-            "maxFileSizeBytes": {
-              "description": "The maximum file size (in bytes) to include in embeddings. Must be between 0 and 100000 (1 MB).",
-              "type": "integer",
-              "default": 1000000
-            }
-          }
-        },
-        "excludedFilePathPatterns": {
-          "description": "A list of glob patterns that match file paths you want to exclude from embeddings. This is useful to exclude files with low information value (e.g., SVG files, test fixtures, mocks, auto-generated files, etc.).",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            ".*ignore",
-            ".gitattributes",
-            ".mailmap",
-            "*.csv",
-            "*.svg",
-            "*.xml",
-            "__fixtures__/",
-            "node_modules/",
-            "testdata/",
-            "mocks/",
-            "vendor/"
-          ],
-          "deprecationMessage": "Deprecated in favor of fileFilers.excludedFilePathPatterns"
-        },
-        "maxEmbeddingsPerRepo": {
-          "description": "The maximum number of embeddings to generate per repo",
-          "type": "integer",
-          "minimum": 0
-        },
-        "incremental": {
-          "description": "Whether to generate embeddings incrementally. If true, only files that have changed since the last run will be processed.",
-          "type": "boolean",
-          "!go": {
-            "pointer": true
-          },
-          "default": true
-        },
-        "minimumInterval": {
-          "description": "The time to wait between runs. Valid time units are \"s\", \"m\", \"h\". Example values: \"30s\", \"5m\", \"1h\".",
-          "type": "string",
-          "default": "24h"
-        },
-        "policyRepositoryMatchLimit": {
-          "description": "The maximum number of repositories that can be matched by a global embeddings policy",
-          "type": "integer",
-          "!go": {
-            "pointer": true
-          },
-          "default": "5000"
-        },
-        "excludeChunkOnError": {
-          "description": "Whether to cancel indexing a repo if embedding a single file fails. If true, the chunk that cannot generate embeddings is not indexed and the remainder of the repository proceeds with indexing.",
-          "type": "boolean",
-          "!go": {
-            "pointer": true
-          },
-          "default": true
-        }
-      },
-      "examples": [
-        {
-          "enabled": true,
-          "dimensions": 1536,
-          "model": "text-embedding-ada-002",
-          "accessToken": "your-access-token",
-          "url": "https://api.openai.com/v1/embeddings",
-          "excludedFilePathPatterns": ["*.svg", "**/__mocks__/**", "**/test/**"]
-        }
-      ]
-    },
     "completions": {
       "description": "Configuration for the completions service.",
       "type": "object",
@@ -3066,46 +2852,6 @@
         },
         "perUserCodeCompletionsDailyLimit": {
           "description": "If > 0, limits the number of code completions requests allowed for a user in a day. On instances that allow anonymous requests, we enforce the rate limit by IP.",
-          "type": "integer",
-          "default": 0
-        },
-        "perCommunityUserChatMonthlyLLMRequestLimit": {
-          "description": "If > 0, limits the number of completions requests allowed for a Community user in a month. This is for Self-serve Cody and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perCommunityUserCodeCompletionsMonthlyLLMRequestLimit": {
-          "description": "If > 0, limits the number of code completions requests allowed for a Community user in a month.  This is for Self-serve Cody and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perProUserChatDailyLLMRequestLimit": {
-          "description": "If > 0, limits the number of completions requests allowed for a Pro user in a day. This is for Self-serve Cody and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perProUserCodeCompletionsDailyLLMRequestLimit": {
-          "description": "If > 0, limits the number of code completions requests allowed for a Pro user in a day. This is for Self-serve Cody and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perCommunityUserChatMonthlyInteractionLimit": {
-          "description": "If > 0, enables the maximum number of completions interactions allowed to be made by a single Community user in a month. This is for Cody PLG and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perCommunityUserCodeCompletionsMonthlyInteractionLimit": {
-          "description": "If > 0, enables the maximum number of code completions interactions allowed to be made by a single Community user in a month.  This is for Cody PLG and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perProUserChatDailyInteractionLimit": {
-          "description": "If > 0, enables the maximum number of completions interactions allowed to be made by a single Pro user in a day. This is for Cody PLG and applies to Dotcom only.",
-          "type": "integer",
-          "default": 0
-        },
-        "perProUserCodeCompletionsDailyInteractionLimit": {
-          "description": "If > 0, enables the maximum number of code completions interactions allowed to be made by a single Pro user in a day. This is for Cody PLG and applies to Dotcom only.",
           "type": "integer",
           "default": 0
         }
@@ -3854,17 +3600,35 @@
     },
     "ServerSideProviderConfigGoogleProvider": {
       "type": "object",
-      "required": ["type", "accessToken", "endpoint"],
+      "required": ["type", "endpoint"],
       "properties": {
         "type": {
           "type": "string",
           "const": "google"
         },
         "accessToken": {
-          "type": "string"
+          "type": "string",
+          "description": "Base64-encoded service account JSON. Can be left empty to use Application Default Credentials (ADC) which supports Workload Identity Federation, Managed Identity, and service accounts."
         },
         "endpoint": {
           "type": "string"
+        },
+        "googleWorkloadIdentityConfig": {
+          "$ref": "#/definitions/GoogleWorkloadIdentityConfig"
+        }
+      }
+    },
+    "GoogleWorkloadIdentityConfig": {
+      "type": "object",
+      "description": "Configuration for Google credential sources",
+      "properties": {
+        "credentialsJSON": {
+          "type": "string",
+          "description": "Base64-encoded JSON credentials file (service account or workload identity federation config). If provided, overrides credential detection logic."
+        },
+        "credentialsFile": {
+          "type": "string",
+          "description": "Path to JSON credentials file (service account or workload identity federation config). Must be a filepath pointing to a file mounted inside the frontend container. Consider using credentialsJSON instead. If provided, overrides credential detection logic."
         }
       }
     },

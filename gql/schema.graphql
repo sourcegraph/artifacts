@@ -102,12 +102,7 @@ type Mutation {
     Only the user and site admins may perform this mutation.
     """
     updateUser(user: ID!, username: String, displayName: String, avatarURL: String): User!
-    """
-    Updates the user's Self-serve Cody plan to Free or Pro.
 
-    Only the user may perform this mutation.
-    """
-    changeCodyPlan(user: ID!, pro: Boolean!): User!
     """
     Creates an organization. The caller is added as a member of the newly created organization.
 
@@ -1117,7 +1112,7 @@ enum EventBillingID {
     """
     A billable Cody embedding/code graph creation or search event.
     """
-    CodyEmbedding
+    CodyEmbedding @deprecated(reason: "Embeddings are not used")
 }
 
 """
@@ -1550,11 +1545,11 @@ type Query {
         """
         Include repositories that have embeddings.
         """
-        embedded: Boolean = true
+        embedded: Boolean = true @deprecated(reason: "Embeddings are not used")
         """
         Include repositories that don't have embeddings.
         """
-        notEmbedded: Boolean = true
+        notEmbedded: Boolean = true @deprecated(reason: "Embeddings are not used")
         """
         Include only repositories that have encountered errors when cloning or fetching
         """
@@ -3786,7 +3781,7 @@ type Repository implements Node & GenericSearchResultInterface {
     """
     Returns true if embeddings for the repo are generated.
     """
-    embeddingExists: Boolean!
+    embeddingExists: Boolean! @deprecated(reason: "Embeddings are not used")
 
     """
     Returns true if command executed on the repo are recorded.
@@ -6385,57 +6380,6 @@ type NewUsersConnection implements Connection {
 }
 
 """
-A status for cody subscription.
-"""
-enum CodySubscriptionStatus {
-    ACTIVE
-    PAST_DUE
-    UNPAID
-    CANCELED
-    TRIALING
-    OTHER
-}
-
-"""
-A plan for cody subscription.
-"""
-enum CodySubscriptionPlan {
-    FREE
-    PRO
-}
-
-"""
-A subscription for cody.
-"""
-type CodySubscription {
-    """
-    The status for cody subscription.
-    """
-    status: CodySubscriptionStatus!
-    """
-    The plan for cody subscription.
-    """
-    plan: CodySubscriptionPlan!
-    """
-    Whether pro rate limits are applied for the user.
-    """
-    applyProRateLimits: Boolean!
-    """
-    The current billing period start time.
-    """
-    currentPeriodStartAt: DateTime!
-    """
-    The current billing period end time. This may be in the past if the
-    subscription is in a canceled state.
-    """
-    currentPeriodEndAt: DateTime!
-    """
-    Whether the subscription will be canceled at the end of the current billing period. (Or automatically renew, if true.)
-    """
-    cancelAtPeriodEnd: Boolean!
-}
-
-"""
 A user.
 """
 type User implements Node & SettingsSubject & Namespace {
@@ -6657,31 +6601,7 @@ type User implements Node & SettingsSubject & Namespace {
     Null, if not overwritten.
     """
     codeCompletionsQuotaOverride: Int
-    """
-    The Cody subscription details for the user.
-    """
-    codySubscription: CodySubscription
-    """
-    DEPRECATED
-    Whether the user has enrolled for Cody Pro.
-    """
-    codyProEnabled: Boolean!
-    """
-    The count of Cody chats in the current billing period.
-    """
-    codyCurrentPeriodChatUsage: Int!
-    """
-    The count of Cody code completions in the current billing period.
-    """
-    codyCurrentPeriodCodeUsage: Int!
-    """
-    The limit of Cody chats for the current billing period.
-    """
-    codyCurrentPeriodChatLimit: Int!
-    """
-    The limit of Cody code completions for the current billing period.
-    """
-    codyCurrentPeriodCodeLimit: Int!
+
     """
     Evaluates a feature flag for the user. Returns null if the feature flag does not exist.
     """
@@ -6884,11 +6804,6 @@ type ExternalAccount implements Node {
     Whether the requesting user can remove the link to the external account.
     """
     viewerCanRemove: Boolean!
-    """
-    TEMPORARY: to debug #inc-284-plg-users-paying-for-and-being-billed-for-pro-without-being-upgrade.
-    Cody Subscription associated with the external account.
-    """
-    codySubscription: CodySubscription
 }
 
 """
@@ -7460,6 +7375,10 @@ type Site implements SettingsSubject {
         Returns users whose events count within a given range.
         """
         eventsCount: SiteUsersNumberRangeInput
+        """
+        Returns users who have any of the specified roles.
+        """
+        roles: [String!]
     ): SiteUsers!
 
     """
@@ -7486,11 +7405,6 @@ type Site implements SettingsSubject {
     The quota of code completions requests allowed per user in a day. Null, if unlimited.
     """
     perUserCodeCompletionsQuota: Int
-
-    """
-    Whether users are required to have a verified email in order to access Cody.
-    """
-    requiresVerifiedEmailForCody: Boolean!
 
     """
     Whether Cody is enabled for this site.
@@ -8476,6 +8390,27 @@ type SiteUser {
     Whether this account is a service account.
     """
     serviceAccount: Boolean!
+    """
+    The list of all roles assigned to this user.
+    """
+    roles(
+        """
+        The limit argument for forward pagination.
+        """
+        first: Int
+        """
+        The limit argument for backward pagination.
+        """
+        last: Int
+        """
+        The cursor argument for forward pagination.
+        """
+        after: String
+        """
+        The cursor argument for backward pagination.
+        """
+        before: String
+    ): RoleConnection!
 }
 
 """
@@ -8892,7 +8827,7 @@ type RepositoryStats {
     """
     The number of repositories that have embeddings
     """
-    embedded: Int!
+    embedded: Int! @deprecated(reason: "Embeddings are not used")
 }
 
 """
@@ -10430,11 +10365,6 @@ enum PermissionNamespace {
     This represents the Cody namespace.
     """
     CODY
-
-    """
-    ❗ Product subscriptions are only available in Sourcegraph.com
-    """
-    PRODUCT_SUBSCRIPTIONS
 
     """
     Permissions related to workspace repo administration.

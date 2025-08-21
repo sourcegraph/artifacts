@@ -210,11 +210,6 @@
         ]
       ]
     },
-    "initialRepositoryEnablement": {
-      "description": "Deprecated and ignored field which will be removed entirely in the next release. BitBucket repositories can no longer be enabled or disabled explicitly.",
-      "type": "boolean",
-      "default": false
-    },
     "authorization": {
       "title": "BitbucketServerAuthorization",
       "description": "If non-null, enforces Bitbucket Server / Bitbucket Data Center repository permissions.",

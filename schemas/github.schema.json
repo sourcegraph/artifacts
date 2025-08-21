@@ -295,10 +295,6 @@
       "type": "string",
       "default": "{host}/{nameWithOwner}"
     },
-    "initialRepositoryEnablement": {
-      "description": "Deprecated and ignored field which will be removed entirely in the next release. GitHub repositories can no longer be enabled or disabled explicitly. Configure repositories to be mirrored via \"repos\", \"exclude\" and \"repositoryQuery\" instead.",
-      "type": "boolean"
-    },
     "authorization": {
       "title": "GitHubAuthorization",
       "description": "If non-null, enforces GitHub repository permissions. This requires that there is an item in the [site configuration json](https://sourcegraph.com/docs/admin/config/site_config#auth-providers) `auth.providers` field, of type \"github\" with the same `url` field as specified in this `GitHubConnection`.",
@@ -320,10 +316,6 @@
           "default": false
         }
       }
-    },
-    "githubAppInstallationID": {
-      "description": "DEPRECATED: The installation ID of the GitHub App.",
-      "type": "string"
     },
     "gitHubAppDetails": {
       "description": "If non-null, this is a GitHub App connection with some additional properties.",
@@ -355,11 +347,6 @@
       "description": "The maximum number of repos that will be deleted per sync. A value of 0 or less indicates no maximum.",
       "type": "integer",
       "default": 0
-    },
-    "pending": {
-      "description": "Whether the code host connection is in a pending state.",
-      "type": "boolean",
-      "default": false
     }
   }
 }
