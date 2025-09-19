@@ -1109,10 +1109,6 @@ enum EventBillingID {
     A billable Cody completion (aka suggestion or autocomplete) event.
     """
     CodyCompletion
-    """
-    A billable Cody embedding/code graph creation or search event.
-    """
-    CodyEmbedding @deprecated(reason: "Embeddings are not used")
 }
 
 """
@@ -1542,14 +1538,6 @@ type Query {
         Include repositories that do not have a text search index.
         """
         notIndexed: Boolean = true
-        """
-        Include repositories that have embeddings.
-        """
-        embedded: Boolean = true @deprecated(reason: "Embeddings are not used")
-        """
-        Include repositories that don't have embeddings.
-        """
-        notEmbedded: Boolean = true @deprecated(reason: "Embeddings are not used")
         """
         Include only repositories that have encountered errors when cloning or fetching
         """
@@ -3777,11 +3765,6 @@ type Repository implements Node & GenericSearchResultInterface {
         @deprecated(
             reason: "Use mirrorInfo.byteSize instead. This field is a deprecated and will be removed in a future release."
         )
-
-    """
-    Returns true if embeddings for the repo are generated.
-    """
-    embeddingExists: Boolean! @deprecated(reason: "Embeddings are not used")
 
     """
     Returns true if command executed on the repo are recorded.
@@ -8824,10 +8807,6 @@ type RepositoryStats {
     The number of repositories that are currently corrupt
     """
     corrupted: Int!
-    """
-    The number of repositories that have embeddings
-    """
-    embedded: Int! @deprecated(reason: "Embeddings are not used")
 }
 
 """
@@ -10395,6 +10374,11 @@ enum PermissionNamespace {
     Permissions related to managing IdP clients.
     """
     IDP_CLIENTS
+
+    """
+    Permissions related to SCIP index management.
+    """
+    SCIP
 }
 
 """

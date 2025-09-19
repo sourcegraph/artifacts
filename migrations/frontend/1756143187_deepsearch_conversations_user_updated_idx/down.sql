@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS deepsearch_conversations_user_updated_idx;

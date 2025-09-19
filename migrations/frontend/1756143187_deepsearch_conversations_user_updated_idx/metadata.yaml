@@ -1,0 +1,3 @@
+name: deepsearch_conversations_user_updated_idx
+parents: [1755505566]
+createIndexConcurrently: true

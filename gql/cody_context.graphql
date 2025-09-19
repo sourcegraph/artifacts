@@ -66,20 +66,6 @@ extend type Query {
     ): CodyContextAlternativesResult! @deprecated(reason: "Use the search API instead with `patterntype=nls`")
 
     """
-    EXPERIMENTAL: Detect intent for a given Cody chat query.
-    """
-    chatIntent(
-        """
-        A natural language query string.
-        """
-        query: String!
-        """
-        Cody interaction ID - used to join requests for intent detection/context fetching/ranking.
-        """
-        interactionId: String!
-    ): ChatIntentResponse! @deprecated(reason: "Automatic intent detection is no longer in use.")
-
-    """
     EXPERIMENTAL: Fetches the relevant context for a mentioned URL
     """
     urlMentionContext(url: String!): URLMentionContextResult!
@@ -144,38 +130,6 @@ type FileChunkContext {
     Ranges are relative to the start of the file, not the start of the chunk.
     """
     matchedRanges: [Range!]!
-}
-
-"""
-EXPERIMENTAL: An intent-score pair from Cody Chat intent detection API.
-"""
-type IntentScore {
-    """
-    The intent that was detected
-    """
-    intent: String!
-    """
-    The confidence score
-    """
-    score: Float!
-}
-
-"""
-EXPERIMENTAL: A response from Cody Chat intent detection API.
-"""
-type ChatIntentResponse {
-    """
-    Intent that was detected
-    """
-    intent: String!
-    """
-    Confidence score as assigned by the intent detection model
-    """
-    score: Float!
-    """
-    All intents and scores computed by the intent detection model
-    """
-    allScores: [IntentScore!]!
 }
 
 """

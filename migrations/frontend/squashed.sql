@@ -1979,7 +1979,6 @@ CREATE TABLE lsif_configuration_policies (
     protected boolean DEFAULT false NOT NULL,
     repository_patterns text[],
     last_resolved_at timestamp with time zone,
-    embeddings_enabled boolean DEFAULT false NOT NULL,
     syntactic_indexing_enabled boolean DEFAULT false NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     CONSTRAINT lsif_configuration_policies_syntactic_head_only_constraint CHECK (((syntactic_indexing_enabled = false) OR ((pattern = 'HEAD'::text) AND (type = 'GIT_COMMIT'::text))))
@@ -2021,8 +2020,7 @@ CREATE VIEW codeintel_configuration_policies WITH (security_invoker='true') AS
     index_intermediate_commits,
     protected,
     repository_patterns,
-    last_resolved_at,
-    embeddings_enabled
+    last_resolved_at
    FROM lsif_configuration_policies;
 
 CREATE TABLE lsif_configuration_policies_repository_pattern_lookup (
@@ -2246,33 +2244,6 @@ CREATE SEQUENCE configuration_policies_audit_logs_seq
     CACHE 1;
 
 ALTER SEQUENCE configuration_policies_audit_logs_seq OWNED BY configuration_policies_audit_logs.sequence;
-
-CREATE TABLE context_detection_embedding_jobs (
-    id integer NOT NULL,
-    state text DEFAULT 'queued'::text,
-    failure_message text,
-    queued_at timestamp with time zone DEFAULT now(),
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    process_after timestamp with time zone,
-    num_resets integer DEFAULT 0 NOT NULL,
-    num_failures integer DEFAULT 0 NOT NULL,
-    last_heartbeat_at timestamp with time zone,
-    execution_logs json[],
-    worker_hostname text DEFAULT ''::text NOT NULL,
-    cancel boolean DEFAULT false NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
-CREATE SEQUENCE context_detection_embedding_jobs_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE context_detection_embedding_jobs_id_seq OWNED BY context_detection_embedding_jobs.id;
 
 CREATE TABLE contributor_data (
     author_email bytea NOT NULL,
@@ -5056,48 +5027,6 @@ CREATE SEQUENCE repo_commits_changelists_id_seq
 
 ALTER SEQUENCE repo_commits_changelists_id_seq OWNED BY repo_commits_changelists.id;
 
-CREATE TABLE repo_embedding_job_stats (
-    job_id integer NOT NULL,
-    is_incremental boolean DEFAULT false NOT NULL,
-    files_total integer DEFAULT 0 NOT NULL,
-    files_embedded integer DEFAULT 0 NOT NULL,
-    chunks_embedded integer DEFAULT 0 NOT NULL,
-    files_excluded integer DEFAULT 0 NOT NULL,
-    files_skipped jsonb DEFAULT '{}'::jsonb NOT NULL,
-    bytes_embedded bigint DEFAULT 0 NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
-CREATE TABLE repo_embedding_jobs (
-    id integer NOT NULL,
-    state text DEFAULT 'queued'::text,
-    failure_message text,
-    queued_at timestamp with time zone DEFAULT now(),
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    process_after timestamp with time zone,
-    num_resets integer DEFAULT 0 NOT NULL,
-    num_failures integer DEFAULT 0 NOT NULL,
-    last_heartbeat_at timestamp with time zone,
-    execution_logs json[],
-    worker_hostname text DEFAULT ''::text NOT NULL,
-    cancel boolean DEFAULT false NOT NULL,
-    repo_id integer NOT NULL,
-    revision text NOT NULL,
-    commit_id text NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
-CREATE SEQUENCE repo_embedding_jobs_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE repo_embedding_jobs_id_seq OWNED BY repo_embedding_jobs.id;
-
 CREATE SEQUENCE repo_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -6135,8 +6064,6 @@ ALTER TABLE ONLY configuration_policies_audit_logs ALTER COLUMN sequence SET DEF
 
 ALTER TABLE ONLY configuration_policies_audit_logs ALTER COLUMN id SET DEFAULT nextval('configuration_policies_audit_logs_id_seq'::regclass);
 
-ALTER TABLE ONLY context_detection_embedding_jobs ALTER COLUMN id SET DEFAULT nextval('context_detection_embedding_jobs_id_seq'::regclass);
-
 ALTER TABLE ONLY contributor_jobs ALTER COLUMN id SET DEFAULT nextval('contributor_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY critical_and_site_config ALTER COLUMN id SET DEFAULT nextval('critical_and_site_config_id_seq'::regclass);
@@ -6290,8 +6217,6 @@ ALTER TABLE ONLY repo ALTER COLUMN id SET DEFAULT nextval('repo_id_seq'::regclas
 ALTER TABLE ONLY repo_cleanup_jobs ALTER COLUMN id SET DEFAULT nextval('repo_cleanup_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_commits_changelists ALTER COLUMN id SET DEFAULT nextval('repo_commits_changelists_id_seq'::regclass);
-
-ALTER TABLE ONLY repo_embedding_jobs ALTER COLUMN id SET DEFAULT nextval('repo_embedding_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_paths ALTER COLUMN id SET DEFAULT nextval('repo_paths_id_seq'::regclass);
 
@@ -6527,9 +6452,6 @@ ALTER TABLE ONLY completion_credits_entitlement_window_usage
 
 ALTER TABLE ONLY configuration_policies_audit_logs
     ADD CONSTRAINT configuration_policies_audit_logs_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY context_detection_embedding_jobs
-    ADD CONSTRAINT context_detection_embedding_jobs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY contributor_data
     ADD CONSTRAINT contributor_data_pkey PRIMARY KEY (author_email, author_name, repo_id);
@@ -6906,12 +6828,6 @@ ALTER TABLE ONLY repo_cleanup_jobs
 ALTER TABLE ONLY repo_commits_changelists
     ADD CONSTRAINT repo_commits_changelists_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY repo_embedding_job_stats
-    ADD CONSTRAINT repo_embedding_job_stats_pkey PRIMARY KEY (job_id);
-
-ALTER TABLE ONLY repo_embedding_jobs
-    ADD CONSTRAINT repo_embedding_jobs_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY repo
     ADD CONSTRAINT repo_external_unique UNIQUE (external_service_type, external_service_id, external_id, tenant_id);
 
@@ -7221,6 +7137,8 @@ CREATE INDEX contributor_repos_repo_id ON contributor_repos USING btree (repo_id
 
 CREATE INDEX deepsearch_conversations_read_token_idx ON deepsearch_conversations USING hash (read_token);
 
+CREATE INDEX deepsearch_conversations_user_updated_idx ON deepsearch_conversations USING btree (user_id, updated_at DESC);
+
 CREATE INDEX deepsearch_questions_conversation_id_idx ON deepsearch_questions USING btree (conversation_id);
 
 CREATE INDEX deepsearch_quota_user_id_idx ON deepsearch_quota USING btree (user_id);
@@ -7498,8 +7416,6 @@ CREATE INDEX repo_cleanup_jobs_repository_id ON repo_cleanup_jobs USING btree (r
 CREATE INDEX repo_created_at ON repo USING btree (created_at);
 
 CREATE INDEX repo_description_trgm_idx ON repo USING gin (lower(description) gin_trgm_ops);
-
-CREATE INDEX repo_embedding_jobs_repo ON repo_embedding_jobs USING btree (repo_id, revision);
 
 CREATE INDEX repo_fork ON repo USING btree (fork);
 
@@ -8229,9 +8145,6 @@ ALTER TABLE ONLY repo_cleanup_jobs
 ALTER TABLE ONLY repo_commits_changelists
     ADD CONSTRAINT repo_commits_changelists_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE DEFERRABLE;
 
-ALTER TABLE ONLY repo_embedding_job_stats
-    ADD CONSTRAINT repo_embedding_job_stats_job_id_fkey FOREIGN KEY (job_id) REFERENCES repo_embedding_jobs(id) ON DELETE CASCADE DEFERRABLE;
-
 ALTER TABLE ONLY repo_kvps
     ADD CONSTRAINT repo_kvps_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
@@ -8460,8 +8373,6 @@ ALTER TABLE completion_credits_entitlement_window_usage ENABLE ROW LEVEL SECURIT
 
 ALTER TABLE configuration_policies_audit_logs ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE context_detection_embedding_jobs ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE contributor_data ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE contributor_jobs ENABLE ROW LEVEL SECURITY;
@@ -8646,10 +8557,6 @@ ALTER TABLE repo_cleanup_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_commits_changelists ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE repo_embedding_job_stats ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE repo_embedding_jobs ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE repo_kvps ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_paths ENABLE ROW LEVEL SECURITY;
@@ -8795,8 +8702,6 @@ CREATE POLICY tenant_isolation_policy ON completion_credits_consumption USING ((
 CREATE POLICY tenant_isolation_policy ON completion_credits_entitlement_window_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON configuration_policies_audit_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON context_detection_embedding_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON contributor_data USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8982,10 +8887,6 @@ CREATE POLICY tenant_isolation_policy ON repo_cleanup_jobs USING ((( SELECT (cur
 
 CREATE POLICY tenant_isolation_policy ON repo_commits_changelists USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON repo_embedding_job_stats USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON repo_embedding_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
 CREATE POLICY tenant_isolation_policy ON repo_kvps USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON repo_paths USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -9106,9 +9007,9 @@ ALTER TABLE zoekt_index_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE zoekt_repos ENABLE ROW LEVEL SECURITY;
 
-INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, embeddings_enabled, syntactic_indexing_enabled, tenant_id) VALUES (1, NULL, 'Default tip-of-branch retention policy', 'GIT_TREE', '*', true, 2016, false, false, 0, false, true, NULL, NULL, false, false, 1);
-INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, embeddings_enabled, syntactic_indexing_enabled, tenant_id) VALUES (2, NULL, 'Default tag retention policy', 'GIT_TAG', '*', true, 8064, false, false, 0, false, true, NULL, NULL, false, false, 1);
-INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, embeddings_enabled, syntactic_indexing_enabled, tenant_id) VALUES (3, NULL, 'Default commit retention policy', 'GIT_TREE', '*', true, 168, true, false, 0, false, true, NULL, NULL, false, false, 1);
+INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, syntactic_indexing_enabled, tenant_id) VALUES (1, NULL, 'Default tip-of-branch retention policy', 'GIT_TREE', '*', true, 2016, false, false, 0, false, true, NULL, NULL, false, 1);
+INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, syntactic_indexing_enabled, tenant_id) VALUES (2, NULL, 'Default tag retention policy', 'GIT_TAG', '*', true, 8064, false, false, 0, false, true, NULL, NULL, false, 1);
+INSERT INTO lsif_configuration_policies (id, repository_id, name, type, pattern, retention_enabled, retention_duration_hours, retain_intermediate_commits, indexing_enabled, index_commit_max_age_hours, index_intermediate_commits, protected, repository_patterns, last_resolved_at, syntactic_indexing_enabled, tenant_id) VALUES (3, NULL, 'Default commit retention policy', 'GIT_TREE', '*', true, 168, true, false, 0, false, true, NULL, NULL, false, 1);
 
 SELECT pg_catalog.setval('lsif_configuration_policies_id_seq', 3, true);
 
