@@ -2286,6 +2286,10 @@ extend type Query {
         Specify the order in which batch changes are returned.
         """
         sortOrder: BatchChangesSortOrder = NEWEST_FIRST
+        """
+        Only return batch changes created by users with these IDs.
+        """
+        users: [ID!]
     ): BatchChangeConnection!
     """
     Looks up a batch change by namespace and name.
@@ -3801,6 +3805,10 @@ extend type Org {
         Specify the order in which batch changes are returned.
         """
         sortOrder: BatchChangesSortOrder = NEWEST_FIRST
+        """
+        Only return batch changes created by users with these IDs.
+        """
+        users: [ID!]
     ): BatchChangeConnection!
 }
 
@@ -3837,6 +3845,10 @@ extend type User {
         Specify the order in which batch changes are returned.
         """
         sortOrder: BatchChangesSortOrder = NEWEST_FIRST
+        """
+        Only return batch changes created by users with these IDs.
+        """
+        users: [ID!]
     ): BatchChangeConnection!
 
     """

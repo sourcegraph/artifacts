@@ -10379,6 +10379,11 @@ enum PermissionNamespace {
     Permissions related to SCIP index management.
     """
     SCIP
+
+    """
+    Permissions related to deep search functionality.
+    """
+    DEEP_SEARCH
 }
 
 """

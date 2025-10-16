@@ -2376,27 +2376,6 @@ CREATE SEQUENCE deepsearch_quota_id_seq
 
 ALTER SEQUENCE deepsearch_quota_id_seq OWNED BY deepsearch_quota.id;
 
-CREATE TABLE deepsearch_references (
-    id integer NOT NULL,
-    conversation_id integer NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    repo_id integer,
-    file_path text DEFAULT ''::text NOT NULL,
-    created_at timestamp without time zone DEFAULT now() NOT NULL
-);
-
-COMMENT ON COLUMN deepsearch_references.file_path IS 'File path can be empty because some agent tools only produce repo or commit information but not file content. We use empty string as the sentinel value so that the unique constraint works correctly';
-
-CREATE SEQUENCE deepsearch_references_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE deepsearch_references_id_seq OWNED BY deepsearch_references.id;
-
 CREATE TABLE entitlement_grants (
     entitlement_id integer NOT NULL,
     user_id integer NOT NULL,
@@ -5944,34 +5923,6 @@ CREATE SEQUENCE webhooks_id_seq
 
 ALTER SEQUENCE webhooks_id_seq OWNED BY webhooks.id;
 
-CREATE TABLE zoekt_index_jobs (
-    id bigint NOT NULL,
-    state text DEFAULT 'queued'::text NOT NULL,
-    failure_message text,
-    queued_at timestamp with time zone DEFAULT now() NOT NULL,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    process_after timestamp with time zone,
-    num_resets integer DEFAULT 0 NOT NULL,
-    num_failures integer DEFAULT 0 NOT NULL,
-    last_heartbeat_at timestamp with time zone,
-    execution_logs json[],
-    worker_hostname text DEFAULT ''::text NOT NULL,
-    cancel boolean DEFAULT false NOT NULL,
-    repository_id integer NOT NULL,
-    priority integer DEFAULT 1 NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
-CREATE SEQUENCE zoekt_index_jobs_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE zoekt_index_jobs_id_seq OWNED BY zoekt_index_jobs.id;
-
 CREATE TABLE zoekt_repos (
     repo_id integer NOT NULL,
     branches jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -6073,8 +6024,6 @@ ALTER TABLE ONLY deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('d
 ALTER TABLE ONLY deepsearch_questions ALTER COLUMN id SET DEFAULT nextval('deepsearch_questions_id_seq'::regclass);
 
 ALTER TABLE ONLY deepsearch_quota ALTER COLUMN id SET DEFAULT nextval('deepsearch_quota_id_seq'::regclass);
-
-ALTER TABLE ONLY deepsearch_references ALTER COLUMN id SET DEFAULT nextval('deepsearch_references_id_seq'::regclass);
 
 ALTER TABLE ONLY entitlements ALTER COLUMN id SET DEFAULT nextval('entitlements_id_seq'::regclass);
 
@@ -6280,8 +6229,6 @@ ALTER TABLE ONLY webhook_logs ALTER COLUMN id SET DEFAULT nextval('webhook_logs_
 
 ALTER TABLE ONLY webhooks ALTER COLUMN id SET DEFAULT nextval('webhooks_id_seq'::regclass);
 
-ALTER TABLE ONLY zoekt_index_jobs ALTER COLUMN id SET DEFAULT nextval('zoekt_index_jobs_id_seq'::regclass);
-
 ALTER TABLE ONLY access_requests
     ADD CONSTRAINT access_requests_pkey PRIMARY KEY (id);
 
@@ -6476,12 +6423,6 @@ ALTER TABLE ONLY deepsearch_quota
 
 ALTER TABLE ONLY deepsearch_quota
     ADD CONSTRAINT deepsearch_quota_user_id_key UNIQUE (user_id);
-
-ALTER TABLE ONLY deepsearch_references
-    ADD CONSTRAINT deepsearch_references_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY deepsearch_references
-    ADD CONSTRAINT deepsearch_references_repo_filepath_unique UNIQUE (conversation_id, repo_id, file_path);
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_pkey PRIMARY KEY (entitlement_id, user_id);
@@ -6999,9 +6940,6 @@ ALTER TABLE ONLY webhooks
 ALTER TABLE ONLY webhooks
     ADD CONSTRAINT webhooks_uuid_key UNIQUE (uuid);
 
-ALTER TABLE ONLY zoekt_index_jobs
-    ADD CONSTRAINT zoekt_index_jobs_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY zoekt_repos
     ADD CONSTRAINT zoekt_repos_pkey PRIMARY KEY (repo_id);
 
@@ -7262,8 +7200,6 @@ CREATE INDEX idx_repo_topics ON repo USING gin (topics);
 CREATE INDEX idx_repo_update_jobs_repository_id ON repo_update_jobs USING btree (tenant_id, repository_id);
 
 CREATE INDEX idx_user_id_created_at ON cody_audit_log USING btree (user_id, created_at);
-
-CREATE INDEX idx_zoekt_index_jobs_repository_id ON zoekt_index_jobs USING btree (tenant_id, repository_id);
 
 CREATE INDEX insights_query_runner_jobs_cost_idx ON insights_query_runner_jobs USING btree (cost);
 
@@ -7569,14 +7505,6 @@ CREATE INDEX webhook_logs_received_at_idx ON webhook_logs USING btree (received_
 
 CREATE INDEX webhook_logs_status_code_idx ON webhook_logs USING btree (status_code);
 
-CREATE INDEX zoekt_index_jobs_dequeue_idx ON zoekt_index_jobs USING btree (state, process_after);
-
-CREATE INDEX zoekt_index_jobs_dequeue_order_idx ON zoekt_index_jobs USING btree (priority DESC, COALESCE(process_after, queued_at), id, tenant_id);
-
-CREATE UNIQUE INDEX zoekt_index_jobs_one_concurrent_per_repo ON zoekt_index_jobs USING btree (repository_id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text]));
-
-CREATE INDEX zoekt_index_jobs_repository_id ON zoekt_index_jobs USING btree (repository_id);
-
 CREATE INDEX zoekt_repos_index_status ON zoekt_repos USING btree (index_status);
 
 CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_insert AFTER INSERT ON batch_spec_workspace_execution_jobs REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert();
@@ -7877,12 +7805,6 @@ ALTER TABLE ONLY deepsearch_questions
 
 ALTER TABLE ONLY deepsearch_quota
     ADD CONSTRAINT deepsearch_quota_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY deepsearch_references
-    ADD CONSTRAINT deepsearch_references_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY deepsearch_references
-    ADD CONSTRAINT deepsearch_references_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
@@ -8277,9 +8199,6 @@ ALTER TABLE ONLY webhooks
 ALTER TABLE ONLY webhooks
     ADD CONSTRAINT webhooks_updated_by_user_id_fkey FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY zoekt_index_jobs
-    ADD CONSTRAINT zoekt_index_jobs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
-
 ALTER TABLE ONLY zoekt_repos
     ADD CONSTRAINT zoekt_repos_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
@@ -8384,8 +8303,6 @@ ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deepsearch_questions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_quota ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE deepsearch_references ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
 
@@ -8715,8 +8632,6 @@ CREATE POLICY tenant_isolation_policy ON deepsearch_questions USING ((tenant_id 
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_quota USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON deepsearch_references USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON entitlements USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8971,8 +8886,6 @@ CREATE POLICY tenant_isolation_policy ON webhook_logs USING ((tenant_id = ( SELE
 
 CREATE POLICY tenant_isolation_policy ON webhooks USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON zoekt_index_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
 CREATE POLICY tenant_isolation_policy ON zoekt_repos USING ((( SELECT (current_setting('app.current_tenant'::text) = 'zoekttenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'zoekttenant'::text))::integer AS current_tenant))));
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
@@ -9002,8 +8915,6 @@ ALTER TABLE vulnerability_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE webhook_logs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE webhooks ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE zoekt_index_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE zoekt_repos ENABLE ROW LEVEL SECURITY;
 
