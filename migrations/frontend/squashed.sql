@@ -2319,11 +2319,11 @@ CREATE TABLE deepsearch_conversations (
     id integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    edit_token uuid DEFAULT gen_random_uuid(),
     read_token uuid DEFAULT gen_random_uuid(),
     user_id integer,
     data jsonb,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    is_starred boolean DEFAULT false NOT NULL
 );
 
 CREATE SEQUENCE deepsearch_conversations_id_seq

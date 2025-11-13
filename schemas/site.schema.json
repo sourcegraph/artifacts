@@ -216,7 +216,7 @@
           "description": "Configure precise code navigation flow version",
           "type": "string",
           "enum": ["v1", "v2"],
-          "default": "v1",
+          "default": "v2",
           "!go": {
             "pointer": true
           }

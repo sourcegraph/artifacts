@@ -152,6 +152,10 @@ type GitHubApp implements Node {
     Fetches the webhook associated with this GitHub App.
     """
     webhook: Webhook
+    """
+    Missing permissions required for groups caching. Empty if all required permissions are granted.
+    """
+    missingRequiredPermissions: [String!]!
 }
 
 """
