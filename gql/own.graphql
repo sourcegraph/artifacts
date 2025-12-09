@@ -343,11 +343,6 @@ extend type Query {
     List all ownership signal configurations
     """
     ownSignalConfigurations: [OwnSignalConfiguration!]!
-
-    """
-    Returns ownership stats for the whole Sourcegraph instance
-    """
-    instanceOwnershipStats: OwnershipStats!
 }
 
 """

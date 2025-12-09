@@ -5684,8 +5684,11 @@ CREATE TABLE user_external_accounts (
     expired_at timestamp with time zone,
     last_valid_at timestamp with time zone,
     encryption_key_id text DEFAULT ''::text NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL
 );
+
+COMMENT ON COLUMN user_external_accounts.scopes IS 'OAuth scopes granted to the token. Extracted from auth_data for efficient querying without decryption. Empty array for non-OAuth accounts or when scopes are unknown.';
 
 CREATE SEQUENCE user_external_accounts_id_seq
     START WITH 1
@@ -7247,9 +7250,9 @@ COMMENT ON INDEX lsif_indexes_matched_policy_id_partial_idx IS 'Inverted index f
 
 CREATE INDEX lsif_indexes_queued_at_id ON lsif_indexes USING btree (queued_at DESC, id);
 
-CREATE UNIQUE INDEX lsif_indexes_queued_partial_ukey ON lsif_indexes USING btree (repository_id, indexer, root, tenant_id, commit) WHERE ((state = 'queued'::text) AND (matched_policy_id IS NOT NULL));
+CREATE UNIQUE INDEX lsif_indexes_queued_head_policy_partial_ukey ON lsif_indexes USING btree (repository_id, indexer, root, tenant_id) WHERE ((state = 'queued'::text) AND (matched_policy_id IS NOT NULL) AND (matched_revision = 'HEAD'::text) AND (num_resets = 0));
 
-COMMENT ON INDEX lsif_indexes_queued_partial_ukey IS 'Partial index for commit overwriting on detecting new commits for a repository while the old commit is still enqueued.';
+CREATE UNIQUE INDEX lsif_indexes_queued_partial_ukey ON lsif_indexes USING btree (repository_id, indexer, root, tenant_id, commit) WHERE ((state = 'queued'::text) AND (matched_policy_id IS NOT NULL) AND (num_resets = 0));
 
 CREATE INDEX lsif_indexes_repository_id_commit ON lsif_indexes USING btree (repository_id, commit);
 

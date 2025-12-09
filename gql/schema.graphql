@@ -627,6 +627,7 @@ type Mutation {
     Only site admins may perform this mutation.
     """
     reloadSite: EmptyResponse
+        @deprecated(reason: "This mutation is no longer used and will be removed in a future release.")
     """
     Submits a user satisfaction (NPS) survey.
     """
@@ -6450,16 +6451,6 @@ type User implements Node & SettingsSubject & Namespace {
     """
     tosAccepted: Boolean!
     """
-    The user's recent usage statistics on Sourcegraph.
-
-    These statistics are aggregated from the user activity records in the event_logs table. That table only
-    records 93 days worth of history, however, so long-term aggregated statistics may not be accurate (e.g.
-    the lastActiveTime field may appear to be null, when in reality the user was active prior to 93 days ago).
-
-    See SiteUser.lastActiveAt for a GraphQL field that goes back further than 93 days.
-    """
-    usageStatistics: UserUsageStatistics!
-    """
     The user's events on Sourcegraph.
     """
     eventLogs(
@@ -7201,7 +7192,7 @@ type Site implements SettingsSubject {
     """
     Whether the viewer can reload the site (with the reloadSite mutation).
     """
-    canReloadSite: Boolean!
+    canReloadSite: Boolean! @deprecated(reason: "This field is no longer used and will be removed in a future release.")
     """
     Whether the viewer can modify the subject's settings.
     """
@@ -7278,6 +7269,28 @@ type Site implements SettingsSubject {
     """
     allowEditExternalServicesWithFile: Boolean!
     """
+    Whether the site configuration is loaded from a configuration file
+    specified in the SITE_CONFIG_FILE environment variable.
+    """
+    siteConfigurationFromFile: Boolean!
+    """
+    Whether the site configuration can be updated even if `siteConfigurationFromFile` is
+    true. All changes made while `siteConfigurationFromFile` is true will be discarded once
+    Sourcegraph restarts.
+    """
+    allowEditSiteConfigurationWithFile: Boolean!
+    """
+    Whether the global settings are loaded from a configuration file
+    specified in the GLOBAL_SETTINGS_FILE environment variable.
+    """
+    globalSettingsFromFile: Boolean!
+    """
+    Whether the global settings can be updated even if `globalSettingsFromFile` is
+    true. All changes made while `globalSettingsFromFile` is true will be discarded once
+    Sourcegraph restarts.
+    """
+    allowEditGlobalSettingsWithFile: Boolean!
+    """
     Alerts to display to the viewer.
     """
     alerts: [Alert!]!
@@ -7294,29 +7307,6 @@ type Site implements SettingsSubject {
     Information about this site's product subscription status.
     """
     productSubscription: ProductSubscriptionStatus!
-    """
-    Usage statistics for this site.
-    """
-    usageStatistics(
-        """
-        Days of history (based on current UTC time).
-        """
-        days: Int
-        """
-        Weeks of history (based on current UTC time).
-        """
-        weeks: Int
-        """
-        Months of history (based on current UTC time).
-        """
-        months: Int
-    ): SiteUsageStatistics!
-
-    """
-    New usage statistics/analytics for this site.
-    """
-    analytics: Analytics!
-
     """
     List all users.
     """
@@ -7835,45 +7825,6 @@ type Configuration {
 }
 
 """
-UserUsageStatistics describes a user's usage statistics.
-This information is visible to all viewers.
-
-These statistics are aggregated from the user activity records in the event_logs table. That table only
-records 93 days worth of history, however, so long-term aggregated statistics may not be accurate (e.g.
-the lastActiveTime field may appear to be null, when in reality the user was active prior to 93 days ago).
-
-See SiteUser.lastActiveAt for a GraphQL field that goes back further than 93 days.
-"""
-type UserUsageStatistics {
-    """
-    The number of search queries that the user has performed in the last 93 days.
-    """
-    searchQueries: Int!
-    """
-    The number of page views that the user has performed in the last 93 days.
-    """
-    pageViews: Int!
-    """
-    The number of code intelligence actions that the user has performed in the last 93 days.
-    """
-    codeIntelligenceActions: Int!
-    """
-    The number of find-refs actions that the user has performed in the last 93 days.
-    """
-    findReferencesActions: Int!
-    """
-    The last time the user was active (any action, any platform) in the last 93 days.
-    Null if the user hasn't been active in that time.
-    """
-    lastActiveTime: String
-    """
-    The last time the user was active on a code host integration in the last 93 days.
-    Null if the user hasn't been active in that time.
-    """
-    lastActiveCodeHostIntegrationTime: String
-}
-
-"""
 A user event.
 """
 enum UserEvent {
@@ -7923,399 +7874,6 @@ enum UserActivePeriod {
 }
 
 """
-SiteUsageStatistics describes a site's aggregate usage statistics.
-This information is visible to all viewers.
-"""
-type SiteUsageStatistics {
-    """
-    Recent daily active users.
-    """
-    daus: [SiteUsagePeriod!]!
-    """
-    Recent weekly active users.
-    """
-    waus: [SiteUsagePeriod!]!
-    """
-    Recent monthly active users.
-    """
-    maus: [SiteUsagePeriod!]!
-}
-
-"""
-A pre-defined periods to get site analytics.
-"""
-enum AnalyticsDateRange {
-    """
-    Last 3 months date range.
-    """
-    LAST_THREE_MONTHS
-    """
-    Last month date range.
-    """
-    LAST_MONTH
-    """
-    Last week date range.
-    """
-    LAST_WEEK
-    """
-    Custom date range.
-    """
-    CUSTOM
-}
-
-"""
-Group site analytics by period.
-"""
-enum AnalyticsGrouping {
-    """
-    Group data by day.
-    """
-    DAILY
-    """
-    Group data by week.
-    """
-    WEEKLY
-}
-
-"""
-Analytics for certain date.
-"""
-type AnalyticsStatItemNode {
-    """
-    A date in ISO format
-    """
-    date: String!
-    """
-    Total number of events.
-    """
-    count: Float!
-    """
-    Unique number of users who triggered event.
-    This counts deleted users as well as anonymous users.
-    """
-    uniqueUsers: Float!
-    """
-    Unique number of currently registered users who triggered event.
-    """
-    registeredUsers: Float!
-}
-
-"""
-Analytics summary.
-"""
-type AnalyticsStatItemSummary {
-    """
-    Total number of events.
-    """
-    totalCount: Float!
-    """
-    Total unique number of users who triggered event.
-    This counts deleted users as well as anonymous users.
-    """
-    totalUniqueUsers: Float!
-    """
-    Total unique number of currently registered users who triggered event.
-    """
-    totalRegisteredUsers: Float!
-}
-
-"""
-Analytics result item.
-"""
-type AnalyticsStatItem {
-    """
-    Analytics summary.
-    """
-    summary: AnalyticsStatItemSummary!
-    """
-    Array of analytics by period.
-    """
-    nodes: [AnalyticsStatItemNode!]!
-}
-
-"""
-Search analytics.
-"""
-type AnalyticsSearchResult {
-    """
-    Searches analytics
-    """
-    searches: AnalyticsStatItem!
-    """
-    Search result click analytics
-    """
-    resultClicks: AnalyticsStatItem!
-    """
-    File view analytics
-    """
-    fileViews: AnalyticsStatItem!
-    """
-    File open analytics
-    """
-    fileOpens: AnalyticsStatItem!
-    """
-    Code copied from search results analytics
-    """
-    codeCopied: AnalyticsStatItem!
-}
-
-"""
-Notebook analytics.
-"""
-type AnalyticsNotebooksResults {
-    """
-    Notebooks creation analytics.
-    """
-    creations: AnalyticsStatItem!
-    """
-    Notebooks views analytics.
-    """
-    views: AnalyticsStatItem!
-    """
-    Notebooks block run analytics.
-    """
-    blockRuns: AnalyticsStatItem!
-}
-
-"""
-Users frequency by days used.
-"""
-type AnalyticsUsersFrequencyItem {
-    """
-    Number of days used
-    """
-    daysUsed: Float!
-    """
-    Number of users.
-    """
-    frequency: Float!
-    """
-    Percentage of users from total frequencies.
-    """
-    percentage: Float!
-}
-
-"""
-Monthly active users
-"""
-type AnalyticsMonthlyActiveUsers {
-    """
-    year-month for which the total active users are calculated
-    """
-    date: String!
-    """
-    total count of active users
-    """
-    count: Float!
-}
-
-"""
-Users' analytics.
-"""
-type AnalyticsUsersResult {
-    """
-    Users' activity analytics.
-    """
-    activity: AnalyticsStatItem!
-    """
-    Frequency of usage by day.
-    """
-    frequencies: [AnalyticsUsersFrequencyItem!]!
-    """
-    Monthly active users for last 3 months.
-    """
-    monthlyActiveUsers: [AnalyticsMonthlyActiveUsers!]!
-}
-
-"""
-CodeIntel' analytics.
-"""
-type AnalyticsCodeIntelResult {
-    """
-    "GoToRef" click
-    """
-    referenceClicks: AnalyticsStatItem!
-    """
-    "GoToDef" click
-    """
-    definitionClicks: AnalyticsStatItem!
-    """
-    Code Intel events made from web
-    """
-    inAppEvents: AnalyticsStatItem!
-    """
-    Code Intel events made from code host
-    """
-    codeHostEvents: AnalyticsStatItem!
-    """
-    Search based events
-    """
-    searchBasedEvents: AnalyticsStatItem!
-    """
-    Precise events
-    """
-    preciseEvents: AnalyticsStatItem!
-    """
-    Cross-repo events
-    """
-    crossRepoEvents: AnalyticsStatItem!
-}
-
-"""
-CodeIntelByLanguage analytics.
-"""
-type AnalyticsCodeIntelByLanguageResult {
-    """
-    Language
-    """
-    language: String!
-    """
-    Precision
-    """
-    precision: String!
-    """
-    Count
-    """
-    count: Float!
-}
-
-"""
-CodeIntelTopRepositories analytics.
-"""
-type AnalyticsCodeIntelRepositoryResult {
-    """
-    Repository name
-    """
-    name: String!
-    """
-    Language
-    """
-    language: String!
-    """
-    Event kind
-    """
-    kind: String!
-    """
-    Event precision (either "search-based" or "precise")
-    """
-    precision: String!
-    """
-    Event count
-    """
-    events: Float!
-    """
-    Has precise
-    """
-    hasPrecise: Boolean!
-}
-
-"""
-Repositories summary.
-"""
-type AnalyticsReposSummartResult {
-    """
-    Total number of repositories.
-    """
-    count: Float!
-    """
-    Total number of repositories with precise code-intel.
-    """
-    preciseCodeIntelCount: Float!
-}
-
-"""
-Batch changes analytics.
-"""
-type AnalyticsBatchChangesResult {
-    """
-    Changesets created
-    """
-    changesetsCreated: AnalyticsStatItem!
-    """
-    Changesets merged
-    """
-    changesetsMerged: AnalyticsStatItem!
-}
-
-"""
-Extentions analytics.
-"""
-type AnalyticsExtensionsResult {
-    """
-    JetBrains IDE plugin search events.
-    """
-    jetbrains: AnalyticsStatItem!
-    """
-    VSCode IDE extension search events.
-    """
-    vscode: AnalyticsStatItem!
-    """
-    Browser (chrome, firefox, safari) extensions code navigation events.
-    This includes events like "Go to Def", "Find ref" and "Find implementation"
-    """
-    browser: AnalyticsStatItem!
-}
-
-"""
-Code insights analytics.
-"""
-type AnalyticsCodesInsightsResult {
-    """
-    Insights hovers statistics.
-    """
-    insightHovers: AnalyticsStatItem!
-    """
-    Insights data point clicks statistics.
-    """
-    insightDataPointClicks: AnalyticsStatItem!
-}
-"""
-Analytics describes a new site statistics.
-"""
-type Analytics {
-    """
-    Search statistics.
-    """
-    search(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsSearchResult!
-    """
-    Notebooks statistics.
-    """
-    notebooks(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsNotebooksResults!
-    """
-    Users statistics.
-    """
-    users(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsUsersResult!
-    """
-    Code-intelligence statistics.
-    """
-    codeIntel(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsCodeIntelResult!
-    """
-    Code-intelligence statistics grouped by language and precision.
-    """
-    codeIntelByLanguage(dateRange: AnalyticsDateRange): [AnalyticsCodeIntelByLanguageResult!]!
-    """
-    Top repositories by code-intelligence events.
-    """
-    codeIntelTopRepositories(dateRange: AnalyticsDateRange): [AnalyticsCodeIntelRepositoryResult!]!
-    """
-    Repositories summary statistics.
-    """
-    repos: AnalyticsReposSummartResult!
-    """
-    Batch changes statistics
-    """
-    batchChanges(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsBatchChangesResult!
-    """
-    Extensions statistics
-    """
-    extensions(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsExtensionsResult!
-    """
-    Code insights statistics
-    """
-    codeInsights(dateRange: AnalyticsDateRange, grouping: AnalyticsGrouping): AnalyticsCodesInsightsResult!
-}
-
-"""
 Site user.
 """
 type SiteUser {
@@ -8345,8 +7903,7 @@ type SiteUser {
     This is an aggregated metric that goes back to the beginning of the user's time
     using this Sourcegraph instance.
 
-    This value is only updated every ~12 hours. For real-time data, see
-    UserUsageStatistics.lastActiveTime.
+    This value is only updated every ~12 hours.
     """
     lastActiveAt: String
     """

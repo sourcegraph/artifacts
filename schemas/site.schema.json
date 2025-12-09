@@ -56,16 +56,6 @@
         }
       ]
     },
-    "ssc.apiBaseUrl": {
-      "type": "string",
-      "default": "https://accounts.sourcegraph.com/cody/api",
-      "description": "The base URL of the Self-Serve Cody API."
-    },
-    "ssc.samsHostName": {
-      "type": "string",
-      "default": "accounts.sourcegraph.com",
-      "description": "The hostname of SAMS instance to connect."
-    },
     "search.index.symbols.enabled": {
       "description": "Whether indexed symbol search is enabled. This is contingent on the indexed search configuration, and is true by default for instances with indexed search enabled. Enabling this will cause every repository to re-index, which is a time consuming (several hours) operation. Additionally, it requires more storage and ram to accommodate the added symbols information in the search index.",
       "type": "boolean",
@@ -1954,7 +1944,7 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["slack", "pagerduty", "webhook", "email", "opsgenie"]
+                "enum": ["slack", "pagerduty", "webhook", "email", "opsgenie", "incidentio"]
               }
             },
             "oneOf": [
@@ -1972,6 +1962,9 @@
               },
               {
                 "$ref": "#/definitions/NotifierOpsGenie"
+              },
+              {
+                "$ref": "#/definitions/NotifierIncidentio"
               }
             ],
             "!go": {
@@ -1999,21 +1992,23 @@
         }
       },
       "examples": [
-        {
-          "level": "critical",
-          "notifier": {
-            "type": "slack",
-            "url": "https://hooks.slack.com/services/...",
-            "channel": "#alerts"
+        [
+          {
+            "level": "critical",
+            "notifier": {
+              "type": "slack",
+              "url": "https://hooks.slack.com/services/...",
+              "channel": "#alerts"
+            }
+          },
+          {
+            "level": "warning",
+            "notifier": {
+              "type": "email",
+              "addresses": ["alerts@example.com"]
+            }
           }
-        },
-        {
-          "level": "warning",
-          "notifier": {
-            "type": "email",
-            "addresses": ["alerts@example.com"]
-          }
-        }
+        ]
       ]
     },
     "observability.silenceAlerts": {
@@ -2537,15 +2532,6 @@
       "default": "release",
       "examples": ["none"],
       "group": "Misc."
-    },
-    "productResearchPage.enabled": {
-      "description": "Enables users access to the product research page in their settings.",
-      "type": "boolean",
-      "!go": {
-        "pointer": true
-      },
-      "group": "Misc.",
-      "default": true
     },
     "encryption.keys": {
       "description": "Configuration for encryption keys used to encrypt data at rest in the database.",
@@ -4797,6 +4783,25 @@
               }
             ]
           }
+        }
+      }
+    },
+    "NotifierIncidentio": {
+      "description": "Incident.io notifier",
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "incidentio"
+        },
+        "url": {
+          "description": "The incident.io Alert Source URL, of the format: https://api.incident.io/v2/alert_events/alertmanager/...",
+          "type": "string"
+        },
+        "alertSourceToken": {
+          "description": "The incident.io Alert Source Token. If not provided, it will be looked up from the INCIDENT_IO_ALERT_SOURCE_TOKEN environment variable.",
+          "type": "string"
         }
       }
     },
