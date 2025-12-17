@@ -2490,6 +2490,12 @@
         "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUJGZ0FBQUhVQkFBQQ"
       ]
     },
+    "auth.idpDynamicClientRegistrationEnabled": {
+      "description": "Enables OAuth 2.0 Dynamic Client Registration (RFC 7591) for the Sourcegraph identity provider. When enabled, OAuth clients can self-register programmatically instead of requiring manual pre-configuration. Required for MCP clients and other applications that use dynamic registration for authorization.",
+      "type": "boolean",
+      "default": false,
+      "group": "Authentication"
+    },
     "auth.unlockAccountLinkExpiry": {
       "description": "Validity expressed in minutes of the unlock account token",
       "type": "integer",
@@ -4997,6 +5003,31 @@
         }
       }
     },
+    "MTLSConfiguration": {
+      "description": "Configuration for mutual TLS (mTLS) authentication to a specific host.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "clientCertificate", "clientKey"],
+      "properties": {
+        "host": {
+          "description": "The hostname to match for this mTLS configuration. This should be the host portion of the URL (e.g., 'github.example.com' or 'gitlab.internal.corp:433'). Port can be included. Wildcards are not supported.",
+          "type": "string",
+          "examples": ["github.example.com", "gitlab.internal.corp:433"]
+        },
+        "clientCertificate": {
+          "description": "PEM-encoded client certificate for mutual TLS (mTLS) authentication. Sourcegraph will present this certificate when connecting to the specified host. To get the certificate, you may use `openssl x509 -in client.crt -outform PEM`. To escape the value into a JSON string, you may want to use a tool like https://json-escape-text.now.sh.",
+          "type": "string",
+          "pattern": "^(-----BEGIN CERTIFICATE-----\n|REDACTED)$",
+          "examples": ["-----BEGIN CERTIFICATE-----\n..."]
+        },
+        "clientKey": {
+          "description": "PEM-encoded private key for the client certificate. This must correspond to the clientCertificate. To escape the value into a JSON string, you may want to use a tool like https://json-escape-text.now.sh. WARNING: Keep this value secret.",
+          "type": "string",
+          "pattern": "^(-----BEGIN|REDACTED)$",
+          "examples": ["-----BEGIN RSA PRIVATE KEY-----\n...", "-----BEGIN PRIVATE KEY-----\n..."]
+        }
+      }
+    },
     "ExternalTLSConfig": {
       "description": "Global TLS/SSL settings for Sourcegraph to use when communicating with code hosts.",
       "type": "object",
@@ -5012,8 +5043,15 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^-----BEGIN CERTIFICATE-----\n",
+            "pattern": "^(-----BEGIN CERTIFICATE-----\n|REDACTED)$",
             "examples": ["-----BEGIN CERTIFICATE-----\n..."]
+          }
+        },
+        "mtlsConfigurations": {
+          "description": "List of mutual TLS (mTLS) configurations for different hosts. Each configuration specifies a host pattern and the client certificate/key pair to use when connecting to that host.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MTLSConfiguration"
           }
         }
       }

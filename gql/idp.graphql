@@ -189,6 +189,24 @@ type CreateIDPClientResult {
 }
 
 """
+How an IdP client was registered.
+"""
+enum ClientRegistrationSource {
+    """
+    Created manually by admin.
+    """
+    MANUAL
+    """
+    Created via RFC 7591 Dynamic Client Registration.
+    """
+    DCR
+    """
+    Official Sourcegraph client.
+    """
+    PREDEFINED
+}
+
+"""
 IdP client represents one client of the Sourcegraph IdP. It can be used via OAuth.
 """
 type IDPClient implements Node {
@@ -236,6 +254,10 @@ type IDPClient implements Node {
     The list of acceptable audiences of this client.
     """
     audience: [String!]!
+    """
+    How this client was registered.
+    """
+    registrationSource: ClientRegistrationSource!
     """
     The time the client was created.
     """
