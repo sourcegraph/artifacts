@@ -4026,6 +4026,11 @@ type BatchChangesCredential implements Node {
     isSiteCredential: Boolean!
 
     """
+    Whether the configured credential was created via OAuth authentication.
+    """
+    isOAuthCredential: Boolean!
+
+    """
     If the credential is a GitHub app, this field contains the details of the GitHubApp.
     """
     gitHubApp: GitHubApp
