@@ -1,0 +1,1 @@
+ALTER TABLE slack_configurations DROP CONSTRAINT IF EXISTS slack_configurations_unique_tenant;

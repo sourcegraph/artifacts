@@ -1752,11 +1752,6 @@ type Query {
     ): Namespace
 
     """
-    Returns true if any of the code hosts supplied are syncing now or within "seconds" from now.
-    """
-    codeHostSyncDue(ids: [ID!]!, seconds: Int!): Boolean!
-
-    """
     Retrieve all registered out-of-band migrations.
     Optionally filter deprecated before first version out-of-band-migrations.
     """
@@ -6618,8 +6613,9 @@ type AccessToken implements Node {
     """
     The user who created the access token. This is either the subject user (if the access token
     was created by the same user) or a site admin (who can create access tokens for any user).
+    Returns null if the creator user has been deleted.
     """
-    creator: User!
+    creator: User
     """
     The date when the access token was created.
     """
@@ -7689,6 +7685,20 @@ enum AlertType {
 }
 
 """
+The intended audience for an alert.
+"""
+enum AlertAudience {
+    """
+    The alert should be shown to all users.
+    """
+    EVERYONE
+    """
+    The alert should only be shown to site administrators.
+    """
+    SITEADMIN
+}
+
+"""
 An alert message shown to the viewer.
 """
 type Alert {
@@ -7705,6 +7715,10 @@ type Alert {
     isDismissibleWithKey value will be shown. If null, this alert is not dismissible.
     """
     isDismissibleWithKey: String
+    """
+    The intended audience for this alert. Defaults to SITEADMIN if not specified.
+    """
+    audience: AlertAudience!
 }
 
 """
@@ -10450,4 +10464,113 @@ The configured user attribute used to map permissions.
 enum PermissionsUserMappingBindID {
     USERNAME
     EMAIL
+}
+
+"""
+A connected Slack workspace with active credentials.
+"""
+type SlackWorkspace {
+    """
+    The Slack workspace ID (e.g., "T01234567").
+    """
+    teamId: String!
+
+    """
+    The Slack workspace name.
+    """
+    teamName: String!
+
+    """
+    The Slack workspace URL (e.g., "https://myworkspace.slack.com/").
+    """
+    workspaceUrl: String!
+
+    """
+    The Slack workspace icon URL.
+    """
+    teamIcon: String
+
+    """
+    The Slack App ID extracted from the bot token.
+    Used to construct links to Slack app settings.
+    """
+    appId: String!
+
+    """
+    The bot display name in Slack (e.g., "Sourcegraph").
+    """
+    botDisplayName: String!
+}
+
+"""
+Indicates the Slack bot token is inactive (app was uninstalled or token was revoked).
+The user should disconnect and reconnect the Slack integration.
+"""
+type SlackTokenInactive {
+    """
+    A message explaining why the token is inactive.
+    """
+    message: String!
+}
+
+"""
+Indicates an error occurred while connecting to Slack.
+"""
+type SlackConnectionError {
+    """
+    The error message from Slack.
+    """
+    message: String!
+}
+
+"""
+Result of querying the Slack workspace. Can be a connected workspace, an inactive token, or an error.
+"""
+union SlackWorkspaceResult = SlackWorkspace | SlackTokenInactive | SlackConnectionError
+
+"""
+Configuration for the Slack bot integration.
+"""
+type SlackConfiguration {
+    """
+    Whether the Slack bot is fully configured (both signing secret and bot token are set).
+    """
+    isSetup: Boolean!
+
+    """
+    When the Slack configuration was created.
+    """
+    createdAt: DateTime
+
+    """
+    When Slack successfully verified the events URL by sending a challenge request.
+    Null if the URL has not been verified yet (e.g., firewall blocking Slack).
+    """
+    webhookVerifiedAt: DateTime
+
+    """
+    Information about the connected Slack workspace.
+    Null if the app is not fully configured.
+    """
+    workspace: SlackWorkspaceResult
+}
+
+extend type Query {
+    """
+    The current Slack bot integration configuration.
+    """
+    slackConfiguration: SlackConfiguration
+}
+
+extend type Mutation {
+    """
+    Stores config for the Slack bot integration. If Query.slackConfiguration.isSetup is true
+    this mutation will fail, at this time only one Slack connection can be configured.
+    """
+    connectSlackWorkspace(signingSecret: String!, botToken: String!): EmptyResponse!
+    """
+    Removes config for the Slack bot integration. If Query.slackConfiguration.isSetup is false
+    this mutation will fail.
+    """
+    disconnectSlackWorkspace: EmptyResponse!
 }

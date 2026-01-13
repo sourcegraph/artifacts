@@ -30,7 +30,7 @@ extend type Query {
         """
         The version number of the context API
         """
-        version: String
+        version: String @deprecated(reason: "unused")
     ): [CodyContextResult!]! @deprecated(reason: "Use the search API instead with `patterntype=nls`")
 
     """
@@ -62,7 +62,7 @@ extend type Query {
         """
         The version number of the context API
         """
-        version: String
+        version: String @deprecated(reason: "unused")
     ): CodyContextAlternativesResult! @deprecated(reason: "Use the search API instead with `patterntype=nls`")
 
     """

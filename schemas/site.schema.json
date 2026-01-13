@@ -5,7 +5,6 @@
   "description": "Configuration for a Sourcegraph site.",
   "allowComments": true,
   "type": "object",
-  "additionalProperties": true,
   "properties": {
     "inventory": {
       "description": "Settings for repository language stats inventory",
@@ -69,7 +68,7 @@
       "description": "The number of threads each indexserver should use to index shards. If not set, indexserver will use the number of available CPUs. This is exposed as a safeguard and should usually not require being set.",
       "type": "integer",
       "group": "Search",
-      "examples": ["10"]
+      "examples": [10]
     },
     "search.largeFiles": {
       "description": "A list of file glob patterns where matching files will be indexed and searched regardless of their size. Files still need to be valid utf-8 to be indexed. The glob pattern syntax can be found here: https://github.com/bmatcuk/doublestar#patterns.",
@@ -84,7 +83,7 @@
       "description": "(debug) controls the amount of symbol search parallelism. Defaults to 20. It is not recommended to change this outside of debugging scenarios. This option will be removed in a future version.",
       "type": "integer",
       "group": "Debug",
-      "examples": ["20"]
+      "examples": [20]
     },
     "cloneProgress.log": {
       "description": "Whether clone progress should be logged to a file. If enabled, logs are written to files in the OS default path for temporary files.",
@@ -715,20 +714,6 @@
           "default": false
         }
       },
-      "examples": [
-        {
-          "customGitFetch": [
-            {
-              "domainPath": "somecodehost.com/path/to/repo",
-              "fetch": "customgitbinary someflag"
-            },
-            {
-              "domainPath": "somecodehost.com/path/to/anotherrepo",
-              "fetch": "customgitbinary someflag anotherflag"
-            }
-          ]
-        }
-      ],
       "group": "Experimental"
     },
     "batchChanges.enabled": {
@@ -858,6 +843,15 @@
     },
     "codeIntelAutoIndexing.enabled": {
       "description": "Enables/disables the code intel auto-indexing feature. Currently experimental.",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "group": "Code intelligence",
+      "default": false
+    },
+    "codeIntelAutoIndexing.policyManagementEnabled": {
+      "description": "Enables/disables the auto-indexing policy management UI in the code graph configuration pages.",
       "type": "boolean",
       "!go": {
         "pointer": true
@@ -1182,13 +1176,13 @@
         "intervalMinutes": {
           "type": "integer",
           "description": "Interval in minutes at which to run purge jobs. Set to 0 to disable.",
-          "default": "15",
+          "default": 15,
           "minimum": 0
         },
         "deletedTTLMinutes": {
           "type": "integer",
           "description": "Repository TTL in minutes after deletion before it becomes eligible to be purged. A migration or admin could accidentally remove all or a significant number of repositories - recloning all of them is slow, so a TTL acts as a grace period so that admins can recover from accidental deletions",
-          "default": "60",
+          "default": 60,
           "minimum": 0
         }
       }
@@ -1221,7 +1215,7 @@
         "maxTimeoutSeconds": {
           "description": "The maximum value for \"timeout:\" that search will respect. \"timeout:\" values larger than maxTimeoutSeconds are capped at maxTimeoutSeconds. Note: You need to ensure your load balancer / reverse proxy in front of Sourcegraph won't timeout the request for larger values. Note: Too many large rearch requests may harm Soucregraph for other users. Note: Experimental search jobs do not respect this limit. Defaults to 1 minute.",
           "type": "integer",
-          "default": "60",
+          "default": 60,
           "minimum": 1
         },
         "maxRepos": {
@@ -2576,6 +2570,9 @@
         },
         "executorSecretKey": {
           "$ref": "#/definitions/EncryptionKey"
+        },
+        "slackConfigurationKey": {
+          "$ref": "#/definitions/EncryptionKey"
         }
       },
       "examples": [
@@ -2948,18 +2945,6 @@
           "!go": {
             "taggedUnionType": true
           }
-        }
-      }
-    },
-    "entitlements.completionCredits": {
-      "description": "Configure completion credits entitlement enablement",
-      "type": "object",
-      "properties": {
-        "mode": {
-          "description": "Configure completions credits consumption tracking and enforcement mode",
-          "type": "string",
-          "default": "disabled",
-          "enum": ["disabled", "track", "trackStrict", "enforce"]
         }
       }
     }

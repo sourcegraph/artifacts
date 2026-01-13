@@ -96,11 +96,11 @@ CREATE TABLE IF NOT EXISTS my_table (
 
 #### Tables Must Have Row Level Security (RLS)
 
-Every table **must** enable RLS with a tenant isolation policy:
+Every table **must** enable RLS with a tenant isolation policy. **The policy MUST be named exactly `tenant_isolation_policy`** - validation will fail with any other name:
 
 ```sql
 ALTER TABLE my_table ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_isolation_policy ON my_table;
+DROP POLICY IF EXISTS tenant_isolation_policy ON my_table AS PERMISSIVE FOR ALL TO PUBLIC;
 CREATE POLICY tenant_isolation_policy ON my_table AS PERMISSIVE FOR ALL TO PUBLIC
     USING (tenant_id = (SELECT current_setting('app.current_tenant')::integer));
 ```

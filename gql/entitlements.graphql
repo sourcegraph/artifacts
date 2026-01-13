@@ -76,7 +76,7 @@ extend type Mutation {
         The list of users IDs to grant the entitlement to.
         """
         userIDs: [ID!]!
-    ): EmptyResponse!
+    ): CreateEntitlementGrantsResult!
 
     """
     Deletes the entitlement grants. Site-admin only.
@@ -114,24 +114,37 @@ extend type Query {
         """
         The limit argument for forward pagination.
         """
-        first: Int = 50
+        first: Int
+        """
+        The limit argument for backward pagination.
+        """
+        last: Int
         """
         The cursor argument for forward pagination.
         """
         after: String
+        """
+        The cursor argument for backward pagination.
+        """
+        before: String
     ): EntitlementConnection!
 }
 
 extend type User {
     """
-    Entitlement grants for the user.
+    Entitlement for the user. This includes default entitlements for types
+    where the user has no explicit grant (marked with isDefault: true).
     """
-    entitlementGrants(
+    entitlements(
         """
         The ID of the entitlement.
         """
         entitlementID: ID
-    ): [EntitlementGrant!]!
+        """
+        The type of entitlement to filter by.
+        """
+        type: EntitlementType
+    ): [UserEntitlement!]!
 }
 
 """
@@ -174,6 +187,37 @@ type Entitlement {
     When this entitlement was last updated.
     """
     updatedAt: DateTime!
+
+    """
+    Users who have this entitlement. For default entitlements, this includes
+    all users without an explicit grant of this entitlement type.
+    """
+    userGrants(
+        """
+        The limit argument for forward pagination.
+        """
+        first: Int
+        """
+        The limit argument for backward pagination.
+        """
+        last: Int
+        """
+        The cursor argument for forward pagination.
+        """
+        after: String
+        """
+        The cursor argument for backward pagination.
+        """
+        before: String
+        """
+        Field to order results by.
+        """
+        orderBy: EntitlementUserGrantsOrderBy = USERNAME
+        """
+        If true, sort in descending order.
+        """
+        descending: Boolean = false
+    ): UserConnection!
 }
 
 """
@@ -192,21 +236,56 @@ type EntitlementConnection {
     """
     Pagination information.
     """
-    pageInfo: PageInfo!
+    pageInfo: ConnectionPageInfo!
 }
 
 """
-EntitlementGrant maps a user to an entitlement.
+UserEntitlement maps a user to an entitlement.
 """
-type EntitlementGrant {
+type UserEntitlement {
     """
     The ID of the entitlement.
     """
     entitlementID: ID!
     """
+    The entitlement that was granted.
+    """
+    entitlement: Entitlement!
+    """
     The ID of the user.
     """
     userID: ID!
+    """
+    Whether this is a default entitlement (true when the user has no explicit grant for this type).
+    """
+    isDefault: Boolean!
+    """
+    Usage information for this entitlement grant. Returns null if usage tracking is not
+    supported for this entitlement type.
+    """
+    usage: EntitlementGrantUsage
+}
+
+"""
+EntitlementGrantUsage represents the current usage state for an entitlement grant.
+"""
+type EntitlementGrantUsage {
+    """
+    The limit value for this entitlement.
+    """
+    limit: BigInt!
+    """
+    The amount consumed in the current window.
+    """
+    consumed: BigInt!
+    """
+    When the current window started.
+    """
+    windowStart: DateTime
+    """
+    When the current window resets.
+    """
+    windowReset: DateTime
 }
 
 """
@@ -221,5 +300,24 @@ enum EntitlementWindow {
 EntitlementType represents the available types of entitlements.
 """
 enum EntitlementType {
-    COMPLETION_CREDITS
+    DEEP_SEARCH
+}
+
+"""
+EntitlementUserGrantsOrderBy enumerates the ways a user grants list can be ordered.
+"""
+enum EntitlementUserGrantsOrderBy {
+    USERNAME
+    USAGE
+}
+
+"""
+Result of a createEntitlementGrants operation.
+"""
+type CreateEntitlementGrantsResult {
+    """
+    Users that were not granted the entitlement because they already have
+    an entitlement of this type.
+    """
+    skippedUsers: [User!]!
 }

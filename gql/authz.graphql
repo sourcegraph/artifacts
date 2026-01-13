@@ -584,9 +584,10 @@ type PermissionsInfoUserNode {
     """
     user: User
     """
-    The reason why the user has access to the repository.
+    The reasons why the user has access to the repository.
+    A user may have multiple reasons (e.g., both explicit permissions and permissions sync).
     """
-    reason: String!
+    reasons: [String!]!
     """
     The timestamp when the permission was last updated at.
     """

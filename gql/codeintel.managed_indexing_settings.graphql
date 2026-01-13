@@ -1,0 +1,43 @@
+extend type Query {
+    """
+    Returns the current managed indexing settings for the Sourcegraph instance.
+    These settings control whether precise and syntactic indexing are enabled
+    via the "[Sourcegraph Managed]" global policy.
+    """
+    managedIndexingSettings: ManagedIndexingSettings!
+}
+
+extend type Mutation {
+    """
+    Updates the managed indexing settings for the Sourcegraph instance.
+    This creates or updates the "[Sourcegraph Managed]" global policy.
+    """
+    updateManagedIndexingSettings(
+        """
+        Whether precise indexing should be enabled.
+        """
+        preciseIndexingEnabled: Boolean!
+        """
+        Whether syntactic indexing should be enabled.
+        Note: If syntactic indexing is disabled at the site config level
+        (codeintelSyntacticIndexing.enabled is false), this value will be
+        ignored and syntactic indexing will remain disabled.
+        """
+        syntacticIndexingEnabled: Boolean!
+    ): ManagedIndexingSettings!
+}
+
+"""
+ManagedIndexingSettings represents the current state of managed indexing settings
+controlled via the "[Sourcegraph Managed]" global policy.
+"""
+type ManagedIndexingSettings {
+    """
+    Whether precise indexing is enabled via the managed policy.
+    """
+    preciseIndexingEnabled: Boolean!
+    """
+    Whether syntactic indexing is enabled via the managed policy.
+    """
+    syntacticIndexingEnabled: Boolean!
+}

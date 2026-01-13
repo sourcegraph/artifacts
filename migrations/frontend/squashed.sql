@@ -35,6 +35,12 @@ CREATE TYPE batch_changes_changeset_ui_publication_state AS ENUM (
     'PUSHED_ONLY'
 );
 
+CREATE TYPE client_registration_source AS ENUM (
+    'manual',
+    'dcr',
+    'predefined'
+);
+
 CREATE TYPE cm_email_priority AS ENUM (
     'NORMAL',
     'CRITICAL'
@@ -68,7 +74,8 @@ CREATE TYPE deepsearch_question_status AS ENUM (
 );
 
 CREATE TYPE entitlement_type AS ENUM (
-    'completion_credits'
+    'completion_credits',
+    'deep_search'
 );
 
 CREATE TYPE feature_flag_type AS ENUM (
@@ -1028,7 +1035,7 @@ CREATE TABLE access_tokens (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     last_used_at timestamp with time zone,
     deleted_at timestamp with time zone,
-    creator_user_id integer NOT NULL,
+    creator_user_id integer,
     scopes text[] NOT NULL,
     internal boolean DEFAULT false,
     expires_at timestamp with time zone,
@@ -2323,7 +2330,9 @@ CREATE TABLE deepsearch_conversations (
     user_id integer,
     data jsonb,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    is_starred boolean DEFAULT false NOT NULL
+    is_starred boolean DEFAULT false NOT NULL,
+    overrides jsonb,
+    title text
 );
 
 CREATE SEQUENCE deepsearch_conversations_id_seq
@@ -2335,6 +2344,15 @@ CREATE SEQUENCE deepsearch_conversations_id_seq
     CACHE 1;
 
 ALTER SEQUENCE deepsearch_conversations_id_seq OWNED BY deepsearch_conversations.id;
+
+CREATE TABLE deepsearch_entitlement_usage (
+    user_id integer NOT NULL,
+    entitlement_id integer NOT NULL,
+    consumed bigint DEFAULT 0 NOT NULL,
+    window_started_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
 
 CREATE TABLE deepsearch_questions (
     id integer NOT NULL,
@@ -3071,7 +3089,8 @@ CREATE TABLE idp_clients (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
-    description text
+    description text,
+    registration_source client_registration_source DEFAULT 'manual'::client_registration_source NOT NULL
 );
 
 CREATE SEQUENCE idp_clients_id_seq
@@ -5359,6 +5378,49 @@ CREATE VIEW site_config WITH (security_invoker='true') AS
     initialized
    FROM global_state;
 
+CREATE TABLE slack_configurations (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    signing_secret text NOT NULL,
+    bot_token text NOT NULL,
+    encryption_key_id text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    webhook_verified_at timestamp with time zone
+);
+
+COMMENT ON COLUMN slack_configurations.webhook_verified_at IS 'Timestamp when Slack successfully verified the events URL by sending a challenge request that we responded to';
+
+CREATE SEQUENCE slack_configurations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE slack_configurations_id_seq OWNED BY slack_configurations.id;
+
+CREATE TABLE slack_conversation_mappings (
+    id integer NOT NULL,
+    slack_channel text NOT NULL,
+    slack_thread_ts text NOT NULL,
+    deepsearch_conversation_id integer NOT NULL,
+    deepsearch_read_token text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE slack_conversation_mappings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE slack_conversation_mappings_id_seq OWNED BY slack_conversation_mappings.id;
+
 CREATE TABLE sub_repo_permissions (
     repo_id integer NOT NULL,
     user_id integer NOT NULL,
@@ -5635,8 +5697,11 @@ CREATE TABLE user_credentials (
     encryption_key_id text DEFAULT ''::text NOT NULL,
     github_app_id integer,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_external_account_id integer,
     CONSTRAINT check_github_app_id_and_external_service_type_user_credentials CHECK (((github_app_id IS NULL) OR (external_service_type = 'github'::text)))
 );
+
+COMMENT ON COLUMN user_credentials.user_external_account_id IS 'The ID of the user external account associated with the user credentials. Usually an Oauth token';
 
 CREATE SEQUENCE user_credentials_id_seq
     START WITH 1
@@ -5698,24 +5763,6 @@ CREATE SEQUENCE user_external_accounts_id_seq
     CACHE 1;
 
 ALTER SEQUENCE user_external_accounts_id_seq OWNED BY user_external_accounts.id;
-
-CREATE TABLE user_onboarding_tour (
-    id integer NOT NULL,
-    raw_json text NOT NULL,
-    created_at timestamp without time zone DEFAULT now() NOT NULL,
-    updated_by integer,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
-CREATE SEQUENCE user_onboarding_tour_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE user_onboarding_tour_id_seq OWNED BY user_onboarding_tour.id;
 
 CREATE VIEW user_relevant_repos WITH (security_invoker='true') AS
  SELECT u.id AS user_id,
@@ -6196,6 +6243,10 @@ ALTER TABLE ONLY search_contexts ALTER COLUMN id SET DEFAULT nextval('search_con
 
 ALTER TABLE ONLY settings ALTER COLUMN id SET DEFAULT nextval('settings_id_seq'::regclass);
 
+ALTER TABLE ONLY slack_configurations ALTER COLUMN id SET DEFAULT nextval('slack_configurations_id_seq'::regclass);
+
+ALTER TABLE ONLY slack_conversation_mappings ALTER COLUMN id SET DEFAULT nextval('slack_conversation_mappings_id_seq'::regclass);
+
 ALTER TABLE ONLY survey_responses ALTER COLUMN id SET DEFAULT nextval('survey_responses_id_seq'::regclass);
 
 ALTER TABLE ONLY syntactic_scip_indexing_jobs ALTER COLUMN id SET DEFAULT nextval('syntactic_scip_indexing_jobs_id_seq'::regclass);
@@ -6213,8 +6264,6 @@ ALTER TABLE ONLY user_credentials ALTER COLUMN id SET DEFAULT nextval('user_cred
 ALTER TABLE ONLY user_emails ALTER COLUMN id SET DEFAULT nextval('user_emails_id_seq'::regclass);
 
 ALTER TABLE ONLY user_external_accounts ALTER COLUMN id SET DEFAULT nextval('user_external_accounts_id_seq'::regclass);
-
-ALTER TABLE ONLY user_onboarding_tour ALTER COLUMN id SET DEFAULT nextval('user_onboarding_tour_id_seq'::regclass);
 
 ALTER TABLE ONLY user_repo_permissions ALTER COLUMN id SET DEFAULT nextval('user_repo_permissions_id_seq'::regclass);
 
@@ -6417,6 +6466,9 @@ ALTER TABLE ONLY critical_and_site_config
 
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_entitlement_usage
+    ADD CONSTRAINT deepsearch_entitlement_usage_pkey PRIMARY KEY (user_id, entitlement_id);
 
 ALTER TABLE ONLY deepsearch_questions
     ADD CONSTRAINT deepsearch_questions_pkey PRIMARY KEY (id);
@@ -6844,6 +6896,15 @@ ALTER TABLE ONLY search_contexts
 ALTER TABLE ONLY settings
     ADD CONSTRAINT settings_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY slack_configurations
+    ADD CONSTRAINT slack_configurations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY slack_configurations
+    ADD CONSTRAINT slack_configurations_unique_tenant UNIQUE (tenant_id);
+
+ALTER TABLE ONLY slack_conversation_mappings
+    ADD CONSTRAINT slack_conversation_mappings_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY sub_repo_permissions
     ADD CONSTRAINT sub_repo_permissions_pkey PRIMARY KEY (repo_id, user_id, version);
 
@@ -6903,9 +6964,6 @@ ALTER TABLE ONLY user_emails
 
 ALTER TABLE ONLY user_external_accounts
     ADD CONSTRAINT user_external_accounts_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY user_onboarding_tour
-    ADD CONSTRAINT user_onboarding_tour_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY user_repo_permissions
     ADD CONSTRAINT user_repo_permissions_perms_unique_idx UNIQUE (user_id, user_external_account_id, repo_id);
@@ -7079,6 +7137,10 @@ CREATE INDEX contributor_repos_repo_id ON contributor_repos USING btree (repo_id
 CREATE INDEX deepsearch_conversations_read_token_idx ON deepsearch_conversations USING hash (read_token);
 
 CREATE INDEX deepsearch_conversations_user_updated_idx ON deepsearch_conversations USING btree (user_id, updated_at DESC);
+
+CREATE INDEX deepsearch_entitlement_usage_entitlement_id_idx ON deepsearch_entitlement_usage USING btree (entitlement_id);
+
+CREATE INDEX deepsearch_entitlement_usage_user_id_idx ON deepsearch_entitlement_usage USING btree (user_id);
 
 CREATE INDEX deepsearch_questions_conversation_id_idx ON deepsearch_questions USING btree (conversation_id);
 
@@ -7442,6 +7504,8 @@ CREATE INDEX settings_org_id_idx ON settings USING btree (org_id);
 
 CREATE INDEX settings_user_id_idx ON settings USING btree (user_id);
 
+CREATE INDEX slack_conversation_mappings_channel_thread_idx ON slack_conversation_mappings USING btree (tenant_id, slack_channel, slack_thread_ts, created_at DESC);
+
 CREATE INDEX sub_repo_perms_user_id ON sub_repo_permissions USING btree (user_id);
 
 CREATE INDEX syntactic_scip_indexing_jobs_audit_logs_indexing_job_id ON syntactic_scip_indexing_jobs_audit_logs USING btree (job_id);
@@ -7576,7 +7640,7 @@ ALTER TABLE ONLY access_requests
     ADD CONSTRAINT access_requests_decision_by_user_id_fkey FOREIGN KEY (decision_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY access_tokens
-    ADD CONSTRAINT access_tokens_creator_user_id_fkey FOREIGN KEY (creator_user_id) REFERENCES users(id);
+    ADD CONSTRAINT access_tokens_creator_user_id_fkey FOREIGN KEY (creator_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY access_tokens
     ADD CONSTRAINT access_tokens_subject_user_id_fkey FOREIGN KEY (subject_user_id) REFERENCES users(id);
@@ -7802,6 +7866,15 @@ ALTER TABLE ONLY contributor_repos
 
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_entitlement_usage
+    ADD CONSTRAINT deepsearch_entitlement_usage_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_entitlement_usage
+    ADD CONSTRAINT deepsearch_entitlement_usage_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_entitlement_usage
+    ADD CONSTRAINT deepsearch_entitlement_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY deepsearch_questions
     ADD CONSTRAINT deepsearch_questions_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
@@ -8164,6 +8237,9 @@ ALTER TABLE ONLY user_credentials
     ADD CONSTRAINT user_credentials_github_app_id_fkey FOREIGN KEY (github_app_id) REFERENCES github_apps(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY user_credentials
+    ADD CONSTRAINT user_credentials_user_external_account_id_fkey FOREIGN KEY (user_external_account_id) REFERENCES user_external_accounts(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY user_credentials
     ADD CONSTRAINT user_credentials_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE DEFERRABLE;
 
 ALTER TABLE ONLY user_emails
@@ -8171,9 +8247,6 @@ ALTER TABLE ONLY user_emails
 
 ALTER TABLE ONLY user_external_accounts
     ADD CONSTRAINT user_external_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
-
-ALTER TABLE ONLY user_onboarding_tour
-    ADD CONSTRAINT user_onboarding_tour_users_fk FOREIGN KEY (updated_by) REFERENCES users(id);
 
 ALTER TABLE ONLY user_repo_permissions
     ADD CONSTRAINT user_repo_permissions_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
@@ -8302,6 +8375,8 @@ ALTER TABLE contributor_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contributor_repos ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE deepsearch_entitlement_usage ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_questions ENABLE ROW LEVEL SECURITY;
 
@@ -8515,6 +8590,10 @@ ALTER TABLE search_contexts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE slack_configurations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE slack_conversation_mappings ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE sub_repo_permissions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE survey_responses ENABLE ROW LEVEL SECURITY;
@@ -8630,6 +8709,8 @@ CREATE POLICY tenant_isolation_policy ON contributor_jobs USING ((( SELECT (curr
 CREATE POLICY tenant_isolation_policy ON contributor_repos USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON deepsearch_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_questions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8843,6 +8924,10 @@ CREATE POLICY tenant_isolation_policy ON search_contexts USING ((tenant_id = ( S
 
 CREATE POLICY tenant_isolation_policy ON settings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON slack_configurations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON slack_conversation_mappings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON sub_repo_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON survey_responses USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8868,8 +8953,6 @@ CREATE POLICY tenant_isolation_policy ON user_credentials USING ((tenant_id = ( 
 CREATE POLICY tenant_isolation_policy ON user_emails USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON user_external_accounts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON user_onboarding_tour USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON user_repo_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8898,8 +8981,6 @@ ALTER TABLE user_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_emails ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE user_external_accounts ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE user_onboarding_tour ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE user_repo_permissions ENABLE ROW LEVEL SECURITY;
 
