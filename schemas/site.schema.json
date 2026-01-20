@@ -5002,13 +5002,13 @@
         "clientCertificate": {
           "description": "PEM-encoded client certificate for mutual TLS (mTLS) authentication. Sourcegraph will present this certificate when connecting to the specified host. To get the certificate, you may use `openssl x509 -in client.crt -outform PEM`. To escape the value into a JSON string, you may want to use a tool like https://json-escape-text.now.sh.",
           "type": "string",
-          "pattern": "^(-----BEGIN CERTIFICATE-----\n|REDACTED)$",
+          "pattern": "^(-----BEGIN CERTIFICATE-----\n|REDACTED)",
           "examples": ["-----BEGIN CERTIFICATE-----\n..."]
         },
         "clientKey": {
           "description": "PEM-encoded private key for the client certificate. This must correspond to the clientCertificate. To escape the value into a JSON string, you may want to use a tool like https://json-escape-text.now.sh. WARNING: Keep this value secret.",
           "type": "string",
-          "pattern": "^(-----BEGIN|REDACTED)$",
+          "pattern": "^(-----BEGIN[A-Z ]*PRIVATE KEY-----\n|REDACTED)",
           "examples": ["-----BEGIN RSA PRIVATE KEY-----\n...", "-----BEGIN PRIVATE KEY-----\n..."]
         }
       }
@@ -5028,7 +5028,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(-----BEGIN CERTIFICATE-----\n|REDACTED)$",
+            "pattern": "^(-----BEGIN CERTIFICATE-----\n|REDACTED)",
             "examples": ["-----BEGIN CERTIFICATE-----\n..."]
           }
         },
