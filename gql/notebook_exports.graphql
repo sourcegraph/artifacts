@@ -1,0 +1,85 @@
+extend type Query {
+    """
+    List of notebooks exported as markdown.
+    The notebooks feature has been removed, but this endpoint allows exporting
+    existing notebook data.
+
+    This API will be removed in the future.
+
+    Only site admins can access this.
+    """
+    notebookExports(
+        """
+        Filter by notebook owner (a user ID). If not provided, all notebooks are returned.
+        """
+        owner: ID
+
+        """
+        Returns the first n notebooks exports.
+        """
+        first: Int
+
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): NotebookExportConnection!
+}
+
+"""
+A paginated connection for exported notebooks.
+"""
+type NotebookExportConnection {
+    """
+    A list of exported notebooks.
+    """
+    nodes: [NotebookExport!]!
+
+    """
+    The total number of notebooks in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+A notebook exported as markdown.
+"""
+type NotebookExport {
+    """
+    The title of the notebook.
+    """
+    title: String!
+
+    """
+    The full notebook content rendered as markdown.
+    Query blocks become fenced code blocks with the sourcegraph language tag,
+    file and symbol blocks become Sourcegraph URLs,
+    and markdown blocks are passed through as-is.
+    """
+    markdown: String!
+
+    """
+    Whether the notebook was public.
+    """
+    public: Boolean!
+
+    """
+    The user who created the notebook, if the user still exists.
+    """
+    creator: User
+
+    """
+    When the notebook was created.
+    """
+    createdAt: DateTime!
+
+    """
+    When the notebook was last updated.
+    """
+    updatedAt: DateTime!
+}

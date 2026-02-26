@@ -1,0 +1,48 @@
+extend type Query {
+    """
+    Fetches the result of an authentication provider validation.
+    Results are one-time fetch only - calling twice returns null.
+    Only site admins can access this.
+    """
+    authProviderValidationResult(validationID: String!): AuthProviderValidationResult
+}
+
+"""
+The result of validating an authentication provider configuration.
+"""
+type AuthProviderValidationResult {
+    """
+    Whether authentication succeeded.
+    """
+    success: Boolean!
+
+    """
+    Error message if authentication failed.
+    """
+    errorMessage: String
+
+    """
+    The unique identifier from the IdP (e.g., SAML NameID, OIDC sub).
+    """
+    subject: String
+
+    """
+    The email address extracted from the auth response.
+    """
+    email: String
+
+    """
+    The username that would be used/created.
+    """
+    username: String
+
+    """
+    The display name from the auth response.
+    """
+    displayName: String
+
+    """
+    The groups the user belongs to (if group sync is configured).
+    """
+    groups: [String!]
+}

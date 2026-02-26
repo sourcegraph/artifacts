@@ -1,0 +1,2 @@
+CREATE INDEX CONCURRENTLY IF NOT EXISTS slack_conversation_mappings_conversation_id_idx
+ON slack_conversation_mappings (deepsearch_conversation_id);

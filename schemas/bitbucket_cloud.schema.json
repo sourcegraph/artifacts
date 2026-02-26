@@ -194,8 +194,8 @@
       ]
     },
     "webhookSecret": {
-      "description": "A shared secret used to authenticate incoming webhooks (minimum 12 characters).",
-      "deprecationMessage": "Deprecated in favour of first class webhooks. See https://sourcegraph.com/docs/admin/config/webhooks/incoming#deprecation-notice",
+      "description": "DEPRECATED: See https://sourcegraph.com/docs/admin/config/webhooks/incoming#deprecation-notice",
+      "deprecationMessage": "DEPRECATED: See https://sourcegraph.com/docs/admin/config/webhooks/incoming#deprecation-notice",
       "type": "string",
       "minLength": 12
     },

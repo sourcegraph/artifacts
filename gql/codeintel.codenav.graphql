@@ -1062,6 +1062,13 @@ type Hover {
     The range to highlight.
     """
     range: Range!
+
+    """
+    A generated summary providing context about how this symbol is used across the codebase.
+    Includes information about callers/references and dependencies/callees.
+    Lazy-loaded - only computed when requested. Returns null if summary cannot be generated.
+    """
+    summary: Markdown
 }
 
 """

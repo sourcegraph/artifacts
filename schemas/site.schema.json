@@ -149,8 +149,7 @@
         },
         "numberOfSpecialCharacters": {
           "description": "The required number of special characters",
-          "type": "integer",
-          "length": 2
+          "type": "integer"
         },
         "requireAtLeastOneNumber": {
           "description": "Does the password require a number",
@@ -172,6 +171,14 @@
         }
       ]
     },
+    "searchContentBasedLanguageDetection": {
+      "description": "EXPERIMENTAL: Use content-based language detection for lang: filters (Zoekt only).",
+      "type": "boolean",
+      "default": false,
+      "!go": {
+        "pointer": true
+      }
+    },
     "experimentalFeatures": {
       "description": "Experimental features and settings.",
       "type": "object",
@@ -187,7 +194,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "examples": ["github.com/myorg/huge-monorepo", "github.com/other-org/.*"]
+                "examples": ["github.com/org/huge-monorepo", "github.com/other-org/.*"]
               }
             }
           }
@@ -219,7 +226,8 @@
           }
         },
         "searchJobs": {
-          "description": "DEPRECATED. This setting is no longer read. To disable search jobs, set DISABLE_SEARCH_JOBS=true for the \"frontend\" and \"worker\" services",
+          "deprecationMessage": "DEPRECATED: To disable search jobs, set DISABLE_SEARCH_JOBS=true for frontend and worker containers",
+          "description": "DEPRECATED: To disable search jobs, set DISABLE_SEARCH_JOBS=true for frontend and worker containers",
           "type": "boolean",
           "default": false,
           "!go": {
@@ -227,7 +235,8 @@
           }
         },
         "rateLimitAnonymous": {
-          "description": "DEPRECATED: this setting was targeted at a specific incident is no longer read.",
+          "deprecationMessage": "DEPRECATED: This setting was targeted at a specific incident and is no longer read.",
+          "description": "DEPRECATED: This setting was targeted at a specific incident and is no longer read.",
           "type": "integer",
           "default": 500
         },
@@ -238,7 +247,8 @@
           "default": "enabled"
         },
         "passwordPolicy": {
-          "description": "DEPRECATED: this is now a standard feature see: auth.passwordPolicy",
+          "deprecationMessage": "DEPRECATED: This is now a standard feature, use auth.passwordPolicy",
+          "description": "DEPRECATED: This is now a standard feature, use auth.passwordPolicy",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -270,7 +280,8 @@
           }
         },
         "debug.log": {
-          "description": "Turns on debug logging for specific debugging scenarios.",
+          "deprecationMessage": "DEPRECATED: Turns on debug logging for specific debugging scenarios.",
+          "description": "DEPRECATED: Turns on debug logging for specific debugging scenarios.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -279,8 +290,7 @@
               "type": "boolean",
               "default": false
             }
-          },
-          "deprecationMessage": "Deprecated in favor of internal debug logging."
+          }
         },
         "structuralSearch": {
           "description": "Enables structural search.",
@@ -381,7 +391,7 @@
               "default": "unified"
             },
             "enforceIPRestrictions": {
-              "description": "Enforces IP restrictions on sub-repo permissions. If true, relies on rightmost value X-FORWARDED-FOR header to determine the client IP address. You must configure your reverse proxy to set this header securely. Also incompoitable with the perforce ignoreRulesWithHost option.",
+              "description": "Enforces IP restrictions on sub-repo permissions. If true, relies on rightmost value X-FORWARDED-FOR header to determine the client IP address. You must configure your reverse proxy to set this header securely. Also incompatible with the perforce ignoreRulesWithHost option.",
               "type": "boolean",
               "default": false
             },
@@ -399,8 +409,8 @@
           }
         },
         "tls.external": {
-          "deprecated": true,
-          "description": "DEPRECATED: Use the top-level tls.external setting instead. Global TLS/SSL settings for Sourcegraph to use when communicating with code hosts.",
+          "deprecationMessage": "DEPRECATED: Use the top-level tls.external site config instead",
+          "description": "DEPRECATED: Use the top-level tls.external site config instead",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -444,11 +454,11 @@
           "examples": [
             [
               {
-                "domainPath": "somecodehost.com/path/to/repo",
+                "domainPath": "example.com/path/to/repo",
                 "fetch": "customgitbinary someflag"
               },
               {
-                "domainPath": "somecodehost.com/path/to/anotherrepo",
+                "domainPath": "example.com/path/to/anotherrepo",
                 "fetch": "customgitbinary someflag anotherflag"
               }
             ]
@@ -515,7 +525,8 @@
           "default": false
         },
         "enablePermissionsWebhooks": {
-          "description": "DEPRECATED: No longer has any effect.",
+          "deprecationMessage": "DEPRECATED: No longer has any effect",
+          "description": "DEPRECATED: No longer has any effect",
           "type": "boolean",
           "default": false,
           "!go": {
@@ -544,7 +555,8 @@
               }
             },
             "maxReorderQueueSize": {
-              "description": "DEPRECATED: This setting has no effect.",
+              "deprecationMessage": "DEPRECATED: This setting has no effect",
+              "description": "DEPRECATED: This setting has no effect",
               "default": 24,
               "type": "integer",
               "group": "Search",
@@ -553,7 +565,8 @@
               }
             },
             "maxQueueMatchCount": {
-              "description": "DEPRECATED: This setting has no effect.",
+              "deprecationMessage": "DEPRECATED: This setting has no effect",
+              "description": "DEPRECATED: This setting has no effect",
               "default": -1,
               "type": "integer",
               "group": "Search",
@@ -571,7 +584,8 @@
               }
             },
             "maxReorderDurationMS": {
-              "description": "DEPRECATED: This setting has no effect.",
+              "deprecationMessage": "DEPRECATED: This setting has no effect",
+              "description": "DEPRECATED: This setting has no effect",
               "type": "integer",
               "default": 0,
               "group": "Search"
@@ -626,7 +640,8 @@
           "default": false
         },
         "insightsBackfillerV2": {
-          "description": "DEPRECATED: Setting any value to this flag has no effect.",
+          "deprecationMessage": "DEPRECATED: This setting has no effect",
+          "description": "DEPRECATED: This setting has no effect",
           "type": "boolean",
           "default": true,
           "!go": {
@@ -700,10 +715,10 @@
           "default": false
         },
         "deepSearch.model": {
-          "description": "The model reference to use for Deep Search.",
+          "deprecationMessage": "DEPRECATED: Configuring a custom model (BYOK) for Deep Search is deprecated",
+          "description": "DEPRECATED: The model reference to use for Deep Search",
           "type": "string",
-          "default": "anthropic::2024-10-22::claude-sonnet-4-latest",
-          "deprecationMessage": "Configuring a custom model (BYOK) for Deep Search is deprecated."
+          "default": "anthropic::2024-10-22::claude-sonnet-4-latest"
         },
         "deepSearch.sharing.enabled": {
           "description": "Enable/disable sharing of Deep Search conversations via read tokens",
@@ -712,9 +727,35 @@
             "pointer": true
           },
           "default": false
+        },
+        "deepSearch.showCodyWeb": {
+          "description": "DEPRECATED: Show Cody Web (chat) in the navigation and allow access to /cody/chat even when Deep Search is enabled. By default, Cody Web is hidden when Deep Search is enabled.",
+          "deprecationMessage": "DEPRECATED: Show Cody Web (chat) in the navigation and allow access to /cody/chat even when Deep Search is enabled.",
+          "type": "boolean",
+          "!go": {
+            "pointer": true
+          },
+          "default": false
+        },
+        "homepage": {
+          "description": "DEPRECATED: Override the default homepage. When set to 'search', the homepage will be the code search experience instead of Deep Search.",
+          "deprecationMessage": "DEPRECATED: Override the default homepage. When set to 'search', the homepage will be the code search experience instead of Deep Search.",
+          "type": "string",
+          "enum": ["default", "search"],
+          "!go": {
+            "pointer": true
+          }
         }
       },
       "group": "Experimental"
+    },
+    "deepSearch.worker.enabled": {
+      "description": "Use database-backed worker for Deep Search question processing instead of in-memory worker pool. Enables persistence across frontend restarts.",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "default": true
     },
     "batchChanges.enabled": {
       "description": "Enables/disables the Batch Changes feature.",
@@ -737,6 +778,12 @@
       "!go": {
         "pointer": true
       },
+      "group": "BatchChanges",
+      "default": false
+    },
+    "batchChanges.restrictMergeToAdmins": {
+      "description": "When enabled, only site admins can merge changesets using the Batch Changes UI. This is useful when the Batch Changes GitHub App has elevated access and you want to restrict who can merge changes.",
+      "type": "boolean",
       "group": "BatchChanges",
       "default": false
     },
@@ -906,13 +953,26 @@
       "group": "Security"
     },
     "disableNonCriticalTelemetry": {
-      "description": "DEPRECATED. Has no effect.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect",
+      "description": "DEPRECATED: This setting has no effect",
       "type": "boolean",
       "default": false,
       "group": "Misc."
     },
     "disableFeedbackSurvey": {
       "description": "Disable the feedback survey",
+      "type": "boolean",
+      "default": false,
+      "group": "Misc."
+    },
+    "search.aiQueryHelper.enabled": {
+      "description": "Enable AI query helper mode in search, including natural language query translation suggestions.",
+      "type": "boolean",
+      "default": false,
+      "group": "Search"
+    },
+    "disableChangelog": {
+      "description": "Disable fetching changelog posts from the external Sourcegraph changelog API. Useful for airgapped environments.",
       "type": "boolean",
       "default": false,
       "group": "Misc."
@@ -930,9 +990,8 @@
       "group": "External services"
     },
     "gitUpdateInterval": {
-      "description": "DEPRECATED: As of Sourcegraph 5.10, this option is no longer in use. Remove this block.",
-      "deprecated": true,
-      "deprecationMessage": "Deprecated because it's no longer supported. Sourcegraph relies on user traffic, webhooks, and heuristics now.",
+      "deprecationMessage": "DEPRECATED: As of 5.10, Sourcegraph relies on user traffic, webhooks, and heuristics",
+      "description": "DEPRECATED: As of 5.10, Sourcegraph relies on user traffic, webhooks, and heuristics",
       "type": "array",
       "items": {
         "title": "UpdateIntervalRule",
@@ -967,11 +1026,11 @@
       ]
     },
     "disablePublicRepoRedirects": {
-      "description": "DEPRECATED! Disable redirects to sourcegraph.com when visiting public repositories that can't exist on this server.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect",
+      "description": "DEPRECATED: This setting has no effect",
       "type": "boolean",
       "group": "External services",
-      "examples": [true],
-      "deprecationMessage": "Deprecated because it's no longer supported and hasn't been working for a while."
+      "examples": [true]
     },
     "git.cloneURLToRepositoryName": {
       "description": "JSON array of configuration that maps from Git clone URL to repository name. Sourcegraph automatically resolves remote clone URLs to their proper code host. However, there may be non-remote clone URLs (e.g., in submodule declarations) that Sourcegraph cannot automatically map to a code host. In this case, use this field to specify the mapping. The mappings are tried in the order they are specified and take precedence over automatic mappings.",
@@ -1010,7 +1069,7 @@
       "group": "External services"
     },
     "gitMaxConcurrentClones": {
-      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. Note: the global git update scheduler respects gitMaxConcurrentClones. However, we allow each gitserver to run upto gitMaxConcurrentClones to allow for urgent fetches. Urgent fetches are used when a user is browsing a PR and we do not have the commit yet.",
+      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. Note: the global git update scheduler respects gitMaxConcurrentClones. However, we allow each gitserver to run up to gitMaxConcurrentClones to allow for urgent fetches. Urgent fetches are used when a user is browsing a PR and we do not have the commit yet.",
       "type": "integer",
       "default": 5,
       "group": "External services"
@@ -1201,7 +1260,8 @@
       "group": "External services"
     },
     "maxReposToSearch": {
-      "description": "DEPRECATED: Configure maxRepos in search.limits. The maximum number of repositories to search across. The user is prompted to narrow their query if exceeded. Any value less than or equal to zero means unlimited.",
+      "deprecationMessage": "DEPRECATED: Configure maxRepos in search.limits",
+      "description": "DEPRECATED: Configure maxRepos in search.limits",
       "type": "integer",
       "default": -1,
       "group": "Search"
@@ -1213,7 +1273,7 @@
       "additionalProperties": false,
       "properties": {
         "maxTimeoutSeconds": {
-          "description": "The maximum value for \"timeout:\" that search will respect. \"timeout:\" values larger than maxTimeoutSeconds are capped at maxTimeoutSeconds. Note: You need to ensure your load balancer / reverse proxy in front of Sourcegraph won't timeout the request for larger values. Note: Too many large rearch requests may harm Soucregraph for other users. Note: Experimental search jobs do not respect this limit. Defaults to 1 minute.",
+          "description": "The maximum value for \"timeout:\" that search will respect. \"timeout:\" values larger than maxTimeoutSeconds are capped at maxTimeoutSeconds. Note: You need to ensure your load balancer / reverse proxy in front of Sourcegraph won't timeout the request for larger values. Note: Too many large search requests may harm Sourcegraph for other users. Note: Experimental search jobs do not respect this limit. Defaults to 1 minute.",
           "type": "integer",
           "default": 60,
           "minimum": 1
@@ -1336,7 +1396,7 @@
       "group": "Security"
     },
     "auth.allowedIpAddress": {
-      "description": "IP allowlist for access to the Sourcegraph instance. If set, only requests from these IP addresses will be allowed. By default client IP is infered connected client IP address, and you may configure to use a request header to determine the user IP.",
+      "description": "IP allowlist for access to the Sourcegraph instance. If set, only requests from these IP addresses will be allowed. By default client IP is inferred connected client IP address, and you may configure to use a request header to determine the user IP.",
       "type": "object",
       "properties": {
         "enabled": {
@@ -1345,7 +1405,7 @@
           "default": false
         },
         "clientIpAddress": {
-          "description": "List of client IP addresses to allow. If empty, all IP addresses are allowed. This is useful to restrict who can open connection with the Sorcegraph instance, e.g., the request source range of the upsteam application load balancer.",
+          "description": "List of client IP addresses to allow. If empty, all IP addresses are allowed. This is useful to restrict who can open connection with the Sourcegraph instance, e.g., the request source range of the upstream application load balancer.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1506,8 +1566,8 @@
           "format": "uri"
         },
         "disableSymbolSpin": {
-          "deprecationMessage": "No effect, symbol does not spin anymore.",
-          "description": "Prevents the icon in the top-left corner of the screen from spinning on hover.",
+          "deprecationMessage": "DEPRECATED: This setting has no effect",
+          "description": "DEPRECATED: This setting has no effect",
           "type": "boolean",
           "default": false
         },
@@ -1527,8 +1587,7 @@
           "dark": {
             "logo": "https://example.com/logo_dark.png",
             "symbol": "https://example.com/search_symbol_dark_24x24.png"
-          },
-          "disableSymbolSpin": true
+          }
         }
       ]
     },
@@ -1742,7 +1801,7 @@
       },
       "examples": [
         {
-          "*": ["myorg1"]
+          "*": ["org1"]
         }
       ],
       "hide": true
@@ -1816,8 +1875,8 @@
               "default": false
             },
             "severityLevel": {
-              "deprecationMessage": "No effect, audit logs are always set to SRC_LOG_LEVEL",
-              "description": "DEPRECATED: No effect, audit logs are always set to SRC_LOG_LEVEL",
+              "deprecationMessage": "DEPRECATED: Audit logs are now set to SRC_LOG_LEVEL",
+              "description": "DEPRECATED: Audit logs are now set to SRC_LOG_LEVEL",
               "type": "string",
               "enum": ["DEBUG", "INFO", "WARN", "ERROR"]
             }
@@ -1879,13 +1938,13 @@
       "type": "object",
       "properties": {
         "sampling": {
-          "description": "Determines the conditions under which distributed traces are recorded. \"none\" turns off tracing entirely. \"selective\" (default) sends traces whenever `?trace=1` is present in the URL (though background jobs may still emit traces). \"all\" sends traces on every request. Note that this only affects the behavior of the distributed tracing client. To learn more about additional sampling and traace export configuration with the default tracing type \"opentelemetry\", refer to https://sourcegraph.com/docs/admin/observability/opentelemetry#tracing ",
+          "description": "Determines the conditions under which distributed traces are recorded. \"none\" turns off tracing entirely. \"selective\" (default) sends traces whenever `?trace=1` is present in the URL (though background jobs may still emit traces). \"all\" sends traces on every request. Note that this only affects the behavior of the distributed tracing client. To learn more about additional sampling and trace export configuration with the default tracing type \"opentelemetry\", refer to https://sourcegraph.com/docs/admin/observability/opentelemetry#tracing ",
           "type": "string",
           "enum": ["selective", "all", "none"],
           "default": "selective"
         },
         "type": {
-          "description": "Determines what tracing provider to enable. For \"opentelemetry\", the required backend is an OpenTelemetry collector instance (deployed by default with Sourcegraph). For \"jaeger\", a Jaeger instance is required to be configured via Jaeger client environment variables: https://github.com/jaegertracing/jaeger-client-go#environment-variables",
+          "description": "Determines what tracing provider to enable. For \"opentelemetry\", the required backend is an OpenTelemetry collector instance (deployed by default with Sourcegraph). The \"jaeger\" option is deprecated and will be removed.",
           "type": "string",
           "enum": ["opentelemetry", "jaeger"],
           "default": "opentelemetry"
@@ -1910,13 +1969,11 @@
         {
           "sampling": "selective",
           "type": "opentelemetry",
-          "debug": false,
           "urlTemplate": "https://ui.honeycomb.io/$ORG/environments/$DATASET/trace?trace_id={{ .TraceID }}"
         },
         {
           "sampling": "all",
-          "type": "jaeger",
-          "debug": true,
+          "type": "opentelemetry",
           "urlTemplate": "{{ .ExternalURL }}/-/debug/jaeger/trace/{{ .TraceID }}"
         }
       ]
@@ -2165,7 +2222,8 @@
       "group": "Sourcegraph Enterprise license"
     },
     "gitHubApp": {
-      "description": "DEPRECATED: The config options for Sourcegraph GitHub App.",
+      "deprecationMessage": "DEPRECATED: Use the GitHub Apps site admin page",
+      "description": "DEPRECATED: Use the GitHub Apps site admin page",
       "type": "object",
       "properties": {
         "slug": {
@@ -2324,7 +2382,7 @@
       "group": "Sourcegraph.com"
     },
     "notifications": {
-      "description": "Notifications recieved from Sourcegraph.com to display in Sourcegraph.",
+      "description": "Notifications received from Sourcegraph.com to display in Sourcegraph.",
       "type": "array",
       "items": {
         "type": "object",
@@ -2417,7 +2475,7 @@
     },
     "auth.sessionExpiry": {
       "type": "string",
-      "description": "The maximum duration of a user session, after which it expires and the user is required to re-authenticate. The default is 90 days. Must be at least 1 hour. There is typically no need to set this, but some users may have specific internal security requirements.\n\nThe string format is that of the Duration type in the Go time package (https://golang.org/pkg/time/#ParseDuration). E.g., \"720h\", \"43200m\", \"2592000s\" all indicate a timespan of 30 days.",
+      "description": "The maximum duration of a user session, after which it expires and the user is required to re-authenticate. The default is 90 days. Must be at least 1 hour. There is typically no need to set this, but some users may have specific internal security requirements.\n\nThe string format is that of the Duration type in the Go time package (https://golang.org/pkg/time/#ParseDuration). E.g., \"720h\", \"43200m\", \"2592000s\" all indicate a time span of 30 days.",
       "default": "2160h",
       "examples": ["168h"],
       "group": "Authentication"
@@ -2445,6 +2503,24 @@
       "description": "The duration (in seconds) that a password reset link is considered valid.",
       "type": "integer",
       "default": 14400,
+      "group": "Authentication"
+    },
+    "auth.adminPasskeyRequired": {
+      "description": "Requires site admin users to verify their identity using a FIDO2/WebAuthn passkey before accessing admin pages. When enabled, admins must register at least one passkey and re-verify periodically (default: every hour). This provides step-up authentication for sensitive admin operations.",
+      "type": "boolean",
+      "default": false,
+      "group": "Authentication"
+    },
+    "auth.adminPasskeyPINRequired": {
+      "description": "Requires PIN or biometric verification when using admin passkeys. When enabled, authenticators must support and perform user verification (PIN entry, fingerprint, face recognition, etc.). This provides stronger assurance that the person using the passkey is the legitimate owner.",
+      "type": "boolean",
+      "default": false,
+      "group": "Authentication"
+    },
+    "auth.enforceExternalAccountConnection": {
+      "description": "When enabled, users are required to connect at least one external account to their Sourcegraph account. Site admins are exempt from this requirement.",
+      "type": "boolean",
+      "default": false,
       "group": "Authentication"
     },
     "auth.lockout": {
@@ -2487,7 +2563,10 @@
     "auth.idpDynamicClientRegistrationEnabled": {
       "description": "Enables OAuth 2.0 Dynamic Client Registration (RFC 7591) for the Sourcegraph identity provider. When enabled, OAuth clients can self-register programmatically instead of requiring manual pre-configuration. Required for MCP clients and other applications that use dynamic registration for authorization.",
       "type": "boolean",
-      "default": false,
+      "default": true,
+      "!go": {
+        "pointer": true
+      },
       "group": "Authentication"
     },
     "auth.unlockAccountLinkExpiry": {
@@ -2686,7 +2765,7 @@
       "group": "Cody"
     },
     "cody.permissions": {
-      "description": "Whether to enable Cody role-based access controls. Only respected if cody.restrictUsersFeatureFlag is not set. See https://sourcegraph.com/docs/admin/access_control",
+      "description": "Whether to enable Cody role-based access controls. See https://sourcegraph.com/docs/admin/access_control",
       "type": "boolean",
       "default": true,
       "!go": {
@@ -2695,7 +2774,8 @@
       "group": "Cody"
     },
     "cody.restrictUsersFeatureFlag": {
-      "description": "DEPRECATED; see cody.permissions instead. PRIOR DESCRIPTION: Cody to only be enabled for users that have a feature flag labeled \"cody\" set to true. You must create a feature flag with this ID after enabling this setting: https://www.notion.so/sourcegraph/How-to-use-feature-flags-70f42bcacd9045d4a55de22f5dd87df0?source=copy_link. This setting only has an effect if cody.enabled is true.",
+      "deprecationMessage": "DEPRECATED: Use cody.permissions instead",
+      "description": "DEPRECATED: Use cody.permissions instead",
       "type": "boolean",
       "default": false,
       "!go": {
@@ -2708,7 +2788,8 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "description": "DEPRECATED. Use cody.enabled instead to turn Cody on/off.",
+          "deprecationMessage": "DEPRECATED: Use cody.enabled instead",
+          "description": "DEPRECATED: Use cody.enabled instead",
           "type": "boolean",
           "!go": {
             "pointer": true
@@ -2716,7 +2797,8 @@
           "default": true
         },
         "model": {
-          "description": "DEPRECATED. Use chatModel instead.",
+          "deprecationMessage": "DEPRECATED: Use chatModel instead",
+          "description": "DEPRECATED: Use chatModel instead",
           "type": "string"
         },
         "user": {
@@ -2800,12 +2882,12 @@
           "enum": ["enabled", "disabled"]
         },
         "disableClientConfigAPI": {
-          "description": "Should not be set. If set to true, disables the use of the new client config API. This new API has no user-facing effect, this opt-out is provided only as an escape hatch in case of issues.",
+          "deprecationMessage": "DEPRECATED: This opt-out feature flag will be removed soon",
+          "description": "DEPRECATED: Should not be set. If set to true, disables the use of the new client config API. This new API has no user-facing effect, this opt-out is provided only as an escape hatch in case of issues.",
           "type": "boolean",
           "!go": {
             "pointer": true
-          },
-          "deprecationMessage": "This opt-out feature flag will be removed soon."
+          }
         },
         "completionModel": {
           "description": "The model used for code completion. If using the default provider 'sourcegraph', a reasonable default model will be set.\n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommend using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
@@ -2845,7 +2927,6 @@
       },
       "examples": [
         {
-          "enabled": true,
           "chatModel": "chat",
           "completionModel": "code-completion",
           "accessToken": "abc123",
@@ -2913,40 +2994,6 @@
     },
     "modelConfiguration": {
       "$ref": "#/definitions/SiteModelConfiguration"
-    },
-    "cody.serverSideContext": {
-      "description": "Configuration for Server-side context API",
-      "type": "object",
-      "group": "Cody",
-      "properties": {
-        "reranker": {
-          "description": "Reranker to use for rankContext requests",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": ["sourcegraph", "identity", "cohere", "voyageai"]
-            }
-          },
-          "oneOf": [
-            {
-              "$ref": "#/definitions/CodyRerankerSourcegraph"
-            },
-            {
-              "$ref": "#/definitions/CodyRerankerIdentity"
-            },
-            {
-              "$ref": "#/definitions/CodyRerankerCohere"
-            },
-            {
-              "$ref": "#/definitions/CodyRerankerVoyageAI"
-            }
-          ],
-          "!go": {
-            "taggedUnionType": true
-          }
-        }
-      }
     }
   },
   "definitions": {
@@ -2974,8 +3021,8 @@
           }
         },
         "modelOverridesRecommendedSettings": {
-          "deprecationMessage": "Deprecated; use 'selfHostedModels' instead.",
-          "description": "Override, or add to, the list of models Cody is aware of - but let Sourcegraph configure how the model should work. Only available for select models.\n\nSpecifying the same model both here and in 'modelOverrides' is not allowed.",
+          "deprecationMessage": "DEPRECATED: Use 'selfHostedModels' instead",
+          "description": "DEPRECATED: Use 'selfHostedModels' instead",
           "type": "array",
           "default": [],
           "items": {
@@ -2984,7 +3031,6 @@
               "bigcode::v1::starcoder2-7b",
               "bigcode::v1::starcoder2-15b",
               "mistral::v1::mistral-7b-instruct",
-              "mistral::v1::mixtral-8x7b-instruct",
               "mistral::v1::mixtral-8x22b-instruct"
             ]
           }
@@ -3012,10 +3058,10 @@
       "examples": [
         {
           "provider": "mistral",
-          "model": "mixtral-8x7b-instruct",
+          "model": "mixtral-8x22b-instruct",
           "override": {
             "serverSideConfig": {
-              "apiModel": "mixtral-8x7b-instruct"
+              "apiModel": "mixtral-8x22b-instruct"
             }
           }
         }
@@ -3036,13 +3082,7 @@
         "model": {
           "description": "Which default model configuration to use. Sourcegraph provides default model configuration for select models. Arbitrary models can be configured in 'modelOverrides'",
           "type": "string",
-          "enum": [
-            "starcoder2-7b@v1",
-            "starcoder2-15b@v1",
-            "mistral-7b-instruct@v1",
-            "mixtral-8x7b-instruct@v1",
-            "mixtral-8x22b-instruct@v1"
-          ]
+          "enum": ["starcoder2-7b@v1", "starcoder2-15b@v1", "mistral-7b-instruct@v1", "mixtral-8x22b-instruct@v1"]
         },
         "override": {
           "$ref": "#/definitions/SelfHostedModelOverride"
@@ -3324,14 +3364,16 @@
           }
         },
         "inputTokenPennies": {
-          "description": "DEPRECATED: Use inputTokenCredits instead.",
+          "deprecationMessage": "DEPRECATED: Use inputTokenCredits instead",
+          "description": "DEPRECATED: Use inputTokenCredits instead",
           "type": "integer",
           "!go": {
             "pointer": true
           }
         },
         "outputTokenPennies": {
-          "description": "DEPRECATED: Use outputTokenCredits instead.",
+          "deprecationMessage": "DEPRECATED: Use outputTokenCredits instead",
+          "description": "DEPRECATED: Use outputTokenCredits instead",
           "type": "integer",
           "!go": {
             "pointer": true
@@ -3854,7 +3896,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["awsBedrockProvisionedThroughput", "awsBedrock", "openaicompatible"]
+          "enum": ["awsBedrockProvisionedThroughput", "awsBedrock", "openaicompatible", "fireworks"]
         }
       },
       "oneOf": [
@@ -3866,6 +3908,9 @@
         },
         {
           "$ref": "#/definitions/ServerSideModelConfigOpenAICompatible"
+        },
+        {
+          "$ref": "#/definitions/ServerSideModelConfigFireworks"
         },
         {
           "$ref": "#/definitions/DoNotUsePhonyDiscriminantType"
@@ -3918,6 +3963,22 @@
         "apiModel": {
           "description": "The literal string value of the 'model' field that will be sent to the /chat/completions API, for example. If set, Sourcegraph treats this as an opaque string and sends it directly to the API, inferring no information from it. By default, the configured model name is sent.",
           "type": "string"
+        }
+      }
+    },
+    "ServerSideModelConfigFireworks": {
+      "description": "Fireworks-specific model configuration. Use this to configure direct route deployments for Fireworks models.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "fireworks"
+        },
+        "directRouteDeploymentID": {
+          "description": "The deployment ID of a Fireworks direct route for this model. Cody Gateway constructs the URL from this ID (https://sourcegraph-{id}.direct.fireworks.ai). Find this in Fireworks console or via 'firectl get deployment'. Example: 'yz2cbico'",
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
         }
       }
     },
@@ -4247,7 +4308,7 @@
           "type": "boolean"
         },
         "allowOrgs": {
-          "description": "Restricts new logins and signups (if allowSignup is true) to members of these GitHub organizations. Existing sessions won't be invalidated. Leave empty or unset for no org restrictions.",
+          "description": "Restricts new logins and sign ups (if allowSignup is true) to members of these GitHub organizations. Existing sessions won't be invalidated. Leave empty or unset for no org restrictions.",
           "default": [],
           "type": "array",
           "items": {
@@ -4256,7 +4317,7 @@
           }
         },
         "allowOrgsMap": {
-          "description": "Restricts new logins and signups (if allowSignup is true) to members of GitHub teams. Each list of teams should have their Github org name as a key. Subteams inheritance is not supported, therefore only members of the listed teams will be granted access. Existing sessions won't be invalidated. Leave empty or unset for no team restrictions.",
+          "description": "Restricts new logins and sign ups (if allowSignup is true) to members of GitHub teams. Each list of teams should have their Github org name as a key. Subteams inheritance is not supported, therefore only members of the listed teams will be granted access. Existing sessions won't be invalidated. Leave empty or unset for no team restrictions.",
           "default": {},
           "type": "object",
           "additionalProperties": {
@@ -4354,7 +4415,7 @@
           }
         },
         "allowGroups": {
-          "description": "Restricts new logins and signups (if allowSignup is true) to members of these GitLab groups. Existing sessions won't be invalidated. Make sure to inform the full path for groups or subgroups instead of their names. Leave empty or unset for no group restrictions.",
+          "description": "Restricts new logins and sign ups (if allowSignup is true) to members of these GitLab groups. Existing sessions won't be invalidated. Make sure to inform the full path for groups or subgroups instead of their names. Leave empty or unset for no group restrictions.",
           "default": [],
           "type": "array",
           "items": {
@@ -4569,14 +4630,13 @@
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
         },
         "apiScope": {
+          "deprecationMessage": "DEPRECATED: This changed with Entra Apps. Configure the scopes you want to grant within Entra under API permissions instead.",
+          "description": "DEPRECATED: This changed with Entra Apps. Configure the scopes you want to grant within Entra under API permissions instead.",
           "type": "string",
-          "description": "DEPRECATED: The OAuth API scope that should be used",
-          "default": "vso.code,vso.identity,vso.project",
-          "deprecated": true,
-          "deprecationMessage": "Deprecated because this changed with the change to Entra Apps. Configure the scopes you want to grant within Entra under API permissions instead."
+          "default": "vso.code,vso.identity,vso.project"
         },
         "allowOrgs": {
-          "description": "Restricts new logins and signups (if allowSignup is true) to members of these Azure DevOps organizations only. Existing sessions won't be invalidated. Leave empty or unset for no org restrictions.",
+          "description": "Restricts new logins and sign ups (if allowSignup is true) to members of these Azure DevOps organizations only. Existing sessions won't be invalidated. Leave empty or unset for no org restrictions.",
           "default": [],
           "type": "array",
           "items": {
@@ -4619,7 +4679,7 @@
           "type": "string"
         },
         "displayPrefix": {
-          "description": "Defines the prefix of the auth provider button on the login screen. By default we show `Continue with <displayName>`. This propery allows you to change the `Continue with ` part to something else. Useful in cases where the displayName is not compatible with the prefix.",
+          "description": "Defines the prefix of the auth provider button on the login screen. By default we show `Continue with <displayName>`. This property allows you to change the `Continue with ` part to something else. Useful in cases where the displayName is not compatible with the prefix.",
           "type": "string",
           "default": "Continue with ",
           "!go": {
@@ -4921,70 +4981,6 @@
           "description": "Regular expression which matches a set of repository names. The pattern is evaluated using Go regular expression syntax (https://golang.org/pkg/regexp/). By default, the pattern matches partially. Use \\\"^...$\\\" for whole-string matching.",
           "type": "string",
           "format": "regex"
-        }
-      }
-    },
-    "CodyRerankerIdentity": {
-      "description": "Identity re-ranker",
-      "type": "object",
-      "required": ["type"],
-      "properties": {
-        "type": {
-          "type": "string",
-          "const": "identity"
-        }
-      }
-    },
-    "CodyRerankerCohere": {
-      "description": "Re-ranker using Cohere API",
-      "type": "object",
-      "required": ["type", "apiKey"],
-      "properties": {
-        "type": {
-          "type": "string",
-          "const": "cohere"
-        },
-        "apiKey": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string",
-          "default": "rerank-v3.5"
-        }
-      }
-    },
-    "CodyRerankerVoyageAI": {
-      "description": "Re-ranker using VoyageAI API",
-      "type": "object",
-      "required": ["type", "apiKey"],
-      "properties": {
-        "type": {
-          "type": "string",
-          "const": "voyageai"
-        },
-        "apiKey": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string",
-          "default": "rerank-2"
-        }
-      }
-    },
-    "CodyRerankerSourcegraph": {
-      "description": "Re-ranker using Sourcegraph API",
-      "type": "object",
-      "required": ["type"],
-      "properties": {
-        "type": {
-          "type": "string",
-          "const": "sourcegraph"
-        },
-        "endpoint": {
-          "type": "string"
-        },
-        "accessToken": {
-          "type": "string"
         }
       }
     },

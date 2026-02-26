@@ -1,0 +1,221 @@
+extend type Mutation {
+    """
+    Begins passkey registration. Returns WebAuthn credential creation options
+    that should be passed to navigator.credentials.create().
+    """
+    beginPasskeyRegistration(nickname: String): BeginPasskeyRegistrationResult!
+
+    """
+    Completes passkey registration with the credential from navigator.credentials.create().
+    """
+    finishPasskeyRegistration(input: FinishPasskeyRegistrationInput!): UserPasskey!
+
+    """
+    Revokes (soft-deletes) a user passkey.
+    Users can only revoke their own passkeys.
+    """
+    revokeUserPasskey(id: ID!): EmptyResponse!
+
+    """
+    Begins passkey authentication. Returns WebAuthn credential request options
+    that should be passed to navigator.credentials.get().
+    """
+    beginPasskeyAuthentication: BeginPasskeyAuthenticationResult!
+
+    """
+    Completes passkey authentication with the credential from navigator.credentials.get().
+    """
+    finishPasskeyAuthentication(input: FinishPasskeyAuthenticationInput!): FinishPasskeyAuthenticationResult!
+}
+
+"""
+Result of beginning passkey registration.
+Contains the WebAuthn options to pass to navigator.credentials.create().
+"""
+type BeginPasskeyRegistrationResult {
+    """
+    JSON-encoded PublicKeyCredentialCreationOptions for navigator.credentials.create().
+    """
+    options: String!
+}
+
+"""
+Input for completing passkey registration.
+"""
+input FinishPasskeyRegistrationInput {
+    """
+    The credential ID from the WebAuthn response (base64url encoded).
+    """
+    id: String!
+
+    """
+    The raw credential ID (base64url encoded).
+    """
+    rawId: String!
+
+    """
+    The credential type (always "public-key").
+    """
+    type: String!
+
+    """
+    The attestation response containing clientDataJSON and attestationObject (base64url encoded).
+    """
+    response: PasskeyAttestationResponseInput!
+}
+
+extend type User {
+    """
+    Passkeys registered for this user.
+    Only accessible by the user themselves or site admins.
+    """
+    passkeys: [UserPasskey!]!
+
+    """
+    Returns the passkey verification status for this user.
+    This is used by the frontend to determine if the user needs to set up or verify a passkey.
+    Only accessible by the user themselves or site admins.
+    """
+    passkeyStatus: UserPasskeyStatus!
+}
+
+"""
+UserPasskey represents a WebAuthn passkey credential registered for step-up authentication.
+"""
+type UserPasskey implements Node {
+    """
+    The unique identifier of this passkey.
+    """
+    id: ID!
+
+    """
+    A user-provided nickname for this passkey (e.g., "MacBook Pro", "YubiKey").
+    """
+    nickname: String!
+
+    """
+    When this passkey was registered.
+    """
+    createdAt: DateTime!
+
+    """
+    When this passkey was last used for authentication.
+    """
+    lastUsedAt: DateTime
+}
+
+"""
+UserPasskeyStatus represents the passkey verification state for a user.
+"""
+type UserPasskeyStatus {
+    """
+    Whether passkey enforcement is enabled.
+    """
+    required: Boolean!
+
+    """
+    Whether the user needs to register a passkey (has no passkeys registered).
+    """
+    needsSetup: Boolean!
+
+    """
+    Whether the user needs to verify with their passkey (verification expired).
+    """
+    needsVerify: Boolean!
+
+    """
+    The number of active passkeys registered for this user.
+    """
+    credentialCount: Int!
+
+    """
+    When the current passkey verification expires. Null if not verified or not required.
+    """
+    expiresAt: DateTime
+}
+
+"""
+Attestation response from WebAuthn credential creation.
+"""
+input PasskeyAttestationResponseInput {
+    """
+    The client data JSON (base64url encoded).
+    """
+    clientDataJSON: String!
+
+    """
+    The attestation object (base64url encoded).
+    """
+    attestationObject: String!
+}
+
+"""
+Result of beginning passkey authentication.
+Contains the WebAuthn options to pass to navigator.credentials.get().
+"""
+type BeginPasskeyAuthenticationResult {
+    """
+    JSON-encoded PublicKeyCredentialRequestOptions for navigator.credentials.get().
+    """
+    options: String!
+}
+
+"""
+Input for completing passkey authentication.
+"""
+input FinishPasskeyAuthenticationInput {
+    """
+    The credential ID from the WebAuthn response (base64url encoded).
+    """
+    id: String!
+
+    """
+    The raw credential ID (base64url encoded).
+    """
+    rawId: String!
+
+    """
+    The credential type (always "public-key").
+    """
+    type: String!
+
+    """
+    The assertion response containing authenticatorData, clientDataJSON, and signature (base64url encoded).
+    """
+    response: PasskeyAssertionResponseInput!
+}
+
+"""
+Assertion response from WebAuthn credential authentication.
+"""
+input PasskeyAssertionResponseInput {
+    """
+    The client data JSON (base64url encoded).
+    """
+    clientDataJSON: String!
+
+    """
+    The authenticator data (base64url encoded).
+    """
+    authenticatorData: String!
+
+    """
+    The signature (base64url encoded).
+    """
+    signature: String!
+
+    """
+    The user handle (base64url encoded, optional).
+    """
+    userHandle: String
+}
+
+"""
+Result of completing passkey authentication.
+"""
+type FinishPasskeyAuthenticationResult {
+    """
+    Whether authentication was successful.
+    """
+    success: Boolean!
+}

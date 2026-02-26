@@ -1,0 +1,243 @@
+"""
+Input for configuring TLS settings in the site configuration.
+"""
+input ExternalTLSConfigInput {
+    """
+    If true, skip TLS certificate verification for all outgoing connections.
+    WARNING: This makes TLS susceptible to man-in-the-middle attacks.
+    """
+    insecureSkipVerify: Boolean!
+    """
+    CA certificates to trust in addition to system CAs.
+    """
+    certificates: [CertificateInput!]
+    """
+    Mutual TLS (mTLS) configurations for specific hosts.
+    """
+    mtlsConfigurations: [MTLSConfigurationInput!]
+}
+
+"""
+Input for a CA certificate. Either pem or fingerprint must be provided.
+If fingerprint is provided, the certificate is looked up from existing config.
+"""
+input CertificateInput {
+    """
+    PEM-encoded certificate. Use "REDACTED" if the certificate should be
+    preserved from the existing configuration (requires fingerprint).
+    """
+    pem: String!
+    """
+    SHA-256 fingerprint of an existing certificate. Used to look up the
+    certificate from the current configuration when pem is "REDACTED".
+    """
+    fingerprint: String
+}
+
+"""
+Input for configuring mTLS for a specific host.
+"""
+input MTLSConfigurationInput {
+    """
+    The hostname to match for this mTLS configuration (e.g., 'github.example.com').
+    """
+    host: String!
+    """
+    PEM-encoded client certificate, or "REDACTED" to preserve existing.
+    """
+    clientCertificate: String!
+    """
+    SHA-256 fingerprint of the client certificate. Required when clientCertificate
+    is "REDACTED" to look up the certificate from existing configuration.
+    """
+    clientCertificateFingerprint: String
+    """
+    PEM-encoded private key for the client certificate.
+    If null and an existing configuration exists for this host, the existing key is preserved.
+    """
+    clientKey: String
+}
+
+"""
+Result of validating an external TLS configuration.
+"""
+type ExternalTLSValidationResult {
+    """
+    Errors that prevent the configuration from being saved.
+    """
+    errors: [String!]!
+    """
+    Non-blocking warnings about the configuration.
+    """
+    warnings: [String!]!
+    """
+    Parsed information about the CA certificates.
+    """
+    certificates: [CertificateSummary!]!
+    """
+    Validation results for each mTLS configuration.
+    """
+    mtlsConfigurations: [MTLSValidationResult!]!
+    """
+    Result of the optional TLS endpoint connectivity validation.
+    """
+    endpointResult: TLSEndpointValidationResult
+}
+
+"""
+Summary of a parsed X.509 certificate.
+"""
+type CertificateSummary {
+    """
+    The certificate subject (CN, O, OU, etc.).
+    """
+    subject: String!
+    """
+    The certificate issuer.
+    """
+    issuer: String!
+    """
+    The certificate validity start date.
+    """
+    notBefore: DateTime!
+    """
+    The certificate validity end date.
+    """
+    notAfter: DateTime!
+    """
+    Subject Alternative Names (DNS names, IPs, emails).
+    """
+    sans: [String!]!
+    """
+    SHA-256 fingerprint of the certificate.
+    """
+    fingerprint: String!
+    """
+    Whether the certificate has expired.
+    """
+    isExpired: Boolean!
+    """
+    Whether the certificate is not yet valid.
+    """
+    isNotYetValid: Boolean!
+    """
+    Whether the certificate has the CA flag set in BasicConstraints.
+    """
+    isCA: Boolean!
+}
+
+"""
+Validation result for an mTLS configuration entry.
+"""
+type MTLSValidationResult {
+    """
+    The host this configuration applies to.
+    """
+    host: String!
+    """
+    Whether the mTLS configuration is valid.
+    """
+    valid: Boolean!
+    """
+    Error message if validation failed.
+    """
+    error: String
+    """
+    Summary of the client certificate if valid.
+    """
+    certificateSummary: CertificateSummary
+}
+
+"""
+Result of validating TLS connectivity to an endpoint.
+"""
+type TLSEndpointValidationResult {
+    """
+    Whether the TLS connection succeeded.
+    """
+    success: Boolean!
+    """
+    Error message if the connection failed.
+    """
+    error: String
+    """
+    The negotiated TLS protocol version.
+    """
+    negotiatedProtocol: String
+    """
+    Certificates presented by the peer.
+    """
+    peerCertificates: [CertificateSummary!]
+}
+
+"""
+The current external TLS configuration with parsed certificate metadata.
+"""
+type ExternalTLSConfiguration {
+    """
+    If true, TLS certificate verification is disabled for all outgoing connections.
+    """
+    insecureSkipVerify: Boolean!
+    """
+    Parsed information about the configured CA certificates.
+    The actual PEM content is not exposed.
+    """
+    certificates: [CertificateSummary!]!
+    """
+    The configured mTLS entries with parsed certificate metadata.
+    """
+    mtlsConfigurations: [ExternalTLSMTLSConfiguration!]!
+}
+
+"""
+An mTLS configuration entry with parsed certificate metadata.
+"""
+type ExternalTLSMTLSConfiguration {
+    """
+    The hostname this configuration applies to.
+    """
+    host: String!
+    """
+    Summary of the client certificate.
+    """
+    certificateSummary: CertificateSummary
+}
+
+extend type Query {
+    """
+    Returns the current external TLS configuration with parsed certificate metadata.
+    Only site admins may query this.
+    """
+    externalTLSConfiguration: ExternalTLSConfiguration
+}
+
+extend type Mutation {
+    """
+    Validates an external TLS configuration without saving it.
+    Optionally validates connectivity to a specified endpoint.
+
+    Only site admins may perform this mutation.
+    """
+    validateExternalTLSConfiguration(
+        """
+        The TLS configuration to validate.
+        """
+        input: ExternalTLSConfigInput!
+        """
+        Optional URL or host:port to validate TLS connectivity against.
+        """
+        validateEndpoint: String
+    ): ExternalTLSValidationResult!
+
+    """
+    Sets the external TLS configuration in the site configuration.
+
+    Only site admins may perform this mutation.
+    """
+    setExternalTLSConfiguration(
+        """
+        The TLS configuration to set. If null, the configuration is removed.
+        """
+        input: ExternalTLSConfigInput
+    ): EmptyResponse
+}

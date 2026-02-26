@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS slack_conversation_mappings_conversation_id_idx;

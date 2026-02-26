@@ -3,4 +3,47 @@ extend type Query {
     Checks whether the given feature is enabled on Sourcegraph.
     """
     enterpriseLicenseHasFeature(feature: String!): Boolean!
+
+    """
+    Validates a license key and returns information about it without applying it.
+    This allows previewing license details before updating the site configuration.
+    Only accessible to site admins.
+    """
+    previewLicenseKey(licenseKey: String!): PreviewLicenseKeyResult!
+}
+
+"""
+Result of validating/previewing a license key.
+If error is null, the license is valid and the other fields will be populated.
+If error is non-null, the license is invalid and the other fields will be null.
+"""
+type PreviewLicenseKeyResult {
+    """
+    If the license is invalid, this contains the error message.
+    """
+    error: String
+
+    """
+    The plan/product name associated with this license (e.g., "Sourcegraph Enterprise").
+    Only present if isValid is true.
+    """
+    plan: String
+
+    """
+    The maximum number of users allowed by this license.
+    Only present if isValid is true.
+    """
+    userCount: Int
+
+    """
+    The expiration date of this license.
+    Only present if isValid is true.
+    """
+    expiresAt: DateTime
+
+    """
+    Tags associated with this license (e.g., "trial", "dev").
+    Only present if isValid is true.
+    """
+    tags: [String!]
 }

@@ -1,0 +1,301 @@
+"""
+The type of authentication wizard.
+"""
+enum AuthWizardType {
+    """
+    Unknown or unrecognized wizard type. Used when a draft has a wizard_type
+    value that no longer matches any known type.
+    """
+    UNKNOWN
+    """
+    SAML authentication provider wizard.
+    """
+    AUTH_PROVIDER_SAML
+    """
+    OpenID Connect authentication provider wizard.
+    """
+    AUTH_PROVIDER_OPENIDCONNECT
+    """
+    GitHub OAuth authentication provider wizard.
+    """
+    AUTH_PROVIDER_GITHUB
+    """
+    Bitbucket Server OAuth authentication provider wizard.
+    """
+    AUTH_PROVIDER_BITBUCKET_SERVER
+    """
+    GitLab OAuth authentication provider wizard.
+    """
+    AUTH_PROVIDER_GITLAB
+    """
+    Bitbucket Cloud OAuth authentication provider wizard.
+    """
+    AUTH_PROVIDER_BITBUCKET_CLOUD
+    """
+    Gerrit authentication provider wizard.
+    """
+    AUTH_PROVIDER_GERRIT
+}
+
+extend type Mutation {
+    """
+    Creates a new auth provider wizard draft.
+    """
+    createAuthProviderWizardDraft(input: CreateAuthProviderWizardDraftInput!): AuthProviderWizardDraft!
+
+    """
+    Updates an existing auth provider wizard draft.
+    """
+    updateAuthProviderWizardDraft(id: ID!, input: UpdateAuthProviderWizardDraftInput!): AuthProviderWizardDraft!
+
+    """
+    Deletes an auth provider wizard draft.
+    """
+    deleteAuthProviderWizardDraft(id: ID!): EmptyResponse
+
+    """
+    Records a validation result for an auth provider wizard draft.
+    """
+    recordAuthProviderWizardValidationResult(
+        id: ID!
+        result: AuthProviderWizardValidationResultInput!
+    ): AuthProviderWizardDraft!
+
+    """
+    Finalizes an auth provider wizard draft by committing the configuration to site config and deleting the draft.
+    """
+    finalizeAuthProviderWizardDraft(input: FinalizeAuthProviderWizardDraftInput!): EmptyResponse
+}
+
+extend type Query {
+    """
+    List of auth provider wizard drafts for the current user.
+    """
+    authProviderWizardDrafts(
+        """
+        The limit argument for pagination.
+        """
+        first: Int
+
+        """
+        Cursor for pagination.
+        """
+        after: String
+
+        """
+        Filter by wizard type (e.g., "auth-provider-saml", "auth-provider-openidconnect").
+        """
+        wizardType: AuthWizardType
+    ): AuthProviderWizardDraftConnection!
+}
+
+"""
+Input for creating an auth provider wizard draft.
+"""
+input CreateAuthProviderWizardDraftInput {
+    """
+    The type of wizard.
+    """
+    wizardType: AuthWizardType!
+
+    """
+    Optional display name for this draft.
+    """
+    displayName: String
+}
+
+"""
+Input for updating an auth provider wizard draft.
+"""
+input UpdateAuthProviderWizardDraftInput {
+    """
+    Optional display name for this draft.
+    """
+    displayName: String
+
+    """
+    The step configuration as a JSON string. This stores all the configuration values
+    collected during the auth provider wizard process.
+    """
+    stepConfiguration: JSONCString
+
+    """
+    If true, clears the last validation result and timestamp.
+    """
+    clearValidationResult: Boolean
+}
+
+"""
+Input for recording an auth provider wizard validation result.
+"""
+input AuthProviderWizardValidationResultInput {
+    """
+    Whether the validation was successful.
+    """
+    success: Boolean!
+
+    """
+    Error message if the validation failed.
+    """
+    errorMessage: String
+
+    """
+    The authenticated subject identifier.
+    """
+    subject: String
+
+    """
+    The authenticated user's email.
+    """
+    email: String
+
+    """
+    The authenticated user's username.
+    """
+    username: String
+
+    """
+    The authenticated user's display name.
+    """
+    displayName: String
+
+    """
+    Groups the authenticated user belongs to.
+    """
+    groups: [String!]
+
+    """
+    Any warnings from the validation.
+    """
+    warnings: [String!]
+}
+
+"""
+Input for finalizing an auth provider wizard draft.
+"""
+input FinalizeAuthProviderWizardDraftInput {
+    """
+    The auth provider wizard draft ID to finalize.
+    """
+    id: ID!
+
+    """
+    The authentication provider configuration to commit to site config.
+    """
+    providerConfig: JSONValue!
+}
+
+"""
+A paginated connection for auth provider wizard drafts.
+"""
+type AuthProviderWizardDraftConnection implements Connection {
+    """
+    A list of auth provider wizard drafts.
+    """
+    nodes: [AuthProviderWizardDraft!]!
+
+    """
+    The total number of drafts.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+An in-progress auth provider wizard configuration.
+"""
+type AuthProviderWizardDraft implements Node {
+    """
+    The unique ID of this draft.
+    """
+    id: ID!
+
+    """
+    The type of wizard.
+    """
+    wizardType: AuthWizardType!
+
+    """
+    Optional display name for this draft.
+    """
+    displayName: String
+
+    """
+    The step configuration as a JSON string containing all collected configuration values.
+    """
+    stepConfiguration: JSONCString!
+
+    """
+    The result of the last validation attempt, if any.
+    """
+    lastValidationResult: AuthProviderWizardValidationResult
+
+    """
+    When the last validation was performed.
+    """
+    lastValidatedAt: DateTime
+
+    """
+    The user who created this draft.
+    """
+    createdBy: User!
+
+    """
+    When this draft was created.
+    """
+    createdAt: DateTime!
+
+    """
+    When this draft was last updated.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+The result of a validation attempt within an auth provider wizard.
+"""
+type AuthProviderWizardValidationResult {
+    """
+    Whether the validation was successful.
+    """
+    success: Boolean!
+
+    """
+    Error message if the validation failed.
+    """
+    errorMessage: String
+
+    """
+    The authenticated subject identifier.
+    """
+    subject: String
+
+    """
+    The authenticated user's email.
+    """
+    email: String
+
+    """
+    The authenticated user's username.
+    """
+    username: String
+
+    """
+    The authenticated user's display name.
+    """
+    displayName: String
+
+    """
+    Groups the authenticated user belongs to.
+    """
+    groups: [String!]
+
+    """
+    Any warnings from the validation.
+    """
+    warnings: [String!]
+}

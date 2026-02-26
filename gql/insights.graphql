@@ -821,7 +821,7 @@ input LineChartSearchInsightDataSeriesInput {
     generatedFromCaptureGroups: Boolean
 
     """
-    The field to group results by. (For compute powered insights only.) This field is experimental and should be considered unstable in the API.
+    The field to group results by. (For compute powered insights only.)
     """
     groupBy: GroupByField
 }
@@ -1117,7 +1117,7 @@ type SearchInsightDataSeriesDefinition {
     isCalculated: Boolean!
 
     """
-    The field to group results by. (For compute powered insights only.) This field is experimental and should be considered unstable in the API.
+    The field to group results by. (For compute powered insights only.)
     """
     groupBy: GroupByField
 }
@@ -1268,7 +1268,7 @@ input SearchInsightLivePreviewInput {
     generatedFromCaptureGroups: Boolean!
 
     """
-    Use this field to specify a compute insight. Note: this is experimental and should be considered unstable
+    Use this field to specify a compute insight.
     """
     groupBy: GroupByField
 }
@@ -1312,7 +1312,7 @@ input SearchSeriesPreviewInput {
     generatedFromCaptureGroups: Boolean!
 
     """
-    Use this field to specify a compute insight. Note: this is experimental and should be considered unstable
+    Use this field to specify a compute insight.
     """
     groupBy: GroupByField
 }

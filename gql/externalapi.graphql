@@ -1,0 +1,38 @@
+extend type Query {
+    """
+    External API queries for managing and introspecting external API services.
+    """
+    externalAPI: ExternalAPIQuery!
+}
+
+"""
+Queries for external API management.
+"""
+type ExternalAPIQuery {
+    """
+    List all registered external API services.
+    """
+    services: [ExternalAPIService!]!
+
+    """
+    Generate an OpenAPI schema for the specified services.
+    If no services are specified, returns the schema for all registered services.
+    """
+    openAPISchema(
+        """
+        List of service names to include in the schema.
+        If not provided, all registered services are included.
+        """
+        services: [String!]
+    ): String!
+}
+
+"""
+A registered external API service.
+"""
+type ExternalAPIService {
+    """
+    The fully qualified name of the service.
+    """
+    name: String!
+}

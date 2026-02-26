@@ -1,0 +1,188 @@
+"""
+A workflow definition for agentic batch changes.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticWorkflow implements Node {
+    """
+    The unique ID of the workflow.
+    """
+    id: ID!
+
+    """
+    The name of the workflow.
+    """
+    name: String!
+
+    """
+    The JSON definition of the workflow.
+    """
+    definition: String!
+
+    """
+    The instances of this workflow. Returns at most 1000 instances.
+    """
+    instances(first: Int, after: String): AgenticWorkflowInstanceConnection!
+}
+
+"""
+A list of agentic workflows.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticWorkflowConnection {
+    """
+    A list of workflows.
+    """
+    nodes: [AgenticWorkflow!]!
+
+    """
+    The total count of workflows in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+The status of a workflow instance.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+enum AgenticWorkflowInstanceStatus {
+    """
+    The instance is queued and waiting to run.
+    """
+    QUEUED
+
+    """
+    The instance is currently running.
+    """
+    RUNNING
+
+    """
+    The instance completed successfully.
+    """
+    COMPLETE
+
+    """
+    The instance failed.
+    """
+    FAILED
+}
+
+"""
+An instance of an agentic workflow.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticWorkflowInstance implements Node {
+    """
+    The unique ID of the instance.
+    """
+    id: ID!
+
+    """
+    The workflow this instance belongs to.
+    """
+    workflow: AgenticWorkflow!
+
+    """
+    The JSON definition of the workflow at the time the instance was created.
+    """
+    definition: String!
+
+    """
+    The input provided to this instance.
+    """
+    input: String
+
+    """
+    The current status of the instance.
+    """
+    status: AgenticWorkflowInstanceStatus!
+}
+
+"""
+A list of workflow instances.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticWorkflowInstanceConnection {
+    """
+    A list of instances.
+    """
+    nodes: [AgenticWorkflowInstance!]!
+
+    """
+    The total count of instances in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+extend type Query {
+    """
+    List all agentic workflows.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    agenticWorkflows(first: Int, after: String): AgenticWorkflowConnection!
+
+    """
+    Get a specific agentic workflow by ID.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    agenticWorkflow(id: ID!): AgenticWorkflow
+
+    """
+    Get the JSON schema for workflow definitions.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    agenticWorkflowSchema: String!
+}
+
+extend type Mutation {
+    """
+    Create a new agentic workflow.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    createAgenticWorkflow(
+        """
+        The name of the workflow.
+        """
+        name: String!
+
+        """
+        The JSON definition of the workflow.
+        """
+        definition: String!
+    ): AgenticWorkflow!
+
+    """
+    Start an instance of a workflow.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    startAgenticWorkflowInstance(
+        """
+        The ID of the workflow to start.
+        """
+        workflowID: ID!
+
+        """
+        Optional input for the instance.
+        """
+        input: String
+    ): AgenticWorkflowInstance!
+}

@@ -90,13 +90,6 @@ A mutation.
 """
 type Mutation {
     """
-    INTERNAL ONLY: Sets the value of versions.auto_upgrade in the frontend db.
-    Determines behavior of multiversion upgrades.
-
-    Only site admins may perform this mutation.
-    """
-    setAutoUpgrade(enable: Boolean!): EmptyResponse!
-    """
     Updates the user profile information for the user with the given ID.
 
     Only the user and site admins may perform this mutation.
@@ -326,6 +319,8 @@ type Mutation {
     - "user:all": Full control of all resources accessible to the user account.
     - "site-admin:sudo": Ability to perform any action as any other user. (Only site admins may create tokens
       with this scope.)
+    - "mcp": Access to MCP (Model Context Protocol) endpoints only. This is a limited scope that does not
+      grant full API access.
 
     DurationSeconds: If provided, the number of seconds until the token expires automatically.
 
@@ -597,6 +592,180 @@ type Mutation {
         """
         input: String!
     ): Boolean!
+    """
+    Sets the license key in the site configuration.
+
+    Only site admins may perform this mutation.
+    """
+    setLicenseKey(
+        """
+        The license key to set. If null or empty, the license key is removed.
+        """
+        licenseKey: String
+    ): EmptyResponse
+
+    """
+    Sets the email configuration in the site configuration.
+
+    Only site admins may perform this mutation.
+    """
+    setSMTPConfiguration(
+        """
+        The SMTP configuration to set.
+        """
+        input: SMTPConfigurationInput!
+    ): EmptyResponse
+
+    """
+    Sets the instance settings (external URL, CORS origins, branding, HTML injection)
+    in the site configuration.
+
+    Only site admins may perform this mutation.
+    """
+    setInstanceSettings(
+        """
+        The instance settings to set.
+        """
+        input: InstanceSettingsInput!
+    ): EmptyResponse
+
+    """
+    Validates an SMTP configuration by sending a verification email without saving the config.
+    Returns a verification code that was sent in the email, which can be used to confirm
+    the email was received before saving the configuration.
+
+    Only site admins may perform this mutation.
+    """
+    validateSMTPConfiguration(
+        """
+        The SMTP configuration to validate.
+        """
+        smtp: SMTPConfigInput!
+        """
+        The email address to send the verification email to.
+        """
+        to: String!
+        """
+        The sender email address to use.
+        """
+        senderAddress: String!
+        """
+        The sender name to use (optional).
+        """
+        senderName: String
+    ): String!
+    """
+    Sets session management configuration in the site configuration.
+    This includes session expiry, idle timeout, and access token settings.
+
+    Only site admins may perform this mutation.
+    """
+    setSessionConfiguration(
+        """
+        The session configuration to set.
+        """
+        input: SessionConfigurationInput!
+    ): EmptyResponse
+    """
+    Sets signup and self-service configuration in the site configuration.
+    This includes username change settings and access request settings.
+
+    Only site admins may perform this mutation.
+    """
+    setSignupConfiguration(
+        """
+        The signup configuration to set.
+        """
+        input: SignupConfigurationInput!
+    ): EmptyResponse
+    """
+    Sets password policy configuration in the site configuration.
+    This includes minimum password length and complexity requirements.
+
+    Only site admins may perform this mutation.
+    """
+    setPasswordPolicyConfiguration(
+        """
+        The password policy configuration to set.
+        """
+        input: PasswordPolicyConfigurationInput!
+    ): EmptyResponse
+    """
+    Sets access restrictions configuration in the site configuration.
+    This includes repository permission enforcement and IP allowlist settings.
+
+    Only site admins may perform this mutation.
+    """
+    setAccessRestrictionsConfiguration(
+        """
+        The access restrictions configuration to set.
+        """
+        input: AccessRestrictionsConfigurationInput!
+    ): EmptyResponse
+    """
+    Deletes an authentication provider from the site configuration by removing
+    the matching entry from the auth.providers array.
+
+    Only site admins may perform this mutation.
+    """
+    deleteAuthProvider(
+        """
+        The service type of the auth provider to delete (e.g. "builtin", "saml", "openidconnect", "github", "gitlab").
+        """
+        serviceType: String!
+        """
+        The stable configuration identifier of the auth provider to delete.
+        """
+        configID: String!
+    ): EmptyResponse
+    """
+    Enables or disables the builtin username-password authentication provider.
+    When enabled, adds a builtin provider to auth.providers if not already present.
+    When disabled, removes all builtin providers from auth.providers.
+
+    Only site admins may perform this mutation.
+    """
+    setBuiltinAuthEnabled(
+        """
+        Whether builtin authentication should be enabled.
+        """
+        enabled: Boolean!
+    ): EmptyResponse
+    """
+    Sets whether an authentication provider is enabled for sign-in.
+    When disabled, the provider is hidden from the sign-in page but can still
+    be used for account linking and permissions syncing.
+
+    Only site admins may perform this mutation.
+    """
+    setAuthProviderSignIn(
+        """
+        The service type of the auth provider.
+        """
+        serviceType: String!
+        """
+        The stable configuration identifier of the auth provider.
+        """
+        configID: String!
+        """
+        Whether sign-in should be enabled for this provider.
+        """
+        enabled: Boolean!
+    ): EmptyResponse
+    """
+    Reorders authentication providers by setting their order field in site configuration.
+    The providers array specifies the desired display order on the sign-in page (first element = order 1).
+    Providers not included in the list will have their order cleared.
+
+    Only site admins may perform this mutation.
+    """
+    reorderAuthProviders(
+        """
+        The ordered list of provider identifiers. The first provider in this list
+        will be assigned order 1, the second order 2, etc.
+        """
+        providers: [AuthProviderReorderInput!]!
+    ): EmptyResponse
     """
     Sets whether the user with the specified user ID is a site admin.
 
@@ -882,6 +1051,16 @@ type Mutation {
     use the default quota.
     """
     setUserCodeCompletionsQuota(user: ID!, quota: Int): User!
+
+    """
+    Dismisses a notification by its ID. Only site admins may perform this mutation.
+    """
+    dismissNotification(id: ID!): Notification!
+
+    """
+    Deletes a notification by its ID. Only site admins may perform this mutation.
+    """
+    deleteNotification(id: ID!): EmptyResponse!
 }
 
 """
@@ -1226,6 +1405,368 @@ input KeyPathSegment {
     The index of the array at this location to descend into.
     """
     index: Int
+}
+
+"""
+Policy for access token creation.
+"""
+enum AccessTokensAllowPolicy {
+    """
+    All users can create access tokens.
+    """
+    ALL_USERS_CREATE
+    """
+    Only site admins can create access tokens (existing tokens still work until revoked).
+    """
+    SITE_ADMIN_CREATE
+    """
+    Access tokens are disabled entirely.
+    """
+    NONE
+}
+
+"""
+Access token configuration input.
+"""
+input AccessTokensInput {
+    """
+    Allow or restrict the use of access tokens.
+    """
+    allow: AccessTokensAllowPolicy!
+    """
+    Whether to allow tokens without expiration.
+    """
+    allowNoExpiration: Boolean!
+}
+
+"""
+Input for configuring access restrictions in site configuration.
+"""
+input AccessRestrictionsConfigurationInput {
+    """
+    Whether repository permissions are enforced for site admins.
+    """
+    enforceForSiteAdmins: Boolean!
+    """
+    Whether IP allowlist is enabled.
+    """
+    ipAllowlistEnabled: Boolean!
+    """
+    Allowed user IP addresses (CIDR notation supported).
+    """
+    userIpAddress: [String!]!
+    """
+    Allowed client IP addresses (e.g., load balancer ranges).
+    """
+    clientIpAddress: [String!]!
+    """
+    Trusted client IP addresses that bypass user IP checks.
+    """
+    trustedClientIpAddress: [String!]!
+    """
+    Request headers to check for user IP address.
+    """
+    userIpRequestHeaders: [String!]!
+    """
+    Custom error message shown when access is denied.
+    """
+    errorMessageTemplate: String!
+}
+
+"""
+Input for configuring password policy settings in site configuration.
+"""
+input PasswordPolicyConfigurationInput {
+    """
+    Minimum password length required.
+    """
+    minPasswordLength: Int!
+    """
+    Whether password complexity requirements are enabled.
+    """
+    enabled: Boolean!
+    """
+    Number of special characters required in passwords.
+    """
+    numberOfSpecialCharacters: Int!
+    """
+    Whether at least one number is required.
+    """
+    requireAtLeastOneNumber: Boolean!
+    """
+    Whether mixed case (upper and lower) is required.
+    """
+    requireUpperandLowerCase: Boolean!
+}
+
+"""
+Input for configuring signup and self-service settings in site configuration.
+"""
+input SignupConfigurationInput {
+    """
+    Whether users can change their own usernames.
+    """
+    enableUsernameChanges: Boolean!
+    """
+    Whether access requests are enabled for users who cannot sign up.
+    """
+    accessRequestEnabled: Boolean!
+}
+
+"""
+Input for configuring session management settings in site configuration.
+"""
+input SessionConfigurationInput {
+    """
+    How long user login sessions are valid. Format: Go duration string (e.g., "720h", "30m", "60s").
+    Must be at least 1 hour.
+    """
+    sessionExpiry: String!
+    """
+    Maximum idle time before a session expires. If null or empty, idle timeout is disabled.
+    """
+    maxSessionIdleDuration: String
+    """
+    Access token settings.
+    """
+    accessTokens: AccessTokensInput!
+}
+
+"""
+Input for configuring SMTP settings in the site configuration.
+"""
+input SMTPConfigurationInput {
+    """
+    SMTP server configuration. If null, SMTP configuration is removed.
+    """
+    smtp: SMTPConfigInput
+    """
+    The email address to use as the sender. If null or empty, the address is removed.
+    """
+    address: String
+    """
+    The name to use as the sender. If null or empty, defaults to "Sourcegraph".
+    """
+    senderName: String
+}
+
+"""
+Input for configuring instance settings in the site configuration.
+"""
+input InstanceSettingsInput {
+    """
+    The externally accessible URL for this Sourcegraph instance.
+    """
+    externalURL: String
+    """
+    Space-separated list of allowed origins for cross-origin HTTP requests.
+    """
+    corsOrigin: String
+    """
+    Branding configuration for the instance.
+    """
+    branding: BrandingInput
+    """
+    HTML to inject at the top of the <head> element on each page.
+    """
+    htmlHeadTop: String
+    """
+    HTML to inject at the bottom of the <head> element on each page.
+    """
+    htmlHeadBottom: String
+    """
+    HTML to inject at the top of the <body> element on each page.
+    """
+    htmlBodyTop: String
+    """
+    HTML to inject at the bottom of the <body> element on each page.
+    """
+    htmlBodyBottom: String
+}
+
+"""
+Branding configuration for the Sourcegraph instance.
+"""
+input BrandingInput {
+    """
+    Custom brand name. Defaults to "Sourcegraph".
+    """
+    brandName: String
+    """
+    URL of the favicon.
+    """
+    favicon: String
+    """
+    Brand assets for the light theme.
+    """
+    light: BrandAssetsInput
+    """
+    Brand assets for the dark theme.
+    """
+    dark: BrandAssetsInput
+}
+
+"""
+Brand asset URLs for a specific theme.
+"""
+input BrandAssetsInput {
+    """
+    URL to the logo image.
+    """
+    logo: String
+    """
+    URL to the search symbol icon.
+    """
+    symbol: String
+}
+
+"""
+The current instance settings configuration.
+"""
+type InstanceSettingsConfiguration {
+    """
+    The externally accessible URL for this Sourcegraph instance.
+    """
+    externalURL: String!
+    """
+    Space-separated list of allowed origins for cross-origin HTTP requests.
+    """
+    corsOrigin: String!
+    """
+    Branding configuration for the instance.
+    """
+    branding: BrandingConfiguration!
+    """
+    HTML injected at the top of the <head> element on each page.
+    """
+    htmlHeadTop: String!
+    """
+    HTML injected at the bottom of the <head> element on each page.
+    """
+    htmlHeadBottom: String!
+    """
+    HTML injected at the top of the <body> element on each page.
+    """
+    htmlBodyTop: String!
+    """
+    HTML injected at the bottom of the <body> element on each page.
+    """
+    htmlBodyBottom: String!
+}
+
+"""
+Branding configuration for the Sourcegraph instance.
+"""
+type BrandingConfiguration {
+    """
+    Custom brand name. Defaults to "Sourcegraph".
+    """
+    brandName: String!
+    """
+    URL of the favicon.
+    """
+    favicon: String!
+    """
+    Brand assets for the light theme.
+    """
+    light: BrandAssetsConfiguration!
+    """
+    Brand assets for the dark theme.
+    """
+    dark: BrandAssetsConfiguration!
+}
+
+"""
+Brand asset URLs for a specific theme.
+"""
+type BrandAssetsConfiguration {
+    """
+    URL to the logo image.
+    """
+    logo: String!
+    """
+    URL to the search symbol icon.
+    """
+    symbol: String!
+}
+
+extend type Query {
+    """
+    Returns the current instance settings configuration (external URL, CORS origins,
+    branding, HTML injection).
+    Only site admins may query this.
+    """
+    instanceSettingsConfiguration: InstanceSettingsConfiguration!
+}
+
+"""
+SMTP authentication methods.
+"""
+enum SMTPAuthenticationMethod {
+    """
+    No authentication.
+    """
+    NONE
+    """
+    PLAIN authentication.
+    """
+    PLAIN
+    """
+    CRAM-MD5 authentication.
+    """
+    CRAM_MD5
+}
+
+"""
+SMTP server configuration.
+"""
+input SMTPConfigInput {
+    """
+    The SMTP server hostname.
+    """
+    host: String!
+    """
+    The SMTP server port.
+    """
+    port: Int!
+    """
+    The authentication method to use.
+    """
+    authentication: SMTPAuthenticationMethod!
+    """
+    The username for authentication (required if authentication is not "none").
+    """
+    username: String
+    """
+    The password for authentication (required if authentication is not "none").
+    """
+    password: String
+    """
+    The domain to use for the HELO command.
+    """
+    domain: String
+    """
+    If true, skip TLS certificate verification (not recommended for production).
+    """
+    noVerifyTLS: Boolean
+    """
+    Additional headers to include on SMTP messages.
+    """
+    additionalHeaders: [SMTPHeaderInput!]
+}
+
+"""
+An additional header to include on SMTP messages.
+"""
+input SMTPHeaderInput {
+    """
+    The header key (e.g., "X-Custom-Header").
+    """
+    key: String!
+    """
+    The header value.
+    """
+    value: String!
 }
 
 """
@@ -4397,6 +4938,10 @@ type UpdateQueue {
     True if the repo is currently updating.
     """
     updating: Boolean!
+    """
+    True if the queued update is a reclone operation rather than a fetch.
+    """
+    isReclone: Boolean!
 }
 
 """
@@ -6650,6 +7195,20 @@ type AccessTokenConnection {
 }
 
 """
+Input for identifying an auth provider for reordering.
+"""
+input AuthProviderReorderInput {
+    """
+    The service type of the auth provider (e.g., "github", "gitlab", "saml").
+    """
+    serviceType: String!
+    """
+    The stable configuration identifier of the auth provider.
+    """
+    configID: String!
+}
+
+"""
 A list of authentication providers.
 """
 type AuthProviderConnection {
@@ -6678,6 +7237,12 @@ type AuthProvider {
     """
     serviceType: String!
     """
+    A stable identifier for this provider's configuration, derived deterministically
+    from the provider's config without requiring network I/O. Used together with
+    serviceType to uniquely identify a provider for mutations.
+    """
+    configID: String!
+    """
     An identifier for the service that the auth provider represents.
     """
     serviceID: String!
@@ -6697,6 +7262,29 @@ type AuthProvider {
     A URL that, when visited, initiates the authentication process for this auth provider.
     """
     authenticationURL: String
+    """
+    Whether this auth provider is currently enabled for sign-in (not hidden and not marked as noSignIn).
+    """
+    isSignInEnabled: Boolean!
+    """
+    Whether this auth provider can be used for repository permissions syncing.
+    This is true for code host auth providers (GitHub, GitLab, Bitbucket Cloud, Bitbucket Server, Gerrit, Azure DevOps).
+    """
+    isPermissionsProvider: Boolean!
+    """
+    Whether this auth provider is hidden from the sign-in page.
+    """
+    hidden: Boolean!
+    """
+    Whether this auth provider supports sign-in. Some providers (e.g. Gerrit) are
+    permissions-only and cannot be used for sign-in even if configured.
+    """
+    supportsSignIn: Boolean!
+    """
+    The display order of this provider on the sign-in page. Providers with lower
+    order values appear first. Null means no explicit order is set.
+    """
+    order: Int
 }
 
 """
@@ -7291,9 +7879,42 @@ type Site implements SettingsSubject {
     """
     alerts: [Alert!]!
     """
+    Notifications for site administrators. Only visible to site admins.
+    """
+    notifications(
+        """
+        If true, include dismissed notifications in the results.
+        """
+        includeDismissed: Boolean = true
+        """
+        Filter by notification severity.
+        """
+        severity: NotificationSeverity
+        """
+        Returns the first n notifications.
+        """
+        first: Int
+        """
+        Returns notifications after the given cursor.
+        """
+        after: String
+        """
+        Returns the last n notifications.
+        """
+        last: Int
+        """
+        Returns notifications before the given cursor.
+        """
+        before: String
+    ): NotificationConnection!
+    """
     BACKCOMPAT: Always returns true.
     """
     hasCodeIntelligence: Boolean!
+    """
+    Whether site admins are required to register and verify with a passkey.
+    """
+    adminRequiresPasskeys: Boolean!
     """
     Whether the server sends emails to users to verify email addresses. If false, then site admins must manually
     verify users' email addresses.
@@ -7360,10 +7981,6 @@ type Site implements SettingsSubject {
     FOR INTERNAL USE ONLY: Returns information about instance upgrade readiness.
     """
     upgradeReadiness: UpgradeReadiness!
-    """
-    FOR INTERNAL USE ONLY: The state of readiness to auto upgrade the Sourcegraph instance via migrator commands.
-    """
-    autoUpgradeEnabled: Boolean!
 
     """
     The quota of completions requests allowed per user in a day. Null, if unlimited.
@@ -7719,6 +8336,96 @@ type Alert {
     The intended audience for this alert. Defaults to SITEADMIN if not specified.
     """
     audience: AlertAudience!
+}
+
+"""
+The severity level of a notification.
+"""
+enum NotificationSeverity {
+    """
+    Informational notification.
+    """
+    INFO
+    """
+    Success notification.
+    """
+    SUCCESS
+    """
+    Warning notification that may require attention.
+    """
+    WARNING
+    """
+    Danger notification that requires immediate attention.
+    """
+    DANGER
+}
+
+"""
+A notification for site administrators with deduplication and dismiss/reoccur lifecycle.
+"""
+type Notification implements Node {
+    """
+    The unique ID of this notification.
+    """
+    id: ID!
+    """
+    The key that uniquely identifies this notification type and context.
+    """
+    key: String!
+    """
+    The severity level of this notification.
+    """
+    severity: NotificationSeverity!
+    """
+    The title of this notification.
+    """
+    title: String!
+    """
+    The message body of this notification. Markdown is supported.
+    """
+    message: String!
+    """
+    Optional URL to link to for more details or actions related to this notification.
+    """
+    href: String
+    """
+    Whether this notification has been dismissed.
+    """
+    isDismissed: Boolean!
+    """
+    When this notification was dismissed, if applicable.
+    """
+    dismissedAt: DateTime
+    """
+    The number of times this notification has been emitted (incremented on re-occurrence after dismiss).
+    """
+    occurrenceCount: Int!
+    """
+    When this notification was created.
+    """
+    createdAt: DateTime!
+    """
+    When this notification was last updated.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+A list of notifications.
+"""
+type NotificationConnection implements Connection {
+    """
+    A list of notifications.
+    """
+    nodes: [Notification!]!
+    """
+    The total count of notifications in the connection.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
 }
 
 """
@@ -8257,6 +8964,30 @@ type GitserverDiskThresholdReached {
 }
 
 """
+FOR INTERNAL USE ONLY: A status message produced when there is an issue with the Slack integration configuration.
+"""
+type SlackConfigurationError {
+    """
+    The message of this status message
+    """
+    message: String!
+}
+
+"""
+FOR INTERNAL USE ONLY: A status message produced when there are pending access requests.
+"""
+type PendingAccessRequests {
+    """
+    The message of this status message
+    """
+    message: String!
+    """
+    The number of pending access requests.
+    """
+    count: Int!
+}
+
+"""
 FOR INTERNAL USE ONLY: A status message produced when there are no repositories and no sync jobs in process
 """
 type NoRepositoriesDetected {
@@ -8329,6 +9060,8 @@ union StatusMessage =
     | SyncError
     | IndexingProgress
     | GitserverDiskThresholdReached
+    | SlackConfigurationError
+    | PendingAccessRequests
 
 """
 An arbitrarily large integer encoded as a decimal string.
@@ -9254,24 +9987,22 @@ type ConnectionPageInfo {
 }
 
 """
-A team is a grouping of users/persons into a common handle. Teams are commonly used to define
-codeowners.
+A team represents an external team reference (e.g., from CODEOWNERS files).
+Teams are no longer managed in Sourcegraph but may appear as owners from CODEOWNERS entries.
 """
-type Team implements Node {
+type Team {
     """
     The unique ID of the team.
     """
     id: ID!
 
     """
-    The name of the team. Needs to be globally unique across usernames, organization
-    names, and team names. Team names can use alphanumeric characters, - dash
-    and / forward slash.
+    The name of the team (e.g., @org/team-name from CODEOWNERS).
     """
     name: String!
 
     """
-    URL to link to the teams profile page.
+    URL to link to the team's profile page (empty for external teams).
     """
     url: String!
 
@@ -9286,361 +10017,14 @@ type Team implements Node {
     displayName: String
 
     """
-    A team can be made read-only from the CLI instructing the UI to show a warning
-    banner that this is managed externally, and management features will only be
-    available to site-admins. It can also still be manipulated from the CLI.
+    Always true since teams are no longer managed in Sourcegraph.
     """
     readonly: Boolean!
 
     """
-    The teams direct members. That is members that are strictly part of this team,
-    but not members of child teams. Team membership is NOT inherited.
-    """
-    members(
-        """
-        Returns the first n team members from the list.
-        """
-        first: Int
-
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-
-        """
-        Optionally apply a text search filter over the results.
-        """
-        search: String
-    ): TeamMemberConnection!
-
-    """
-    Parent team can be null, if this is a root team.
-    """
-    parentTeam: Team
-
-    """
-    The list of direct child teams.
-    """
-    childTeams(
-        """
-        Returns the first n teams from the list.
-        """
-        first: Int
-
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-
-        """
-        Optionally apply a text search filter over the results.
-        """
-        search: String
-    ): TeamConnection!
-
-    """
-    True, if the current user can modify this team.
-    """
-    viewerCanAdminister: Boolean!
-
-    """
-    The creator of this team. Null, if the user was deleted.
-    """
-    creator: User
-
-    """
-    True, if the team is external, i.e. not found in our database.
-    Example: CODEOWNERS files can contain references to GitHub teams which are not the part of Sourcegraph teams.
+    Always true since teams from CODEOWNERS are external references.
     """
     external: Boolean!
-}
-
-"""
-A list of teams.
-"""
-type TeamConnection {
-    """
-    The total count of items in the connection.
-    """
-    totalCount: Int!
-
-    """
-    The pagination info for the connection.
-    """
-    pageInfo: PageInfo!
-
-    """
-    The current page of teams in this connection.
-    """
-    nodes: [Team!]!
-}
-
-"""
-A list of team members.
-"""
-type TeamMemberConnection {
-    """
-    The total count of items in the connection.
-    """
-    totalCount: Int!
-
-    """
-    The pagination info for the connection.
-    """
-    pageInfo: PageInfo!
-
-    """
-    The current page of team members in this connection.
-    """
-    nodes: [TeamMember!]!
-}
-
-"""
-A team member is an entity that can be associated to a team.
-
-For now, this will be User, and will be expanded to User | Person later.
-"""
-interface TeamMember {
-    """
-    All the teams this TeamMember is a direct member of.
-    """
-    teams(
-        """
-        Returns the first n teams from the list.
-        """
-        first: Int
-
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-
-        """
-        Optionally apply a text search filter over the results.
-        """
-        search: String
-    ): TeamConnection!
-}
-
-extend type User implements TeamMember {
-    """
-    All the teams this user is a direct member of.
-    """
-    teams(
-        """
-        Returns the first n teams from the list.
-        """
-        first: Int
-
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-
-        """
-        Optionally apply a text search filter over the results.
-        """
-        search: String
-    ): TeamConnection!
-}
-
-extend type Query {
-    """
-    Get a single team by name. Returns null if not found.
-    """
-    team(name: String!): Team
-
-    """
-    Get the global list of all root teams. (Those without a parent team).
-    """
-    teams(
-        """
-        Returns the first n teams from the list.
-        """
-        first: Int
-
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-        """
-        Search can be used to do a text-search over the team names.
-        """
-        search: String
-        """
-        Do not include any teams that have this ancestor in parent-team relationship.
-        This includes the team with the ID mentioned (that is a team is considered
-        its own ancestor).
-        """
-        exceptAncestor: ID
-        """
-        If set to true, child teams (ones that have parent set) are also returned.
-        If not specified, the default behavior is to only include top-level teams.
-        """
-        includeChildTeams: Boolean
-    ): TeamConnection!
-}
-
-extend type Mutation {
-    """
-    Creates a team. The name must be unique, display name can be used to set a custom
-    display value for the team inside Sourcegraph.
-
-    If readonly is true, the Sourcegraph UI will show a warning banner that this team
-    is managed externally, and it can only be modified by site-admins.
-    This is to prevent state drift from external systems that ingest team information into Sourcegraph.
-    Readonly can only be set by site-admins.
-
-    Either parentTeam XOR parentTeamName can be specified to make the team a child
-    team of the given parent. Only members of the parent team or site-admis can create
-    a child team.
-    """
-    createTeam(
-        name: String!
-        displayName: String
-        readonly: Boolean = false
-        parentTeam: ID
-        parentTeamName: String
-    ): Team!
-
-    """
-    Update an existing team. ID or Name must be specified, but not both.
-
-    To unset the display name, pass an empty string. Null will make it ignore updates.
-
-    Either parentTeam XOR parentTeamName XOR makeRoot can be specified to make the team a child
-    team of the given parent or conversely to make a team a root team (with no parent team).
-    The user has to be a team-member of both the child and parent team for that, and
-    neither can be read-only. Site-admin can modify all teams without constraints.
-    """
-    updateTeam(
-        id: ID
-        name: String
-        displayName: String
-        parentTeam: ID
-        parentTeamName: String
-        makeRoot: Boolean
-    ): Team!
-
-    """
-    Delete team deletes a team. ID or Name must be specified, but not both.
-    Must be team-member to delete. If the team is marked as read-only, must be site-admin.
-    """
-    deleteTeam(id: ID, name: String): EmptyResponse
-
-    """
-    Add a list of team members to an existing team.
-    People that already are part of the team are ignored.
-
-    Either team XOR teamName can be specified to specify the team.
-    Must be team member to add new team members, or site-admin.
-
-    For now, members can only be the IDs of User entities in Sourcegraph.
-    Later, we will expand this to allow Persons as well.
-
-    If skipUnmatchedMembers is true, members that are not matched to a user are skipped.
-    """
-    addTeamMembers(
-        team: ID
-        teamName: String
-        members: [TeamMemberInput!]!
-        skipUnmatchedMembers: Boolean = false
-    ): Team!
-
-    """
-    This is a convenience method to forcefully overwrite the full set of members
-    of a team. This is handy to sync external state without diffing the current
-    members vs the desired set of members.
-
-    Either team XOR teamName can be specified to specify the team.
-    Must be team member to modify team members, or site-admin.
-
-    For now, members can only be the IDs of User entities in Sourcegraph.
-    Later, we will expand this to allow Persons as well.
-
-    If skipUnmatchedMembers is true, members that are not matched to a user are skipped.
-    """
-    setTeamMembers(
-        team: ID
-        teamName: String
-        members: [TeamMemberInput!]!
-        skipUnmatchedMembers: Boolean = false
-    ): Team!
-
-    """
-    This mutation removes team membership for the given team and set of members.
-    Members that weren't part of the team are ignored.
-
-    Either team XOR teamName can be specified to specify the team.
-    Must be team member to remove team members, or site-admin.
-
-    For now, members can only be the IDs of User entities in Sourcegraph.
-    Later, we will expand this to allow Persons as well.
-
-    If skipUnmatchedMembers is true, members that are not matched to a user are skipped.
-    """
-    removeTeamMembers(
-        team: ID
-        teamName: String
-        members: [TeamMemberInput!]!
-        skipUnmatchedMembers: Boolean = false
-    ): Team!
-}
-
-"""
-Options to specify a user for team membership. Multiple options can be provided,
-with the following precedence order: (Other mismatches will be discarded)
-- UserID
-- Username
-- Email
-- External Account fields
-
-Examples:
-- If ID is set and no match, return.
-- If ID and username is set, and ID matches but username doesn't, match.
-"""
-input TeamMemberInput {
-    """
-    Explicitly define a user by ID.
-    """
-    userID: ID
-    """
-    Explicitly define a user by username in Sourcegraph.
-    """
-    username: String
-    """
-    If the email is associated to a user and verified, the user account will be matched.
-    """
-    email: String
-
-    """
-    If the user has an associated external account, use this.
-    externalAccountServiceID and externalAccountServiceType must be set and
-    either of externalAccountAccountID externalAccountLogin are required as well.
-    Service ID for the GitHub OAuth provider, for example, is https://github.com/.
-    """
-    externalAccountServiceID: String
-    """
-    If the user has an associated external account, use this.
-    externalAccountServiceID and externalAccountServiceType must be set and
-    either of externalAccountAccountID externalAccountLogin are required as well.
-    Service Type for the GitHub OAuth provider, for example, is github.
-    """
-    externalAccountServiceType: String
-    """
-    If the user has an associated external account, use this.
-    externalAccountServiceID and externalAccountServiceType must be set and
-    either of externalAccountAccountID externalAccountLogin are required as well.
-    Account ID is the unique identifier on the external account platform.
-    """
-    externalAccountAccountID: String
-    """
-    If the user has an associated external account, use this.
-    externalAccountServiceID and externalAccountServiceType must be set and
-    either of externalAccountAccountID externalAccountLogin are required as well.
-    Account Login is usually the username on the external account platform.
-    """
-    externalAccountLogin: String
 }
 
 """
@@ -10553,6 +10937,86 @@ type SlackConfiguration {
     Null if the app is not fully configured.
     """
     workspace: SlackWorkspaceResult
+
+    """
+    Usage statistics for the Slack integration.
+    """
+    usage: SlackIntegrationUsage
+}
+
+"""
+Usage statistics for the Slack integration.
+"""
+type SlackIntegrationUsage {
+    """
+    Whether the Slack integration is configured.
+    """
+    isConfigured: Boolean!
+
+    """
+    Whether Slack has verified the webhook URL.
+    """
+    webhookVerified: Boolean!
+
+    """
+    When the Slack integration was configured.
+    """
+    configuredAt: DateTime
+
+    """
+    Total number of conversation mappings (Slack threads linked to Deep Search).
+    """
+    conversationsMapped: Int!
+
+    """
+    Usage statistics for the current month.
+    """
+    month: SlackIntegrationUsagePeriod!
+}
+
+"""
+Usage statistics for a specific time period.
+"""
+type SlackIntegrationUsagePeriod {
+    """
+    Start of the time period.
+    """
+    startTime: DateTime!
+
+    """
+    New Deep Search conversations initiated from Slack.
+    """
+    newSearches: SlackIntegrationEventCounts!
+
+    """
+    Follow-up questions to existing conversations.
+    """
+    followUps: SlackIntegrationEventCounts!
+
+    """
+    Flexpane views (viewing conversation details in Slack).
+    """
+    flexpaneView: SlackIntegrationEventCounts!
+
+    """
+    Link unfurls (preview cards for Deep Search links).
+    """
+    linkUnfurls: SlackIntegrationEventCounts!
+}
+
+"""
+Event counts for a specific action type.
+"""
+type SlackIntegrationEventCounts {
+    """
+    Number of unique users/threads that performed this action.
+    """
+    uniquesCount: Int!
+
+    """
+    Total number of times this action was performed.
+    """
+    totalCount: Int!
 }
 
 extend type Query {

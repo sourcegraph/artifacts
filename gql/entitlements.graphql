@@ -91,6 +91,20 @@ extend type Mutation {
         """
         userIDs: [ID!]!
     ): EmptyResponse!
+
+    """
+    Resets entitlement usage for a user. Site-admin only.
+    """
+    resetEntitlementUsage(
+        """
+        The type of the entitlement.
+        """
+        type: EntitlementType!
+        """
+        The ID of the user whose usage should be reset.
+        """
+        userID: ID!
+    ): UserEntitlement!
 }
 
 extend type Query {
@@ -292,6 +306,7 @@ type EntitlementGrantUsage {
 EntitlementWindow represents the available time periods for entitlement enforcement.
 """
 enum EntitlementWindow {
+    ONE_HOUR
     ONE_DAY
     SEVEN_DAYS
 }

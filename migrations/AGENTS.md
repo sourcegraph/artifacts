@@ -187,6 +187,12 @@ When **adding** features:
 
 Migrations **automatically run in transactions**. No need to wrap in `BEGIN`/`COMMIT`. If you need to break two statements to release locks and avoid long-held locks, use `COMMIT AND CHAIN;`.
 
+### 7. Avoid PostgreSQL ENUMs
+
+**Do not use `CREATE TYPE ... AS ENUM`** for new columns, as enums can cause problems. Use `TEXT NOT NULL` instead.
+
+Use application-level validation (e.g., Go constants with a defined set of valid values) rather than database-enforced enums.
+
 ## Additional Resources
 
 - [Writing database migrations](https://sourcegraph.sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/doc/dev/background-information/sql/migrations.md) - Developer documentation

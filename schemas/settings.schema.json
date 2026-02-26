@@ -55,6 +55,7 @@
           }
         },
         "searchContextsQuery": {
+          "deprecationMessage": "DEPRECATED: This feature is now permanently enabled. Enables query based search contexts",
           "description": "DEPRECATED: This feature is now permanently enabled. Enables query based search contexts",
           "type": "boolean",
           "default": false,
@@ -89,14 +90,6 @@
         },
         "goCodeCheckerTemplates": {
           "description": "Shows a panel with code insights templates for go code checker results.",
-          "type": "boolean",
-          "default": false,
-          "!go": {
-            "pointer": true
-          }
-        },
-        "codeInsightsCompute": {
-          "description": "Enables Compute powered Code Insights",
           "type": "boolean",
           "default": false,
           "!go": {
@@ -166,7 +159,8 @@
           }
         },
         "keywordSearch": {
-          "description": "DEPRECATED: this setting is no longer used. To disable keyword search, set `search.defaultPatternType: standard` instead.",
+          "deprecationMessage": "DEPRECATED: To disable keyword search, set `search.defaultPatternType: standard`",
+          "description": "DEPRECATED: To disable keyword search, set `search.defaultPatternType: standard`",
           "type": "boolean",
           "default": true
         },
@@ -267,7 +261,7 @@
           "type": "string"
         },
         "custom.urlPattern": {
-          "description": "If you add \"custom\" to openineditor.editorIds, this must be set. Use the placeholders \"%file\", \"%line\", and \"%col\" to mark where the file path, line number, and column number must be insterted. Example URL for IntelliJ IDEA: \"idea://open?file=%file&line=%line&column=%col\"",
+          "description": "If you add \"custom\" to openineditor.editorIds, this must be set. Use the placeholders \"%file\", \"%line\", and \"%col\" to mark where the file path, line number, and column number must be inserted. Example URL for IntelliJ IDEA: \"idea://open?file=%file&line=%line&column=%col\"",
           "type": "string"
         }
       }
@@ -325,7 +319,8 @@
       }
     },
     "search.defaultMode": {
-      "description": "DEPRECATED: this setting is no longer read when the default 'keyword' patterntype is enabled, which always uses the 'precise' mode. Smart search will be removed in a future release.",
+      "deprecationMessage": "DEPRECATED: This setting is no longer used",
+      "description": "DEPRECATED: This setting is no longer used",
       "type": "string",
       "pattern": "precise|smart"
     },
@@ -431,7 +426,7 @@
         "properties": {
           "key": {
             "type": "string",
-            "description": "The notice key, everytime this field is updated the notice message appears in the cody client even if it was previously dismissed."
+            "description": "The notice key, every time this field is updated, the notice message appears in the Cody client, even if it was previously dismissed."
           },
           "title": {
             "type": "string",
@@ -445,7 +440,7 @@
       }
     },
     "alerts.showPatchUpdates": {
-      "description": "Whether to show alerts for patch version updates. Alerts for major and minor version updates will be shown if `alerts.showMajorMinorUpdatess` is true.",
+      "description": "Whether to show alerts for patch version updates. Alerts for major and minor version updates will be shown if `alerts.showMajorMinorUpdates` is true.",
       "type": "boolean",
       "default": true
     },

@@ -19,6 +19,14 @@ extend type Mutation {
     🚨 SECURITY: Requires site-admin.
     """
     createGitHubApp(gitHubURL: String!, clientID: String!, privateKey: String!): GitHubApp
+
+    """
+    Adds a GitHub App as an authentication provider in the site configuration.
+    This appends a new GitHub auth provider entry (using the app's clientID, clientSecret, and baseURL)
+    to the "auth.providers" list in site config. If a matching provider already exists, this is a no-op.
+    🚨 SECURITY: Requires site-admin.
+    """
+    addGitHubAppAuthProvider(gitHubApp: ID!): EmptyResponse
 }
 
 extend type Query {

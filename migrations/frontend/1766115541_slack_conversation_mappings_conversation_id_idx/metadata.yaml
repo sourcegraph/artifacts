@@ -1,0 +1,3 @@
+name: slack_conversation_mappings_conversation_id_idx
+parents: [1765544138]
+createIndexConcurrently: true

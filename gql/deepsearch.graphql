@@ -1,0 +1,28 @@
+extend type Query {
+    """
+    Returns the current Deep Search quota usage for the authenticated user.
+    Returns null if quota tracking is not available or the user is not authenticated.
+    """
+    deepSearchQuotaUsage: DeepSearchQuotaUsage
+}
+
+"""
+DeepSearchQuotaUsage represents quota usage information for Deep Search functionality.
+"""
+type DeepSearchQuotaUsage {
+    """
+    The limit value for this entitlement.
+    """
+    limit: BigInt!
+
+    """
+    The amount consumed in the current window.
+    """
+    consumed: BigInt!
+
+    """
+    When the quota period resets and totalQuota returns to 0.
+    Null if not applicable.
+    """
+    resetTime: DateTime
+}

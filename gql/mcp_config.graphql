@@ -1,0 +1,20 @@
+extend type Query {
+    """
+    Configuration for MCP (Model Context Protocol) integration.
+    """
+    mcpConfig: McpConfig!
+}
+
+"""
+MCP (Model Context Protocol) configuration.
+"""
+type McpConfig {
+    """
+    Whether Dynamic Client Registration is enabled.
+    """
+    isDCREnabled: Boolean!
+    """
+    Endpoint agents should use to access MCP.
+    """
+    endpoint: String!
+}

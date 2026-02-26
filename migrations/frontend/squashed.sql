@@ -10,9 +10,15 @@ CREATE EXTENSION IF NOT EXISTS intarray;
 
 COMMENT ON EXTENSION intarray IS 'functions, operators, and index support for 1-D arrays of integers';
 
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-
-COMMENT ON EXTENSION pg_stat_statements IS 'track execution statistics of all SQL statements executed';
+DO $$
+BEGIN
+	CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+	COMMENT ON EXTENSION pg_stat_statements IS 'track execution statistics of all SQL statements executed';
+EXCEPTION
+	WHEN OTHERS THEN
+		RAISE NOTICE 'Failed to install optional extension, skipping: pg_stat_statements: %', SQLERRM;
+END
+$$;
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
@@ -71,11 +77,6 @@ CREATE TYPE deepsearch_question_status AS ENUM (
     'processing',
     'completed',
     'cancelled'
-);
-
-CREATE TYPE entitlement_type AS ENUM (
-    'completion_credits',
-    'deep_search'
 );
 
 CREATE TYPE feature_flag_type AS ENUM (
@@ -188,6 +189,38 @@ BEGIN
     END IF;
 
     RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION deepsearch_enqueue_question_for_search() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW IS NOT NULL AND NEW.status != 'processing' THEN
+        INSERT INTO deepsearch_search_queue (
+            question_id,
+            tenant_id,
+            queued_at,
+            process_after,
+            latest_question_updated_at
+        ) VALUES (
+            NEW.id,
+            NEW.tenant_id,
+            now(),
+            NULL,
+            now()
+        )
+        ON CONFLICT (tenant_id, question_id) DO UPDATE SET
+            latest_question_updated_at = EXCLUDED.latest_question_updated_at,
+            queued_at = EXCLUDED.queued_at,
+            process_after = EXCLUDED.process_after,
+            state = 'queued',
+            started_at = NULL,
+            cancel = false;
+    END IF;
+
+    -- On DELETE, the CASCADE will clean up the index automatically
+    RETURN COALESCE(NEW, OLD);
 END;
 $$;
 
@@ -926,8 +959,8 @@ CREATE FUNCTION update_deepsearch_conversation_updated_at_on_question_change() R
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    UPDATE deepsearch_conversations 
-    SET updated_at = now() 
+    UPDATE deepsearch_conversations
+    SET updated_at = now()
     WHERE id = COALESCE(NEW.conversation_id, OLD.conversation_id);
     RETURN COALESCE(NEW, OLD);
 END;
@@ -1004,6 +1037,132 @@ CREATE AGGREGATE snapshot_transition_columns(hstore[]) (
     STYPE = hstore,
     INITCOND = ''
 );
+
+CREATE TABLE abc_container_executions (
+    id text NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compute_handle text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE abc_executor_tasks (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    image text NOT NULL,
+    command text[] DEFAULT '{}'::text[] NOT NULL,
+    env jsonb DEFAULT '{}'::jsonb NOT NULL,
+    timeout_seconds integer,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json,
+    exit_code integer,
+    stdout text,
+    stderr text,
+    instance_id bigint NOT NULL,
+    node_id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    queued_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT abc_executor_tasks_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text, 'failed'::text, 'completed'::text, 'canceled'::text])))
+);
+
+CREATE SEQUENCE abc_executor_tasks_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE abc_executor_tasks_id_seq OWNED BY abc_executor_tasks.id;
+
+CREATE TABLE abc_iteration_items (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    iterator_id text NOT NULL,
+    item_data text NOT NULL,
+    workflow_instance_id bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE abc_iteration_items_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE abc_iteration_items_id_seq OWNED BY abc_iteration_items.id;
+
+CREATE TABLE abc_node_states (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    instance_id bigint NOT NULL,
+    node_spec_id text NOT NULL,
+    lifecycle_phase text NOT NULL,
+    input text DEFAULT ''::text NOT NULL,
+    output text DEFAULT ''::text NOT NULL,
+    node_type text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT abc_node_states_lifecycle_phase_check CHECK ((lifecycle_phase = ANY (ARRAY['queued'::text, 'running'::text, 'complete'::text, 'failed'::text])))
+);
+
+CREATE SEQUENCE abc_node_states_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE abc_node_states_id_seq OWNED BY abc_node_states.id;
+
+CREATE TABLE abc_workflow_instances (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    workflow_id bigint NOT NULL,
+    definition text NOT NULL,
+    variables jsonb DEFAULT '{}'::jsonb NOT NULL,
+    lifecycle_phase text DEFAULT 'queued'::text NOT NULL,
+    claimed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT abc_workflow_instances_lifecycle_phase_check CHECK ((lifecycle_phase = ANY (ARRAY['queued'::text, 'running'::text, 'complete'::text, 'failed'::text])))
+);
+
+CREATE SEQUENCE abc_workflow_instances_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE abc_workflow_instances_id_seq OWNED BY abc_workflow_instances.id;
+
+CREATE TABLE abc_workflows (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    name text NOT NULL,
+    definition text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE abc_workflows_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE abc_workflows_id_seq OWNED BY abc_workflows.id;
 
 CREATE TABLE access_requests (
     id integer NOT NULL,
@@ -1101,6 +1260,28 @@ CREATE SEQUENCE assigned_teams_id_seq
     CACHE 1;
 
 ALTER SEQUENCE assigned_teams_id_seq OWNED BY assigned_teams.id;
+
+CREATE TABLE auth_provider_wizard_drafts (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    created_by_user_id integer NOT NULL,
+    wizard_type text NOT NULL,
+    display_name text,
+    step_configuration jsonb DEFAULT '{}'::jsonb NOT NULL,
+    last_validation_result jsonb,
+    last_validated_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE auth_provider_wizard_drafts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE auth_provider_wizard_drafts_id_seq OWNED BY auth_provider_wizard_drafts.id;
 
 CREATE TABLE batch_changes (
     id bigint NOT NULL,
@@ -2180,43 +2361,6 @@ CREATE SEQUENCE commit_authors_id_seq
 
 ALTER SEQUENCE commit_authors_id_seq OWNED BY commit_authors.id;
 
-CREATE TABLE completion_credits_consumption (
-    id bigint NOT NULL,
-    user_id integer NOT NULL,
-    credits bigint NOT NULL,
-    modelref text NOT NULL,
-    feature text NOT NULL,
-    interaction_uri text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    tokens jsonb
-);
-
-COMMENT ON COLUMN completion_credits_consumption.modelref IS 'The completion modelref that was used';
-
-COMMENT ON COLUMN completion_credits_consumption.feature IS 'The feature that consumed the credits';
-
-COMMENT ON COLUMN completion_credits_consumption.interaction_uri IS 'URI identifying the specific interaction that consumed credits';
-
-CREATE SEQUENCE completion_credits_consumption_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE completion_credits_consumption_id_seq OWNED BY completion_credits_consumption.id;
-
-CREATE TABLE completion_credits_entitlement_window_usage (
-    user_id integer NOT NULL,
-    entitlement_id integer NOT NULL,
-    usage bigint,
-    limit_exceeded boolean,
-    last_trail_id bigint,
-    window_started_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
-);
-
 CREATE TABLE configuration_policies_audit_logs (
     log_timestamp timestamp with time zone DEFAULT clock_timestamp(),
     record_deleted_at timestamp with time zone,
@@ -2306,7 +2450,8 @@ CREATE TABLE critical_and_site_config (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     author_user_id integer,
-    redacted_contents text
+    redacted_contents text,
+    redacted_contents_hash bytea GENERATED ALWAYS AS (digest(redacted_contents, 'sha256'::text)) STORED
 );
 
 COMMENT ON COLUMN critical_and_site_config.author_user_id IS 'A null value indicates that this config was most likely added by code on the start-up path, for example from the SITE_CONFIG_FILE unless the config itself was added before this column existed in which case it could also have been a user.';
@@ -2354,6 +2499,34 @@ CREATE TABLE deepsearch_entitlement_usage (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
+CREATE TABLE deepsearch_question_jobs (
+    id bigint NOT NULL,
+    question_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE deepsearch_question_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_question_jobs_id_seq OWNED BY deepsearch_question_jobs.id;
+
 CREATE TABLE deepsearch_questions (
     id integer NOT NULL,
     conversation_id integer NOT NULL,
@@ -2394,6 +2567,42 @@ CREATE SEQUENCE deepsearch_quota_id_seq
 
 ALTER SEQUENCE deepsearch_quota_id_seq OWNED BY deepsearch_quota.id;
 
+CREATE TABLE deepsearch_search_index (
+    question_id integer NOT NULL,
+    conversation_id integer NOT NULL,
+    search_text text DEFAULT ''::text NOT NULL,
+    indexed_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE TABLE deepsearch_search_queue (
+    id bigint NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL,
+    question_id integer NOT NULL,
+    latest_question_updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE deepsearch_search_queue_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_search_queue_id_seq OWNED BY deepsearch_search_queue.id;
+
 CREATE TABLE entitlement_grants (
     entitlement_id integer NOT NULL,
     user_id integer NOT NULL,
@@ -2403,7 +2612,7 @@ CREATE TABLE entitlement_grants (
 CREATE TABLE entitlements (
     id integer NOT NULL,
     name text NOT NULL,
-    type entitlement_type NOT NULL,
+    type text NOT NULL,
     "limit" bigint NOT NULL,
     "window" interval NOT NULL,
     is_default boolean DEFAULT false NOT NULL,
@@ -2445,6 +2654,7 @@ CREATE TABLE event_logs (
     billing_event_id text,
     client text,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    billing_product text,
     CONSTRAINT event_logs_check_has_user CHECK ((((user_id = 0) AND (anonymous_user_id <> ''::text)) OR ((user_id <> 0) AND (anonymous_user_id = ''::text)) OR ((user_id <> 0) AND (anonymous_user_id <> ''::text)))),
     CONSTRAINT event_logs_check_name_not_empty CHECK ((name <> ''::text)),
     CONSTRAINT event_logs_check_source_not_empty CHECK ((source <> ''::text)),
@@ -4181,6 +4391,39 @@ CREATE SEQUENCE notebooks_id_seq
 
 ALTER SEQUENCE notebooks_id_seq OWNED BY notebooks.id;
 
+CREATE TABLE notifications (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    key text NOT NULL,
+    severity text NOT NULL,
+    title text NOT NULL,
+    message text NOT NULL,
+    href text,
+    dismissed_at timestamp with time zone,
+    occurrence_count integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE notifications IS 'Persisted admin notifications with deduplication and dismiss/reoccur lifecycle.';
+
+COMMENT ON COLUMN notifications.key IS 'Stable key that uniquely identifies the problem type and context. Used for upsert operations.';
+
+COMMENT ON COLUMN notifications.href IS 'Optional URL to link to for more details or actions related to this notification.';
+
+COMMENT ON COLUMN notifications.dismissed_at IS 'When set, notification was dismissed by user. Cleared when a new occurrence happens.';
+
+COMMENT ON COLUMN notifications.occurrence_count IS 'Number of times this notification has been emitted (incremented on re-occurrence after dismiss).';
+
+CREATE SEQUENCE notifications_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE notifications_id_seq OWNED BY notifications.id;
+
 CREATE TABLE org_invitations (
     id bigint NOT NULL,
     org_id integer NOT NULL,
@@ -5118,7 +5361,8 @@ CREATE TABLE repo_update_jobs (
     cancel boolean DEFAULT false NOT NULL,
     repository_id integer NOT NULL,
     priority integer DEFAULT 1 NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    is_reclone boolean DEFAULT false NOT NULL
 );
 
 CREATE SEQUENCE repo_update_jobs_id_seq
@@ -5750,10 +5994,14 @@ CREATE TABLE user_external_accounts (
     last_valid_at timestamp with time zone,
     encryption_key_id text DEFAULT ''::text NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    scopes text[] DEFAULT '{}'::text[] NOT NULL
+    scopes text[] DEFAULT '{}'::text[] NOT NULL,
+    kind text DEFAULT 'AUTH'::text NOT NULL,
+    CONSTRAINT user_external_accounts_kind_not_empty CHECK ((btrim(kind) <> ''::text))
 );
 
 COMMENT ON COLUMN user_external_accounts.scopes IS 'OAuth scopes granted to the token. Extracted from auth_data for efficient querying without decryption. Empty array for non-OAuth accounts or when scopes are unknown.';
+
+COMMENT ON COLUMN user_external_accounts.kind IS 'Purpose of this external account: AUTH (authentication), BATCH_CHANGES (batch changes credentials), etc.';
 
 CREATE SEQUENCE user_external_accounts_id_seq
     START WITH 1
@@ -5809,6 +6057,59 @@ CREATE TABLE user_roles (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
+CREATE TABLE user_webauthn_credentials (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    webauthn_user_handle bytea NOT NULL,
+    credential_id bytea NOT NULL,
+    public_key bytea NOT NULL,
+    sign_count bigint DEFAULT 0 NOT NULL,
+    aaguid bytea,
+    attestation_type text DEFAULT ''::text NOT NULL,
+    transports text[] DEFAULT '{}'::text[] NOT NULL,
+    backup_eligible boolean DEFAULT false NOT NULL,
+    backup_state boolean DEFAULT false NOT NULL,
+    user_verified boolean DEFAULT false NOT NULL,
+    nickname text DEFAULT ''::text NOT NULL,
+    last_used_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    attestation_object bytea,
+    attestation_client_data_hash bytea,
+    public_key_algorithm bigint
+);
+
+COMMENT ON TABLE user_webauthn_credentials IS 'Stores WebAuthn/FIDO2 passkey credentials for step-up authentication. Users can register passkeys to verify identity before sensitive operations.';
+
+COMMENT ON COLUMN user_webauthn_credentials.webauthn_user_handle IS 'Stable random identifier (32 bytes) mapping the Sourcegraph user to a WebAuthn user ID. All credentials for the same user share the same handle.';
+
+COMMENT ON COLUMN user_webauthn_credentials.credential_id IS 'Unique identifier for this credential, generated by the authenticator during registration.';
+
+COMMENT ON COLUMN user_webauthn_credentials.public_key IS 'COSE-encoded public key for verifying authentication signatures.';
+
+COMMENT ON COLUMN user_webauthn_credentials.sign_count IS 'Signature counter from the authenticator, used to detect cloned credentials.';
+
+COMMENT ON COLUMN user_webauthn_credentials.aaguid IS 'Authenticator Attestation GUID identifying the authenticator model.';
+
+COMMENT ON COLUMN user_webauthn_credentials.transports IS 'Supported transport methods (usb, nfc, ble, internal, hybrid).';
+
+COMMENT ON COLUMN user_webauthn_credentials.backup_eligible IS 'Whether the credential can be backed up (e.g., synced passkeys).';
+
+COMMENT ON COLUMN user_webauthn_credentials.backup_state IS 'Whether the credential is currently backed up.';
+
+COMMENT ON COLUMN user_webauthn_credentials.revoked_at IS 'Soft-delete timestamp. Non-null means the credential is revoked and cannot be used.';
+
+CREATE SEQUENCE user_webauthn_credentials_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE user_webauthn_credentials_id_seq OWNED BY user_webauthn_credentials.id;
+
 CREATE SEQUENCE users_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -5822,8 +6123,7 @@ CREATE TABLE versions (
     service text NOT NULL,
     version text NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    first_version text NOT NULL,
-    auto_upgrade boolean DEFAULT false NOT NULL
+    first_version text NOT NULL
 );
 
 CREATE TABLE vulnerabilities (
@@ -5985,6 +6285,16 @@ CREATE TABLE zoekt_repos (
     failed_index_attempts integer DEFAULT 0 NOT NULL
 );
 
+ALTER TABLE ONLY abc_executor_tasks ALTER COLUMN id SET DEFAULT nextval('abc_executor_tasks_id_seq'::regclass);
+
+ALTER TABLE ONLY abc_iteration_items ALTER COLUMN id SET DEFAULT nextval('abc_iteration_items_id_seq'::regclass);
+
+ALTER TABLE ONLY abc_node_states ALTER COLUMN id SET DEFAULT nextval('abc_node_states_id_seq'::regclass);
+
+ALTER TABLE ONLY abc_workflow_instances ALTER COLUMN id SET DEFAULT nextval('abc_workflow_instances_id_seq'::regclass);
+
+ALTER TABLE ONLY abc_workflows ALTER COLUMN id SET DEFAULT nextval('abc_workflows_id_seq'::regclass);
+
 ALTER TABLE ONLY access_requests ALTER COLUMN id SET DEFAULT nextval('access_requests_id_seq'::regclass);
 
 ALTER TABLE ONLY access_tokens ALTER COLUMN id SET DEFAULT nextval('access_tokens_id_seq'::regclass);
@@ -5992,6 +6302,8 @@ ALTER TABLE ONLY access_tokens ALTER COLUMN id SET DEFAULT nextval('access_token
 ALTER TABLE ONLY assigned_owners ALTER COLUMN id SET DEFAULT nextval('assigned_owners_id_seq'::regclass);
 
 ALTER TABLE ONLY assigned_teams ALTER COLUMN id SET DEFAULT nextval('assigned_teams_id_seq'::regclass);
+
+ALTER TABLE ONLY auth_provider_wizard_drafts ALTER COLUMN id SET DEFAULT nextval('auth_provider_wizard_drafts_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_changes ALTER COLUMN id SET DEFAULT nextval('batch_changes_id_seq'::regclass);
 
@@ -6059,8 +6371,6 @@ ALTER TABLE ONLY cody_audit_log ALTER COLUMN id SET DEFAULT nextval('cody_audit_
 
 ALTER TABLE ONLY commit_authors ALTER COLUMN id SET DEFAULT nextval('commit_authors_id_seq'::regclass);
 
-ALTER TABLE ONLY completion_credits_consumption ALTER COLUMN id SET DEFAULT nextval('completion_credits_consumption_id_seq'::regclass);
-
 ALTER TABLE ONLY configuration_policies_audit_logs ALTER COLUMN sequence SET DEFAULT nextval('configuration_policies_audit_logs_seq'::regclass);
 
 ALTER TABLE ONLY configuration_policies_audit_logs ALTER COLUMN id SET DEFAULT nextval('configuration_policies_audit_logs_id_seq'::regclass);
@@ -6071,9 +6381,13 @@ ALTER TABLE ONLY critical_and_site_config ALTER COLUMN id SET DEFAULT nextval('c
 
 ALTER TABLE ONLY deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('deepsearch_conversations_id_seq'::regclass);
 
+ALTER TABLE ONLY deepsearch_question_jobs ALTER COLUMN id SET DEFAULT nextval('deepsearch_question_jobs_id_seq'::regclass);
+
 ALTER TABLE ONLY deepsearch_questions ALTER COLUMN id SET DEFAULT nextval('deepsearch_questions_id_seq'::regclass);
 
 ALTER TABLE ONLY deepsearch_quota ALTER COLUMN id SET DEFAULT nextval('deepsearch_quota_id_seq'::regclass);
+
+ALTER TABLE ONLY deepsearch_search_queue ALTER COLUMN id SET DEFAULT nextval('deepsearch_search_queue_id_seq'::regclass);
 
 ALTER TABLE ONLY entitlements ALTER COLUMN id SET DEFAULT nextval('entitlements_id_seq'::regclass);
 
@@ -6162,6 +6476,8 @@ ALTER TABLE ONLY lsif_retention_configuration ALTER COLUMN id SET DEFAULT nextva
 ALTER TABLE ONLY namespace_permissions ALTER COLUMN id SET DEFAULT nextval('namespace_permissions_id_seq'::regclass);
 
 ALTER TABLE ONLY notebooks ALTER COLUMN id SET DEFAULT nextval('notebooks_id_seq'::regclass);
+
+ALTER TABLE ONLY notifications ALTER COLUMN id SET DEFAULT nextval('notifications_id_seq'::regclass);
 
 ALTER TABLE ONLY org_invitations ALTER COLUMN id SET DEFAULT nextval('org_invitations_id_seq'::regclass);
 
@@ -6267,6 +6583,8 @@ ALTER TABLE ONLY user_external_accounts ALTER COLUMN id SET DEFAULT nextval('use
 
 ALTER TABLE ONLY user_repo_permissions ALTER COLUMN id SET DEFAULT nextval('user_repo_permissions_id_seq'::regclass);
 
+ALTER TABLE ONLY user_webauthn_credentials ALTER COLUMN id SET DEFAULT nextval('user_webauthn_credentials_id_seq'::regclass);
+
 ALTER TABLE ONLY users ALTER COLUMN id SET DEFAULT nextval('users_id_seq'::regclass);
 
 ALTER TABLE ONLY vulnerabilities ALTER COLUMN id SET DEFAULT nextval('vulnerabilities_id_seq'::regclass);
@@ -6280,6 +6598,24 @@ ALTER TABLE ONLY vulnerability_matches ALTER COLUMN id SET DEFAULT nextval('vuln
 ALTER TABLE ONLY webhook_logs ALTER COLUMN id SET DEFAULT nextval('webhook_logs_id_seq'::regclass);
 
 ALTER TABLE ONLY webhooks ALTER COLUMN id SET DEFAULT nextval('webhooks_id_seq'::regclass);
+
+ALTER TABLE ONLY abc_container_executions
+    ADD CONSTRAINT abc_container_executions_pkey PRIMARY KEY (id, tenant_id);
+
+ALTER TABLE ONLY abc_executor_tasks
+    ADD CONSTRAINT abc_executor_tasks_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY abc_iteration_items
+    ADD CONSTRAINT abc_iteration_items_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY abc_node_states
+    ADD CONSTRAINT abc_node_states_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY abc_workflow_instances
+    ADD CONSTRAINT abc_workflow_instances_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY abc_workflows
+    ADD CONSTRAINT abc_workflows_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY access_requests
     ADD CONSTRAINT access_requests_pkey PRIMARY KEY (id);
@@ -6298,6 +6634,9 @@ ALTER TABLE ONLY assigned_owners
 
 ALTER TABLE ONLY assigned_teams
     ADD CONSTRAINT assigned_teams_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY auth_provider_wizard_drafts
+    ADD CONSTRAINT auth_provider_wizard_drafts_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY batch_changes
     ADD CONSTRAINT batch_changes_pkey PRIMARY KEY (id);
@@ -6443,12 +6782,6 @@ ALTER TABLE ONLY commit_authors
 ALTER TABLE ONLY commit_authors
     ADD CONSTRAINT commit_authors_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY completion_credits_consumption
-    ADD CONSTRAINT completion_credits_consumption_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY completion_credits_entitlement_window_usage
-    ADD CONSTRAINT completion_credits_entitlement_window_usage_pkey PRIMARY KEY (user_id, entitlement_id);
-
 ALTER TABLE ONLY configuration_policies_audit_logs
     ADD CONSTRAINT configuration_policies_audit_logs_pkey PRIMARY KEY (id);
 
@@ -6470,6 +6803,9 @@ ALTER TABLE ONLY deepsearch_conversations
 ALTER TABLE ONLY deepsearch_entitlement_usage
     ADD CONSTRAINT deepsearch_entitlement_usage_pkey PRIMARY KEY (user_id, entitlement_id);
 
+ALTER TABLE ONLY deepsearch_question_jobs
+    ADD CONSTRAINT deepsearch_question_jobs_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY deepsearch_questions
     ADD CONSTRAINT deepsearch_questions_pkey PRIMARY KEY (id);
 
@@ -6478,6 +6814,15 @@ ALTER TABLE ONLY deepsearch_quota
 
 ALTER TABLE ONLY deepsearch_quota
     ADD CONSTRAINT deepsearch_quota_user_id_key UNIQUE (user_id);
+
+ALTER TABLE ONLY deepsearch_search_index
+    ADD CONSTRAINT deepsearch_search_index_pkey PRIMARY KEY (tenant_id, question_id);
+
+ALTER TABLE ONLY deepsearch_search_queue
+    ADD CONSTRAINT deepsearch_search_queue_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_search_queue
+    ADD CONSTRAINT deepsearch_search_queue_tenant_id_question_id_key UNIQUE (tenant_id, question_id);
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_pkey PRIMARY KEY (entitlement_id, user_id);
@@ -6719,6 +7064,12 @@ ALTER TABLE ONLY notebook_stars
 ALTER TABLE ONLY notebooks
     ADD CONSTRAINT notebooks_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY notifications
+    ADD CONSTRAINT notifications_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY notifications
+    ADD CONSTRAINT notifications_tenant_key_unique UNIQUE (tenant_id, key);
+
 ALTER TABLE ONLY org_invitations
     ADD CONSTRAINT org_invitations_pkey PRIMARY KEY (id);
 
@@ -6905,6 +7256,9 @@ ALTER TABLE ONLY slack_configurations
 ALTER TABLE ONLY slack_conversation_mappings
     ADD CONSTRAINT slack_conversation_mappings_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY slack_conversation_mappings
+    ADD CONSTRAINT slack_conversation_mappings_unique_deepsearch_id UNIQUE (tenant_id, deepsearch_conversation_id);
+
 ALTER TABLE ONLY sub_repo_permissions
     ADD CONSTRAINT sub_repo_permissions_pkey PRIMARY KEY (repo_id, user_id, version);
 
@@ -6974,6 +7328,9 @@ ALTER TABLE ONLY user_repo_permissions
 ALTER TABLE ONLY user_roles
     ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role_id);
 
+ALTER TABLE ONLY user_webauthn_credentials
+    ADD CONSTRAINT user_webauthn_credentials_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
 
@@ -7004,6 +7361,40 @@ ALTER TABLE ONLY webhooks
 ALTER TABLE ONLY zoekt_repos
     ADD CONSTRAINT zoekt_repos_pkey PRIMARY KEY (repo_id);
 
+CREATE INDEX abc_container_executions_tenant_idx ON abc_container_executions USING btree (tenant_id);
+
+CREATE INDEX abc_executor_tasks_dequeue_idx ON abc_executor_tasks USING btree (tenant_id, state, process_after) WHERE (state = 'queued'::text);
+
+CREATE INDEX abc_executor_tasks_instance_idx ON abc_executor_tasks USING btree (tenant_id, instance_id);
+
+CREATE INDEX abc_executor_tasks_state_idx ON abc_executor_tasks USING btree (tenant_id, state) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text]));
+
+CREATE INDEX abc_iteration_items_iterator_id_idx ON abc_iteration_items USING btree (tenant_id, iterator_id);
+
+CREATE INDEX abc_iteration_items_tenant_id_idx ON abc_iteration_items USING btree (tenant_id);
+
+CREATE INDEX abc_iteration_items_workflow_instance_idx ON abc_iteration_items USING btree (tenant_id, workflow_instance_id);
+
+CREATE INDEX abc_node_states_instance_idx ON abc_node_states USING btree (tenant_id, instance_id);
+
+CREATE INDEX abc_node_states_latest_idx ON abc_node_states USING btree (tenant_id, instance_id, created_at DESC);
+
+CREATE INDEX abc_node_states_tenant_idx ON abc_node_states USING btree (tenant_id);
+
+CREATE INDEX abc_workflow_instances_claimable_idx ON abc_workflow_instances USING btree (tenant_id, lifecycle_phase, claimed_at) WHERE (lifecycle_phase = ANY (ARRAY['queued'::text, 'running'::text]));
+
+CREATE INDEX abc_workflow_instances_created_at_idx ON abc_workflow_instances USING btree (tenant_id, workflow_id, created_at DESC);
+
+CREATE INDEX abc_workflow_instances_lifecycle_phase_idx ON abc_workflow_instances USING btree (tenant_id, lifecycle_phase) WHERE (lifecycle_phase = ANY (ARRAY['queued'::text, 'running'::text]));
+
+CREATE INDEX abc_workflow_instances_tenant_id_idx ON abc_workflow_instances USING btree (tenant_id);
+
+CREATE INDEX abc_workflow_instances_workflow_id_idx ON abc_workflow_instances USING btree (tenant_id, workflow_id);
+
+CREATE INDEX abc_workflows_created_at_idx ON abc_workflows USING btree (tenant_id, created_at DESC);
+
+CREATE INDEX abc_workflows_tenant_id_idx ON abc_workflows USING btree (tenant_id);
+
 CREATE INDEX access_requests_created_at ON access_requests USING btree (created_at);
 
 CREATE UNIQUE INDEX access_requests_email_key ON access_requests USING btree (email, tenant_id) WHERE (status = 'PENDING'::text);
@@ -7019,6 +7410,10 @@ CREATE INDEX app_id_idx ON github_app_installs USING btree (app_id);
 CREATE UNIQUE INDEX assigned_owners_file_path_owner ON assigned_owners USING btree (file_path_id, owner_user_id);
 
 CREATE UNIQUE INDEX assigned_teams_file_path_owner ON assigned_teams USING btree (file_path_id, owner_team_id);
+
+CREATE INDEX auth_provider_wizard_drafts_tenant_user_idx ON auth_provider_wizard_drafts USING btree (tenant_id, created_by_user_id);
+
+CREATE INDEX auth_provider_wizard_drafts_updated_at_idx ON auth_provider_wizard_drafts USING btree (tenant_id, updated_at DESC);
 
 CREATE INDEX batch_changes_namespace_org_id ON batch_changes USING btree (namespace_org_id);
 
@@ -7116,10 +7511,6 @@ CREATE UNIQUE INDEX codeintel_langugage_support_requests_user_id_language ON cod
 
 CREATE INDEX codeowners_owners_reference ON codeowners_owners USING btree (reference);
 
-CREATE INDEX completion_credits_consumption_interaction_uri_idx ON completion_credits_consumption USING btree (interaction_uri text_pattern_ops);
-
-CREATE INDEX completion_credits_consumption_modelref_idx ON completion_credits_consumption USING btree (modelref text_pattern_ops);
-
 CREATE INDEX configuration_policies_audit_logs_policy_id ON configuration_policies_audit_logs USING btree (policy_id);
 
 CREATE INDEX configuration_policies_audit_logs_timestamp ON configuration_policies_audit_logs USING brin (log_timestamp);
@@ -7142,9 +7533,19 @@ CREATE INDEX deepsearch_entitlement_usage_entitlement_id_idx ON deepsearch_entit
 
 CREATE INDEX deepsearch_entitlement_usage_user_id_idx ON deepsearch_entitlement_usage USING btree (user_id);
 
+CREATE INDEX deepsearch_question_jobs_dequeue_idx ON deepsearch_question_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX deepsearch_question_jobs_question_id_idx ON deepsearch_question_jobs USING btree (question_id);
+
 CREATE INDEX deepsearch_questions_conversation_id_idx ON deepsearch_questions USING btree (conversation_id);
 
 CREATE INDEX deepsearch_quota_user_id_idx ON deepsearch_quota USING btree (user_id);
+
+CREATE INDEX deepsearch_search_index_conversation_id_idx ON deepsearch_search_index USING btree (tenant_id, conversation_id);
+
+CREATE INDEX deepsearch_search_index_search_text_trgm_idx ON deepsearch_search_index USING gin (search_text gin_trgm_ops);
+
+CREATE INDEX deepsearch_search_queue_dequeue_idx ON deepsearch_search_queue USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
 CREATE INDEX entitlement_grants_user_id_idx ON entitlement_grants USING btree (user_id);
 
@@ -7340,6 +7741,10 @@ CREATE INDEX notebooks_namespace_user_id_idx ON notebooks USING btree (namespace
 
 CREATE INDEX notebooks_title_trgm_idx ON notebooks USING gin (title gin_trgm_ops);
 
+CREATE INDEX notifications_tenant_active_idx ON notifications USING btree (tenant_id) WHERE (dismissed_at IS NULL);
+
+CREATE INDEX notifications_tenant_severity_idx ON notifications USING btree (tenant_id, severity);
+
 CREATE INDEX org_invitations_org_id ON org_invitations USING btree (org_id) WHERE (deleted_at IS NULL);
 
 CREATE INDEX org_invitations_recipient_user_id ON org_invitations USING btree (recipient_user_id) WHERE (deleted_at IS NULL);
@@ -7506,6 +7911,8 @@ CREATE INDEX settings_user_id_idx ON settings USING btree (user_id);
 
 CREATE INDEX slack_conversation_mappings_channel_thread_idx ON slack_conversation_mappings USING btree (tenant_id, slack_channel, slack_thread_ts, created_at DESC);
 
+CREATE INDEX slack_conversation_mappings_conversation_id_idx ON slack_conversation_mappings USING btree (deepsearch_conversation_id);
+
 CREATE INDEX sub_repo_perms_user_id ON sub_repo_permissions USING btree (user_id);
 
 CREATE INDEX syntactic_scip_indexing_jobs_audit_logs_indexing_job_id ON syntactic_scip_indexing_jobs_audit_logs USING btree (job_id);
@@ -7550,6 +7957,10 @@ CREATE INDEX user_repo_permissions_updated_at_idx ON user_repo_permissions USING
 
 CREATE INDEX user_repo_permissions_user_external_account_id_idx ON user_repo_permissions USING btree (user_external_account_id);
 
+CREATE UNIQUE INDEX user_webauthn_credentials_tenant_credential_idx ON user_webauthn_credentials USING btree (tenant_id, credential_id);
+
+CREATE INDEX user_webauthn_credentials_tenant_user_active_idx ON user_webauthn_credentials USING btree (tenant_id, user_id) WHERE (revoked_at IS NULL);
+
 CREATE UNIQUE INDEX users_billing_customer_id ON users USING btree (billing_customer_id, tenant_id) WHERE (deleted_at IS NULL);
 
 CREATE INDEX users_created_at_idx ON users USING btree (created_at);
@@ -7579,6 +7990,8 @@ CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_insert AFTER INSERT 
 CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_update AFTER UPDATE ON batch_spec_workspace_execution_jobs REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert();
 
 CREATE TRIGGER changesets_update_computed_state BEFORE INSERT OR UPDATE ON changesets FOR EACH ROW EXECUTE FUNCTION changesets_computed_state_ensure();
+
+CREATE TRIGGER deepsearch_questions_search_queue_trg AFTER INSERT OR UPDATE ON deepsearch_questions FOR EACH ROW EXECUTE FUNCTION deepsearch_enqueue_question_for_search();
 
 CREATE TRIGGER enforce_single_entitlement_grant_type_per_user BEFORE INSERT OR UPDATE ON entitlement_grants FOR EACH ROW EXECUTE FUNCTION check_user_entitlement_grant_type();
 
@@ -7636,6 +8049,18 @@ CREATE TRIGGER update_own_aggregate_recent_contribution AFTER INSERT ON own_sign
 
 CREATE TRIGGER versions_insert BEFORE INSERT ON versions FOR EACH ROW EXECUTE FUNCTION versions_insert_row_trigger();
 
+ALTER TABLE ONLY abc_executor_tasks
+    ADD CONSTRAINT abc_executor_tasks_instance_id_fkey FOREIGN KEY (instance_id) REFERENCES abc_workflow_instances(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY abc_iteration_items
+    ADD CONSTRAINT abc_iteration_items_workflow_instance_id_fkey FOREIGN KEY (workflow_instance_id) REFERENCES abc_workflow_instances(id);
+
+ALTER TABLE ONLY abc_node_states
+    ADD CONSTRAINT abc_node_states_instance_id_fkey FOREIGN KEY (instance_id) REFERENCES abc_workflow_instances(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY abc_workflow_instances
+    ADD CONSTRAINT abc_workflow_instances_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES abc_workflows(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY access_requests
     ADD CONSTRAINT access_requests_decision_by_user_id_fkey FOREIGN KEY (decision_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
@@ -7665,6 +8090,9 @@ ALTER TABLE ONLY assigned_teams
 
 ALTER TABLE ONLY assigned_teams
     ADD CONSTRAINT assigned_teams_who_assigned_team_id_fkey FOREIGN KEY (who_assigned_team_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY auth_provider_wizard_drafts
+    ADD CONSTRAINT auth_provider_wizard_drafts_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY batch_changes
     ADD CONSTRAINT batch_changes_batch_spec_id_fkey FOREIGN KEY (batch_spec_id) REFERENCES batch_specs(id) DEFERRABLE;
@@ -7846,15 +8274,6 @@ ALTER TABLE ONLY codeowners_individual_stats
 ALTER TABLE ONLY codeowners
     ADD CONSTRAINT codeowners_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY completion_credits_consumption
-    ADD CONSTRAINT completion_credits_consumption_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY completion_credits_entitlement_window_usage
-    ADD CONSTRAINT completion_credits_entitlement_window_usage_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY completion_credits_entitlement_window_usage
-    ADD CONSTRAINT completion_credits_entitlement_window_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
 ALTER TABLE ONLY contributor_data
     ADD CONSTRAINT contributor_data_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
@@ -7876,11 +8295,23 @@ ALTER TABLE ONLY deepsearch_entitlement_usage
 ALTER TABLE ONLY deepsearch_entitlement_usage
     ADD CONSTRAINT deepsearch_entitlement_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY deepsearch_question_jobs
+    ADD CONSTRAINT deepsearch_question_jobs_question_id_fkey FOREIGN KEY (question_id) REFERENCES deepsearch_questions(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY deepsearch_questions
     ADD CONSTRAINT deepsearch_questions_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY deepsearch_quota
     ADD CONSTRAINT deepsearch_quota_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_search_index
+    ADD CONSTRAINT deepsearch_search_index_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_search_index
+    ADD CONSTRAINT deepsearch_search_index_question_id_fkey FOREIGN KEY (question_id) REFERENCES deepsearch_questions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_search_queue
+    ADD CONSTRAINT deepsearch_search_queue_question_id_fkey FOREIGN KEY (question_id) REFERENCES deepsearch_questions(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
@@ -8263,6 +8694,9 @@ ALTER TABLE ONLY user_roles
 ALTER TABLE ONLY user_roles
     ADD CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE DEFERRABLE;
 
+ALTER TABLE ONLY user_webauthn_credentials
+    ADD CONSTRAINT user_webauthn_credentials_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY webhook_logs
     ADD CONSTRAINT webhook_logs_external_service_id_fkey FOREIGN KEY (external_service_id) REFERENCES external_services(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
@@ -8278,6 +8712,18 @@ ALTER TABLE ONLY webhooks
 ALTER TABLE ONLY zoekt_repos
     ADD CONSTRAINT zoekt_repos_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
+ALTER TABLE abc_container_executions ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE abc_executor_tasks ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE abc_iteration_items ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE abc_node_states ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE abc_workflow_instances ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE abc_workflows ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE access_requests ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE access_tokens ENABLE ROW LEVEL SECURITY;
@@ -8287,6 +8733,8 @@ ALTER TABLE aggregated_user_statistics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assigned_owners ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE assigned_teams ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE auth_provider_wizard_drafts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_changes ENABLE ROW LEVEL SECURITY;
 
@@ -8362,10 +8810,6 @@ ALTER TABLE cody_audit_log ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE commit_authors ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE completion_credits_consumption ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE completion_credits_entitlement_window_usage ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE configuration_policies_audit_logs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE contributor_data ENABLE ROW LEVEL SECURITY;
@@ -8378,9 +8822,15 @@ ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_entitlement_usage ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE deepsearch_question_jobs ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE deepsearch_questions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_quota ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE deepsearch_search_index ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE deepsearch_search_queue ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
 
@@ -8493,6 +8943,8 @@ ALTER TABLE namespace_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notebook_stars ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE notebooks ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE org_invitations ENABLE ROW LEVEL SECURITY;
 
@@ -8612,6 +9064,18 @@ ALTER TABLE telemetry_events_export_queue ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE temporary_settings ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY tenant_isolation_policy ON abc_container_executions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON abc_executor_tasks USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON abc_iteration_items USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON abc_node_states USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON abc_workflow_instances USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON abc_workflows USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON access_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON access_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8621,6 +9085,8 @@ CREATE POLICY tenant_isolation_policy ON aggregated_user_statistics USING ((tena
 CREATE POLICY tenant_isolation_policy ON assigned_owners USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON assigned_teams USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON auth_provider_wizard_drafts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_changes USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8696,10 +9162,6 @@ CREATE POLICY tenant_isolation_policy ON cody_audit_log USING ((tenant_id = ( SE
 
 CREATE POLICY tenant_isolation_policy ON commit_authors USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON completion_credits_consumption USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON completion_credits_entitlement_window_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
 CREATE POLICY tenant_isolation_policy ON configuration_policies_audit_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON contributor_data USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8712,9 +9174,15 @@ CREATE POLICY tenant_isolation_policy ON deepsearch_conversations USING ((tenant
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON deepsearch_question_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
 CREATE POLICY tenant_isolation_policy ON deepsearch_questions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_quota USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON deepsearch_search_index USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON deepsearch_search_queue USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8827,6 +9295,8 @@ CREATE POLICY tenant_isolation_policy ON namespace_permissions USING ((tenant_id
 CREATE POLICY tenant_isolation_policy ON notebook_stars USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON notebooks USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON notifications USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON org_invitations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -8958,6 +9428,8 @@ CREATE POLICY tenant_isolation_policy ON user_repo_permissions USING ((tenant_id
 
 CREATE POLICY tenant_isolation_policy ON user_roles USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON user_webauthn_credentials USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON users USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON vulnerabilities USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -8985,6 +9457,8 @@ ALTER TABLE user_external_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_repo_permissions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE user_webauthn_credentials ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 

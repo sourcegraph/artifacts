@@ -63,7 +63,8 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "DEPRECATED. p4-fusion is always enabled.",
+          "deprecationMessage": "DEPRECATED: p4-fusion is always enabled",
+          "description": "DEPRECATED: p4-fusion is always enabled",
           "type": "boolean",
           "default": false
         },
