@@ -24,6 +24,21 @@ type TelemetryQuery {
         """
         after: String
     ): ExportedEventsConnection!
+
+    """
+    List events that are currently queued for export. Events are removed from
+    this result set as they are exported.
+    """
+    eventsQueuedForExport(
+        """
+        Returns the first n queued events.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): QueuedEventsConnection!
 }
 
 """
@@ -42,6 +57,46 @@ type ExportedEvent {
     The raw event payload that was exported, rendered as JSON.
     """
     payload: JSONValue!
+}
+
+"""
+QueuedEvent represents a telemetry event that is queued for export. Events are
+removed from this result set as they are exported.
+"""
+type QueuedEvent {
+    """
+    The unique id of the event queued for export.
+    """
+    id: ID!
+    """
+    The time this event was queued for export.
+    """
+    queuedAt: DateTime!
+    """
+    The raw event payload that is queued for export, rendered as JSON.
+    """
+    payload: JSONValue!
+}
+
+"""
+A list of telemetry events currently queued for export. Events are removed
+from this result set as they are exported.
+"""
+type QueuedEventsConnection {
+    """
+    A list of queued events, with the most recently queued events first.
+    """
+    nodes: [QueuedEvent!]!
+
+    """
+    The total number of events in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
 }
 
 """

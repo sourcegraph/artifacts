@@ -176,6 +176,14 @@
           "!go": {
             "pointer": true
           }
+        },
+        "smartHover": {
+          "description": "Controls whether you see AI-generated summaries in hover tooltips. Set to false to opt out.",
+          "type": "boolean",
+          "default": true,
+          "!go": {
+            "pointer": true
+          }
         }
       },
       "group": "Experimental"
