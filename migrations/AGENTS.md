@@ -50,7 +50,7 @@ parents: [1234567890, 1234567891] # Required: Parent migration IDs
   - Allows the index to be built without blocking writes
   - Use for large tables in production
   - **Important**: The up.sql must use `CREATE INDEX CONCURRENTLY`, not regular `CREATE INDEX`
-- **`bestEffortTerminateBlockingTransactions`** (boolean, optional): Set to `true` to periodically kill transactions blocking the migration. Use for:
+- **`bestEffortTerminateBlockingTransactions`** (boolean, optional): Set to `false` to disable periodically killing transactions blocking the migration. Enabled by default, this is used to help with:
   - Long-running migrations on high-traffic tables
   - RLS policy changes
   - Constraint additions that need exclusive locks

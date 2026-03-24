@@ -4021,7 +4021,7 @@ type RepositoryConnection {
     """
     Pagination information.
     """
-    pageInfo: PageInfo!
+    pageInfo: ConnectionPageInfo!
 }
 
 """
@@ -4068,6 +4068,10 @@ type Repository implements Node & GenericSearchResultInterface {
     The repository's description.
     """
     description: String!
+    """
+    Repository icon URL, when provided by the code host metadata.
+    """
+    iconURL: String
     """
     The primary programming language in the repository.
     """
@@ -4842,6 +4846,10 @@ type MirrorRepositoryInfo {
     """
     updatedAt: DateTime
     """
+    When the repository content last changed (i.e., when commits were last added).
+    """
+    lastChanged: DateTime
+    """
     When the repository is next scheduled to be updated from the remote source repository.
     """
     nextSyncAt: DateTime
@@ -5216,6 +5224,20 @@ type RepositoryComparison {
     This is more efficient than counting all file diffs when only the total count is needed.
     """
     totalDiffCount: Int!
+    """
+    The list of files that changed in this comparison.
+    This is more efficient than fileDiffs when only file paths and statuses are needed.
+    """
+    changedFiles(
+        """
+        Return the first n changed files. Defaults to 1000 and is capped at 5000.
+        """
+        first: Int
+        """
+        Return changed files after the given cursor.
+        """
+        after: String
+    ): ChangedFileConnection!
 }
 
 """
@@ -5245,6 +5267,66 @@ type FileDiffConnection {
     paginated.
     """
     rawDiff: String!
+}
+
+"""
+A list of changed files in a comparison.
+"""
+type ChangedFileConnection {
+    """
+    The list of changed files.
+    """
+    nodes: [ChangedFile!]!
+    """
+    The total count of changed files.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+A file that was changed in a comparison.
+"""
+type ChangedFile {
+    """
+    The path of the file.
+    """
+    path: String!
+    """
+    The status of the change.
+    """
+    status: ChangedFileStatus!
+    """
+    The file object. For deletions, this is the old file. For all other changes, this is the new file.
+    """
+    file: File2!
+}
+
+"""
+The type of change for a file.
+"""
+enum ChangedFileStatus {
+    """
+    The file was added.
+    """
+    ADDED
+    """
+    The file contents were modified.
+    """
+    MODIFIED
+    """
+    The file was deleted.
+    """
+    DELETED
+    """
+    Git reported a type change (`T` in `git diff-tree --name-status`), meaning the object
+    type changed at the same path (for example, regular file to symlink, symlink to regular
+    file, or file to submodule).
+    """
+    TYPE_CHANGED
 }
 
 """
@@ -5906,6 +5988,46 @@ type GitCommit implements Node {
         """
         base: String
     ): RepositoryComparison!
+    """
+    The Git tags that contain this commit.
+    """
+    tags(
+        """
+        Returns the first n tags from the list.
+        """
+        first: Int
+    ): GitRefConnection!
+
+    """
+    Git notes attached to this commit.
+    """
+    notes: [GitNote!]!
+}
+
+"""
+A git note attached to a commit under a specific namespace (refs/notes/<namespace>).
+"""
+interface GitNote {
+    """
+    The namespace (e.g. "commits", "ai", "review").
+    Corresponds to refs/notes/<namespace>.
+    """
+    namespace: String!
+}
+
+"""
+A generic git note with no special parsing.
+Used for any namespace that doesn't have a dedicated typed representation.
+"""
+type GenericGitNote implements GitNote {
+    """
+    The notes namespace (e.g. "ai", "commits", "review").
+    """
+    namespace: String!
+    """
+    The raw text content of the note.
+    """
+    body: String!
 }
 
 """
@@ -7026,6 +7148,10 @@ type User implements Node & SettingsSubject & Namespace {
         Returns the first n access tokens from the list.
         """
         first: Int
+        """
+        If true, include expired access tokens in the results.
+        """
+        includeExpired: Boolean
     ): AccessTokenConnection!
     """
     A list of external accounts that are associated with the user.
@@ -7173,6 +7299,11 @@ type AccessToken implements Node {
     If non-null, the token may no longer be used after this date.
     """
     expiresAt: DateTime
+    """
+    The last 5 characters of the token, useful for identifying which token is configured.
+    Only available for tokens created starting with Sourcegraph 6.13.
+    """
+    tokenLastChars: String
 }
 
 """
@@ -7669,6 +7800,14 @@ enum RepositoryOrderBy {
     """
     REPOSITORY_CREATED_AT
     SIZE
+    """
+    Order by the repository's star count (from the code host).
+    """
+    STARS
+    """
+    Order by the last time the repository content changed (most recent activity first by default).
+    """
+    LAST_CHANGED
 }
 
 """
@@ -7789,6 +7928,10 @@ type Site implements SettingsSubject {
         Returns the first n access tokens from the list.
         """
         first: Int
+        """
+        If true, include expired access tokens in the results.
+        """
+        includeExpired: Boolean
     ): AccessTokenConnection!
     """
     A list of all authentication providers. This information is visible to all viewers and does not contain any
@@ -7911,10 +8054,6 @@ type Site implements SettingsSubject {
     BACKCOMPAT: Always returns true.
     """
     hasCodeIntelligence: Boolean!
-    """
-    Whether site admins are required to register and verify with a passkey.
-    """
-    adminRequiresPasskeys: Boolean!
     """
     Whether the server sends emails to users to verify email addresses. If false, then site admins must manually
     verify users' email addresses.
@@ -9009,32 +9148,6 @@ type CloningProgress {
 }
 
 """
-FOR INTERNAL USE ONLY: A status message produced when repositories could not
-be synced from an external service
-"""
-type ExternalServiceSyncError {
-    """
-    The message of this status message
-    """
-    message: String!
-    """
-    The external service that failed to sync
-    """
-    externalService: ExternalService!
-}
-
-"""
-FOR INTERNAL USE ONLY: A status message produced when repositories could not
-be synced
-"""
-type SyncError {
-    """
-    The message of this status message
-    """
-    message: String!
-}
-
-"""
 FOR INTERNAL USE ONLY: A status message produced when repositories are being
 indexed for search.
 """
@@ -9056,8 +9169,6 @@ union StatusMessage =
     | GitUpdatesDisabled
     | NoRepositoriesDetected
     | CloningProgress
-    | ExternalServiceSyncError
-    | SyncError
     | IndexingProgress
     | GitserverDiskThresholdReached
     | SlackConfigurationError
@@ -10321,6 +10432,11 @@ enum PermissionNamespace {
     LIBRARY
 
     """
+    Permissions related to managing global search contexts.
+    """
+    SEARCH_CONTEXTS
+
+    """
     Permissions related to managing repository permissions.
     """
     REPO_PERMISSIONS
@@ -10917,9 +11033,9 @@ Configuration for the Slack bot integration.
 """
 type SlackConfiguration {
     """
-    Whether the Slack bot is fully configured (both signing secret and bot token are set).
+    Unique identifier for this Slack configuration.
     """
-    isSetup: Boolean!
+    id: ID!
 
     """
     When the Slack configuration was created.
@@ -10942,6 +11058,13 @@ type SlackConfiguration {
     Usage statistics for the Slack integration.
     """
     usage: SlackIntegrationUsage
+
+    """
+    Whether Deep Search is allowed in the Slack integration. When false,
+    @mentions and DMs to the bot will not trigger Deep Search, but link
+    unfurling still works.
+    """
+    allowDeepSearch: Boolean!
 }
 
 """
@@ -11021,20 +11144,22 @@ type SlackIntegrationEventCounts {
 
 extend type Query {
     """
-    The current Slack bot integration configuration.
+    All configured Slack bot integrations.
     """
-    slackConfiguration: SlackConfiguration
+    slackConfigurations: [SlackConfiguration!]!
 }
 
 extend type Mutation {
     """
-    Stores config for the Slack bot integration. If Query.slackConfiguration.isSetup is true
-    this mutation will fail, at this time only one Slack connection can be configured.
+    Stores config for a Slack bot integration.
     """
     connectSlackWorkspace(signingSecret: String!, botToken: String!): EmptyResponse!
     """
-    Removes config for the Slack bot integration. If Query.slackConfiguration.isSetup is false
-    this mutation will fail.
+    Removes config for a Slack bot integration.
     """
-    disconnectSlackWorkspace: EmptyResponse!
+    disconnectSlackWorkspace(id: ID!): EmptyResponse!
+    """
+    Updates whether Deep Search is allowed for a Slack bot integration.
+    """
+    setSlackAllowDeepSearch(id: ID!, allow: Boolean!): EmptyResponse!
 }

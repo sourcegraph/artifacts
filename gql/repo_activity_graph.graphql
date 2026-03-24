@@ -1,0 +1,51 @@
+"""
+Granularity of an activity graph data point.
+"""
+enum RepoActivityGraphGranularity {
+    DAY
+    WEEK
+    MONTH
+}
+
+"""
+A single data point in the repository activity graph.
+"""
+type RepoActivityGraphPoint {
+    """
+    The start of the time bucket (midnight UTC).
+    """
+    date: DateTime!
+
+    """
+    The number of commits in this time bucket.
+    """
+    commitCount: Int!
+
+    """
+    The granularity of this data point.
+    """
+    granularity: RepoActivityGraphGranularity!
+}
+
+"""
+The activity graph for a repository, showing commit activity over time.
+"""
+type RepoActivityGraph {
+    """
+    The data points, ordered by date ascending. Combines daily, weekly, and monthly points.
+    """
+    points: [RepoActivityGraphPoint!]!
+
+    """
+    When the activity data was last updated, or null if never processed.
+    """
+    lastUpdatedAt: DateTime
+}
+
+extend type Repository {
+    """
+    The activity graph for this repository, showing commit counts over time.
+    Returns null if activity data has not been computed yet.
+    """
+    activityGraph: RepoActivityGraph
+}

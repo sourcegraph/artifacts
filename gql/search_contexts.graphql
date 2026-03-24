@@ -147,7 +147,7 @@ type SearchContext implements Node {
     any user on the instance. If a public search context contains private repositories, those are filtered out
     for unauthorized users. Private search contexts are only available to their owners. Private user search context
     is available only to the user, private org search context is available only to the members of the org, and private
-    instance-level search contexts are available only to site-admins.
+    instance-level search contexts are available only to users with SEARCH_CONTEXTS#WRITE_GLOBAL permission.
     """
     public: Boolean!
     """
@@ -230,7 +230,7 @@ input SearchContextInput {
     any user on the instance. If a public search context contains private repositories, those are filtered out
     for unauthorized users. Private search contexts are only available to their owners. Private user search context
     is available only to the user, private org search context is available only to the members of the org, and private
-    instance-level search contexts are available only to site-admins.
+    instance-level search contexts are available only to users with SEARCH_CONTEXTS#WRITE_GLOBAL permission.
     """
     public: Boolean!
     """
@@ -264,7 +264,7 @@ input SearchContextEditInput {
     any user on the instance. If a public search context contains private repositories, those are filtered out
     for unauthorized users. Private search contexts are only available to their owners. Private user search context
     is available only to the user, private org search context is available only to the members of the org, and private
-    instance-level search contexts are available only to site-admins.
+    instance-level search contexts are available only to users with SEARCH_CONTEXTS#WRITE_GLOBAL permission.
     """
     public: Boolean!
     """

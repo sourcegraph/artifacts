@@ -166,7 +166,7 @@ Entitlement defines configurable limits for LLM credit consumption by users
 or other principals. It allows site admins to control and distribute LLM spend
 by setting quotas with specific time windows.
 """
-type Entitlement {
+type Entitlement implements Node {
     """
     The ID of the entitlement.
     """
@@ -258,17 +258,13 @@ UserEntitlement maps a user to an entitlement.
 """
 type UserEntitlement {
     """
-    The ID of the entitlement.
-    """
-    entitlementID: ID!
-    """
     The entitlement that was granted.
     """
     entitlement: Entitlement!
     """
-    The ID of the user.
+    The user who has this entitlement.
     """
-    userID: ID!
+    user: User!
     """
     Whether this is a default entitlement (true when the user has no explicit grant for this type).
     """

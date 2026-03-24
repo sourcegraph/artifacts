@@ -64,6 +64,12 @@ enum AgenticWorkflowInstanceStatus {
     RUNNING
 
     """
+    The instance is paused and will not make progress until unpaused.
+    Asynchronous nodes may continue to run, but progress will not be tracked until the instance is resumed.
+    """
+    PAUSED
+
+    """
     The instance completed successfully.
     """
     COMPLETE
@@ -104,6 +110,54 @@ type AgenticWorkflowInstance implements Node {
     The current status of the instance.
     """
     status: AgenticWorkflowInstanceStatus!
+
+    """
+    EXPERIMENTAL: The current variable state of the instance as a JSON object.
+    Secrets are redacted. Updated as nodes complete.
+    """
+    variables: String!
+
+    """
+    The historical node states for this instance, ordered by creation time.
+    """
+    nodeStates: [AgenticWorkflowInstanceNodeState!]!
+}
+
+"""
+A snapshot of a node's state within a workflow instance. A new snapshot is added each time the node's lifecycle phase changes.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticWorkflowInstanceNodeState {
+    """
+    The ID of the node spec this state belongs to.
+    """
+    nodeSpecID: String!
+
+    """
+    The type of the node (e.g. decision, wait).
+    """
+    nodeType: String!
+
+    """
+    The lifecycle phase of the node.
+    """
+    lifecyclePhase: AgenticWorkflowInstanceStatus!
+
+    """
+    The output produced by the node, if any.
+    """
+    output: String!
+
+    """
+    The recorded error for this node state, if any.
+    """
+    error: String
+
+    """
+    When this state snapshot was created.
+    """
+    createdAt: DateTime!
 }
 
 """
@@ -184,5 +238,29 @@ extend type Mutation {
         Optional input for the instance.
         """
         input: String
+    ): AgenticWorkflowInstance!
+
+    """
+    Pause a running workflow instance. Only running instances can be paused.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    pauseAgenticWorkflowInstance(
+        """
+        The ID of the instance to pause.
+        """
+        instanceID: ID!
+    ): AgenticWorkflowInstance!
+
+    """
+    Unpause a paused workflow instance, resuming execution.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    unpauseAgenticWorkflowInstance(
+        """
+        The ID of the instance to unpause.
+        """
+        instanceID: ID!
     ): AgenticWorkflowInstance!
 }

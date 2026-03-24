@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS pending_repo_permissions_service_bind;

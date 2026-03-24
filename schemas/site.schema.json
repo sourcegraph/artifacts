@@ -707,7 +707,8 @@
           }
         },
         "deepSearch.enabled": {
-          "description": "Enable/disable the Deep Search feature",
+          "description": "DEPRECATED: Configure this using top-level `deepSearch.enabled` instead.",
+          "deprecationMessage": "DEPRECATED: Configure this using top-level `deepSearch.enabled` instead.",
           "type": "boolean",
           "!go": {
             "pointer": true
@@ -721,7 +722,8 @@
           "default": "anthropic::2024-10-22::claude-sonnet-4-latest"
         },
         "deepSearch.sharing.enabled": {
-          "description": "Enable/disable sharing of Deep Search conversations via read tokens",
+          "description": "DEPRECATED: Configure this using top-level `deepSearch.sharing.enabled` instead.",
+          "deprecationMessage": "DEPRECATED: Configure this using top-level `deepSearch.sharing.enabled` instead.",
           "type": "boolean",
           "!go": {
             "pointer": true
@@ -749,6 +751,22 @@
       },
       "group": "Experimental"
     },
+    "deepSearch.enabled": {
+      "description": "Enable/disable the Deep Search feature",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "default": false
+    },
+    "deepSearch.sharing.enabled": {
+      "description": "Enable/disable sharing of Deep Search conversations via read tokens",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "default": false
+    },
     "deepSearch.worker.enabled": {
       "description": "Use database-backed worker for Deep Search question processing instead of in-memory worker pool. Enables persistence across frontend restarts.",
       "type": "boolean",
@@ -765,6 +783,12 @@
       },
       "group": "BatchChanges",
       "default": true
+    },
+    "batchChanges.nativeServerSideExecution": {
+      "description": "Enables/disables native server-side execution for Batch Changes workspaces. ONLY ENABLE THIS IF YOU ARE USING EXECUTORS ON KUBERNETES.",
+      "type": "boolean",
+      "group": "BatchChanges",
+      "default": false
     },
     "batchChanges.enforceForks": {
       "description": "When enabled, all branches created by batch changes will be pushed to forks of the original repository.",
@@ -1785,6 +1809,23 @@
                   "default": 1
                 }
               }
+            },
+            "agenticbatchchanges": {
+              "description": "The configuration for the agentic batch changes queue.",
+              "type": "object",
+              "required": ["limit", "weight"],
+              "properties": {
+                "limit": {
+                  "description": "The maximum number of dequeues allowed within the expiration window.",
+                  "type": "integer",
+                  "default": 50
+                },
+                "weight": {
+                  "description": "The relative weight of this queue. Higher weights mean a higher chance of being picked at random.",
+                  "type": "integer",
+                  "default": 1
+                }
+              }
             }
           }
         }
@@ -1944,9 +1985,9 @@
           "default": "selective"
         },
         "type": {
-          "description": "Determines what tracing provider to enable. For \"opentelemetry\", the required backend is an OpenTelemetry collector instance (deployed by default with Sourcegraph). The \"jaeger\" option is deprecated and will be removed.",
+          "description": "Determines what tracing provider to enable. For \"opentelemetry\", the required backend is an OpenTelemetry collector instance (deployed by default with Sourcegraph).",
           "type": "string",
-          "enum": ["opentelemetry", "jaeger"],
+          "enum": ["opentelemetry"],
           "default": "opentelemetry"
         },
         "debug": {
@@ -2505,18 +2546,6 @@
       "default": 14400,
       "group": "Authentication"
     },
-    "auth.adminPasskeyRequired": {
-      "description": "Requires site admin users to verify their identity using a FIDO2/WebAuthn passkey before accessing admin pages. When enabled, admins must register at least one passkey and re-verify periodically (default: every hour). This provides step-up authentication for sensitive admin operations.",
-      "type": "boolean",
-      "default": false,
-      "group": "Authentication"
-    },
-    "auth.adminPasskeyPINRequired": {
-      "description": "Requires PIN or biometric verification when using admin passkeys. When enabled, authenticators must support and perform user verification (PIN entry, fingerprint, face recognition, etc.). This provides stronger assurance that the person using the passkey is the legitimate owner.",
-      "type": "boolean",
-      "default": false,
-      "group": "Authentication"
-    },
     "auth.enforceExternalAccountConnection": {
       "description": "When enabled, users are required to connect at least one external account to their Sourcegraph account. Site admins are exempt from this requirement.",
       "type": "boolean",
@@ -2605,7 +2634,8 @@
       "default": 3
     },
     "update.channel": {
-      "description": "The channel on which to automatically check for Sourcegraph updates.",
+      "description": "DEPRECATED: This setting has no effect.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect.",
       "type": ["string"],
       "enum": ["release", "none"],
       "default": "release",
@@ -2719,7 +2749,7 @@
           "default": 48
         },
         "signingKey": {
-          "description": "Base64 encoded HMAC Signing key to sign a JWT token, which is attached to each invitation URL.\nMore documentation here: https://pkg.go.dev/github.com/golang-jwt/jwt#SigningMethodHMAC \n\nIf not provided, will fall back to legacy invitation to an organization.\n\nThe legacy invitation will be deprecated in the future and creating an organization invitation will fail with an error if this setting is not present.",
+          "description": "Base64 encoded HMAC signing key to sign a JWT token, which is attached to each invitation URL.\nMore documentation here: https://pkg.go.dev/github.com/golang-jwt/jwt#SigningMethodHMAC",
           "type": "string"
         }
       },
@@ -3896,7 +3926,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["awsBedrockProvisionedThroughput", "awsBedrock", "openaicompatible", "fireworks"]
+          "enum": ["awsBedrockProvisionedThroughput", "awsBedrock", "openaicompatible"]
         }
       },
       "oneOf": [
@@ -3908,9 +3938,6 @@
         },
         {
           "$ref": "#/definitions/ServerSideModelConfigOpenAICompatible"
-        },
-        {
-          "$ref": "#/definitions/ServerSideModelConfigFireworks"
         },
         {
           "$ref": "#/definitions/DoNotUsePhonyDiscriminantType"
@@ -3963,22 +3990,6 @@
         "apiModel": {
           "description": "The literal string value of the 'model' field that will be sent to the /chat/completions API, for example. If set, Sourcegraph treats this as an opaque string and sends it directly to the API, inferring no information from it. By default, the configured model name is sent.",
           "type": "string"
-        }
-      }
-    },
-    "ServerSideModelConfigFireworks": {
-      "description": "Fireworks-specific model configuration. Use this to configure direct route deployments for Fireworks models.",
-      "type": "object",
-      "required": ["type"],
-      "properties": {
-        "type": {
-          "type": "string",
-          "const": "fireworks"
-        },
-        "directRouteDeploymentID": {
-          "description": "The deployment ID of a Fireworks direct route for this model. Cody Gateway constructs the URL from this ID (https://sourcegraph-{id}.direct.fireworks.ai). Find this in Fireworks console or via 'firectl get deployment'. Example: 'yz2cbico'",
-          "type": "string",
-          "pattern": "^[a-z0-9-]+$"
         }
       }
     },

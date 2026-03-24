@@ -131,41 +131,6 @@ extend type Mutation {
     ): EmptyResponse
 
     """
-    Marks a precise index as replaceable by auto-indexing.
-    """
-    reindexPreciseIndex(id: ID!): EmptyResponse
-
-    """
-    Marks precise indexes by filter criteria as replaceable by auto-indexing.
-    """
-    reindexPreciseIndexes(
-        """
-        An (optional) search query that filters the state, repository name, commit, root, and indexer properties.
-        """
-        query: String
-
-        """
-        The index state.
-        """
-        states: [PreciseIndexState!]
-
-        """
-        If supplied, only precise indexes created by an indexer with the given key are modified.
-        """
-        indexerKey: String
-
-        """
-        When specified, only modifies indexes that are latest for the given repository.
-        """
-        isLatestForRepo: Boolean
-
-        """
-        The repository.
-        """
-        repository: ID
-    ): EmptyResponse
-
-    """
     Queues the index jobs for a repository for execution. An optional resolvable revhash
     (commit, branch name, or tag name) can be specified; by default the tip of the default
     branch will be used.
@@ -668,6 +633,12 @@ type CodeIntelSummary {
         that is returned.
         """
         after: String
+
+        """
+        Maximum age in days. When specified, only records newer than
+        this many days are included. When not specified, all records are included.
+        """
+        maxAge: Int
     ): CodeIntelRepositoryWithErrorConnection!
 
     """

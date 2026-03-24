@@ -1,0 +1,1 @@
+ALTER TABLE abc_node_states ADD COLUMN IF NOT EXISTS error TEXT;

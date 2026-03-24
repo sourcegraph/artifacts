@@ -1,27 +1,3 @@
-extend interface TreeEntry {
-    """
-    LSIF data for this tree entry.
-    """
-    lsif(
-        """
-        An optional filter for the name of the tool that produced the upload data.
-        """
-        toolName: String
-    ): TreeEntryLSIFData
-}
-
-extend type GitTree {
-    """
-    LSIF data for this tree entry.
-    """
-    lsif(
-        """
-        An optional filter for the name of the tool that produced the upload data.
-        """
-        toolName: String
-    ): GitTreeLSIFData
-}
-
 extend type GitBlob {
     """
     A wrapper around LSIF query methods. If no LSIF upload can be used to answer code
@@ -337,32 +313,10 @@ enum SymbolRole {
 }
 
 """
-LSIF data available for a tree entry (file OR directory, see GitBlobLSIFData for file-specific
-resolvers and GitTreeLSIFData for directory-specific resolvers.)
-"""
-interface TreeEntryLSIFData {
-    """
-    Code diagnostics provided through LSIF.
-    """
-    diagnostics(first: Int): DiagnosticConnection!
-}
-
-"""
-A wrapper object around LSIF query methods for a particular git-tree-at-revision. When this node is
-null, no LSIF data is available for the git tree in question.
-"""
-type GitTreeLSIFData implements TreeEntryLSIFData {
-    """
-    Code diagnostics provided through LSIF.
-    """
-    diagnostics(first: Int): DiagnosticConnection!
-}
-
-"""
 A wrapper object around LSIF query methods for a particular git-blob-at-revision. When this node is
 null, no LSIF data is available for the git blob in question.
 """
-type GitBlobLSIFData implements TreeEntryLSIFData {
+type GitBlobLSIFData {
     """
     Return a flat list of all ranges in the document that have code intelligence.
     """
@@ -517,11 +471,6 @@ type GitBlobLSIFData implements TreeEntryLSIFData {
         """
         character: Int!
     ): Hover
-
-    """
-    Code diagnostics provided through LSIF.
-    """
-    diagnostics(first: Int): DiagnosticConnection!
 
     """
     The indexes that could provide precise code intelligence for the current blob.
@@ -1069,67 +1018,6 @@ type Hover {
     Lazy-loaded - only computed when requested. Returns null if summary cannot be generated.
     """
     summary: Markdown
-}
-
-"""
-A list of diagnostics.
-"""
-type DiagnosticConnection {
-    """
-    A list of diagnostics.
-    """
-    nodes: [Diagnostic!]!
-
-    """
-    The total count of diagnostics (which may be larger than nodes.length if the connection is paginated).
-    """
-    totalCount: Int
-
-    """
-    Pagination information.
-    """
-    pageInfo: PageInfo!
-}
-
-"""
-Represents a diagnostic, such as a compiler error or warning.
-"""
-type Diagnostic {
-    """
-    The location at which the message applies.
-    """
-    location: Location!
-
-    """
-    The diagnostic's severity.
-    """
-    severity: DiagnosticSeverity
-
-    """
-    The diagnostic's code as provided by the tool.
-    """
-    code: String
-
-    """
-    A human-readable string describing the source of this
-    diagnostic, e.g. "typescript" or "super lint".
-    """
-    source: String
-
-    """
-    The diagnostic's message.
-    """
-    message: String
-}
-
-"""
-Represents the severity level of a diagnostic.
-"""
-enum DiagnosticSeverity {
-    ERROR
-    WARNING
-    INFORMATION
-    HINT
 }
 
 """

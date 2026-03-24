@@ -486,6 +486,14 @@
       "!go": {
         "pointer": true
       }
+    },
+    "deepSearch.slackCta.disabled": {
+      "description": "Disable the Slack community call-to-action banner on the Deep Search page.",
+      "type": "boolean",
+      "default": false,
+      "!go": {
+        "pointer": true
+      }
     }
   },
   "definitions": {

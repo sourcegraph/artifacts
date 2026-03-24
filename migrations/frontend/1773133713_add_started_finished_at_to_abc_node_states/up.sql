@@ -1,0 +1,5 @@
+ALTER TABLE abc_node_states ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE abc_node_states ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE abc_workflow_instances
+ALTER COLUMN workflow_id DROP NOT NULL;
