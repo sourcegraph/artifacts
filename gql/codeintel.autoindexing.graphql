@@ -128,6 +128,11 @@ extend type Mutation {
         The repository.
         """
         repository: ID
+
+        """
+        If supplied, only deletes indexes from the given source (AUTO_INDEX or UPLOAD).
+        """
+        indexSource: PreciseIndexSource
     ): EmptyResponse
 
     """

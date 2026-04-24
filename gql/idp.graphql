@@ -123,7 +123,7 @@ extend type Mutation {
     revokeIDPClientConsent(consentID: ID!): EmptyResponse
     """
     Create a new M2M (Machine-to-Machine) credential for a service account.
-    This creates an IDP client that can use client credentials flow to obtain
+    This creates an IdP client that can use client credentials flow to obtain
     access tokens with the service account as the subject.
 
     Requires IDP_CLIENTS#WRITE_IMPERSONATION permission.
@@ -148,7 +148,7 @@ extend type Mutation {
     ): CreateM2MCredentialResult!
     """
     Delete an M2M credential for a service account.
-    This will delete the associated IDP client and invalidate all access tokens.
+    This will delete the associated IdP client and invalidate all access tokens.
 
     Requires IDP_CLIENTS#WRITE_IMPERSONATION permission.
     """
@@ -166,7 +166,7 @@ extend type User {
     consentedIDPClients(first: Int = 50, after: String): UserConsentedIDPClientConnection!
     """
     Get the list of M2M (Machine-to-Machine) credentials for this service account.
-    Each credential corresponds to an IDP client that can use the client credentials
+    Each credential corresponds to an IdP client that can use the client credentials
     flow to obtain access tokens with this service account as the subject.
 
     Only available for service accounts and requires IDP_CLIENTS#READ permission.
@@ -377,7 +377,7 @@ type UserConsentedIDPClientConnection {
 
 """
 Represents an M2M (Machine-to-Machine) credential for a service account.
-Each credential corresponds to an IDP client that can use client credentials flow.
+Each credential corresponds to an IdP client that can use client credentials flow.
 """
 type M2MCredential implements Node {
     """
@@ -393,7 +393,7 @@ type M2MCredential implements Node {
     """
     description: String
     """
-    The underlying IDP client that implements this credential.
+    The underlying IdP client that implements this credential.
     """
     client: IDPClient!
     """
@@ -438,7 +438,7 @@ type CreateM2MCredentialResult {
     """
     credential: M2MCredential!
     """
-    The client secret for the underlying IDP client, only accessible in this
+    The client secret for the underlying IdP client, only accessible in this
     response and never again.
     This is used for client credentials flow authentication.
     """

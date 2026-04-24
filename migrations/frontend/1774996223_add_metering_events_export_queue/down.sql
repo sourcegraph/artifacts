@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS metering_events_export_queue_created_at_idx;
+DROP INDEX IF EXISTS metering_events_export_queue_export_order_idx;
+DROP TABLE IF EXISTS metering_events_export_queue;

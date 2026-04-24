@@ -1,0 +1,1 @@
+ALTER TABLE executor_artifacts ADD COLUMN IF NOT EXISTS job_id BIGINT;

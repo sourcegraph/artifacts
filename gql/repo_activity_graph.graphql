@@ -3,7 +3,6 @@ Granularity of an activity graph data point.
 """
 enum RepoActivityGraphGranularity {
     DAY
-    WEEK
     MONTH
 }
 
@@ -32,7 +31,7 @@ The activity graph for a repository, showing commit activity over time.
 """
 type RepoActivityGraph {
     """
-    The data points, ordered by date ascending. Combines daily, weekly, and monthly points.
+    The data points, ordered by date ascending. Combines daily and monthly points.
     """
     points: [RepoActivityGraphPoint!]!
 

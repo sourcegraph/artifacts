@@ -767,14 +767,6 @@
       },
       "default": false
     },
-    "deepSearch.worker.enabled": {
-      "description": "Use database-backed worker for Deep Search question processing instead of in-memory worker pool. Enables persistence across frontend restarts.",
-      "type": "boolean",
-      "!go": {
-        "pointer": true
-      },
-      "default": true
-    },
     "batchChanges.enabled": {
       "description": "Enables/disables the Batch Changes feature.",
       "type": "boolean",
@@ -992,7 +984,9 @@
     "search.aiQueryHelper.enabled": {
       "description": "Enable AI query helper mode in search, including natural language query translation suggestions.",
       "type": "boolean",
-      "default": false,
+      "!go": {
+        "pointer": true
+      },
       "group": "Search"
     },
     "disableChangelog": {
@@ -2590,13 +2584,21 @@
       ]
     },
     "auth.idpDynamicClientRegistrationEnabled": {
-      "description": "Enables OAuth 2.0 Dynamic Client Registration (RFC 7591) for the Sourcegraph identity provider. When enabled, OAuth clients can self-register programmatically instead of requiring manual pre-configuration. Required for MCP clients and other applications that use dynamic registration for authorization.",
+      "description": "Enables OAuth 2.0 Dynamic Client Registration (RFC 7591) for the Sourcegraph identity provider. When enabled, OAuth clients can self-register programmatically instead of requiring manual pre-configuration. This is used for MCP clients; if `mcp.enabled` is `false`, this setting is treated as `false`.",
       "type": "boolean",
       "default": true,
       "!go": {
         "pointer": true
       },
       "group": "Authentication"
+    },
+    "mcp.enabled": {
+      "description": "Enable/disable MCP API endpoints under `/.api/mcp`. When disabled, MCP endpoints return 404.",
+      "type": "boolean",
+      "default": true,
+      "!go": {
+        "pointer": true
+      }
     },
     "auth.unlockAccountLinkExpiry": {
       "description": "Validity expressed in minutes of the unlock account token",
@@ -2839,13 +2841,6 @@
           "description": "Optional: Specify the Azure OpenAI model name for chat completions. This is only needed when you want to count tokens associated with your azure model",
           "type": "string",
           "enum": [
-            "gpt-3.5-turbo",
-            "gpt-3.5-turbo-16k",
-            "gpt-3.5-turbo-instruct",
-            "gpt-3.5-turbo-0125",
-            "gpt-3.5-turbo-0301",
-            "gpt-3.5-turbo-0613",
-            "gpt-3.5-turbo-16k-0613",
             "gpt-4-0314",
             "gpt-4-32k-0314",
             "gpt-4-0613",
@@ -2860,13 +2855,6 @@
           "description": "Optional: Specify the Azure OpenAI model name for chat completions. This is only needed when you want to count tokens associated with your azure model",
           "type": "string",
           "enum": [
-            "gpt-3.5-turbo",
-            "gpt-3.5-turbo-instruct",
-            "gpt-3.5-turbo-16k",
-            "gpt-3.5-turbo-0125",
-            "gpt-3.5-turbo-0301",
-            "gpt-3.5-turbo-0613",
-            "gpt-3.5-turbo-16k-0613",
             "gpt-4-0314",
             "gpt-4-32k-0314",
             "gpt-4-0613",
@@ -3173,7 +3161,7 @@
       "default": null,
       "properties": {
         "statusFilter": {
-          "description": "Constrain models to just those matching one of the supplied statuses",
+          "description": "DEPRECATED: This field is ignored. Sourcegraph-employee-only (experimental) models are excluded by default. Use enableSourcegraphInternalModels to include them.",
           "type": "array",
           "items": {
             "type": "string",
@@ -3181,6 +3169,11 @@
           },
           "examples": ["beta", "stable"],
           "default": ["stable"]
+        },
+        "enableSourcegraphInternalModels": {
+          "description": "When true, includes Sourcegraph-employee-only (experimental) models that are normally excluded. These models are intended for internal development and testing.",
+          "type": "boolean",
+          "default": false
         },
         "allow": {
           "description": "Constrain models to only those in this allow list. Wildcards may be used here, but not regexp.",

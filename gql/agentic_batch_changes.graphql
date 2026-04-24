@@ -20,9 +20,15 @@ type AgenticWorkflow implements Node {
     definition: String!
 
     """
-    The instances of this workflow. Returns at most 1000 instances.
+    The JSON schema for the input of this workflow, if defined when creating the workflow.
     """
-    instances(first: Int, after: String): AgenticWorkflowInstanceConnection!
+    inputSchema: String
+
+    """
+    The instances of this workflow. Returns at most 1000 instances.
+    Defaults to the first 50 instances if neither `first` nor `last` is provided.
+    """
+    instances(first: Int, last: Int, after: String, before: String): AgenticWorkflowInstanceConnection!
 }
 
 """
@@ -118,9 +124,33 @@ type AgenticWorkflowInstance implements Node {
     variables: String!
 
     """
-    The historical node states for this instance, ordered by creation time.
+    The recorded error for this instance, if any.
     """
-    nodeStates: [AgenticWorkflowInstanceNodeState!]!
+    error: String
+
+    """
+    The node states for this instance, ordered by creation time.
+    By default, returns the full history.
+    Set fullTrail to false to return only the latest state per node spec.
+    Note that the node spec only defines how a node should run, and that
+    a workflow can run through a given node spec multiple times.
+    """
+    nodeStates(fullTrail: Boolean = true): [AgenticWorkflowInstanceNodeState!]!
+
+    """
+    The user who created this instance. Will error if the user has been deleted.
+    """
+    creator: User!
+
+    """
+    When this instance was created.
+    """
+    createdAt: DateTime!
+
+    """
+    When this instance was last updated.
+    """
+    updatedAt: DateTime!
 }
 
 """
@@ -128,7 +158,12 @@ A snapshot of a node's state within a workflow instance. A new snapshot is added
 
 EXPERIMENTAL: This API is experimental and subject to change.
 """
-type AgenticWorkflowInstanceNodeState {
+interface AgenticWorkflowInstanceNodeState {
+    """
+    The unique ID of this node state snapshot.
+    """
+    id: ID!
+
     """
     The ID of the node spec this state belongs to.
     """
@@ -145,7 +180,8 @@ type AgenticWorkflowInstanceNodeState {
     lifecyclePhase: AgenticWorkflowInstanceStatus!
 
     """
-    The output produced by the node, if any.
+    The raw output produced by the node as a JSON string.
+    Use inline fragments on concrete node state types for structured access to typed fields.
     """
     output: String!
 
@@ -158,6 +194,142 @@ type AgenticWorkflowInstanceNodeState {
     When this state snapshot was created.
     """
     createdAt: DateTime!
+}
+
+"""
+A generic node state with no specialized GraphQL fields.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticNodeState implements AgenticWorkflowInstanceNodeState {
+    """
+    The unique ID of this node state snapshot.
+    """
+    id: ID!
+
+    """
+    The ID of the node spec this state belongs to.
+    """
+    nodeSpecID: String!
+
+    """
+    The type of the node (e.g. decision, wait).
+    """
+    nodeType: String!
+
+    """
+    The lifecycle phase of the node.
+    """
+    lifecyclePhase: AgenticWorkflowInstanceStatus!
+
+    """
+    The raw output produced by the node as a JSON string.
+    """
+    output: String!
+
+    """
+    The recorded error for this node state, if any.
+    """
+    error: String
+
+    """
+    When this state snapshot was created.
+    """
+    createdAt: DateTime!
+}
+
+"""
+State for a batch_change_create_empty node.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticBatchChange implements AgenticWorkflowInstanceNodeState {
+    """
+    The unique ID of this node state snapshot.
+    """
+    id: ID!
+
+    """
+    The ID of the node spec this state belongs to.
+    """
+    nodeSpecID: String!
+
+    """
+    The type of the node (e.g. decision, wait).
+    """
+    nodeType: String!
+
+    """
+    The lifecycle phase of the node.
+    """
+    lifecyclePhase: AgenticWorkflowInstanceStatus!
+
+    """
+    The raw output produced by the node as a JSON string.
+    """
+    output: String!
+
+    """
+    The recorded error for this node state, if any.
+    """
+    error: String
+
+    """
+    When this state snapshot was created.
+    """
+    createdAt: DateTime!
+
+    """
+    The batch change created by this node. Can be null before the node has produced output.
+    """
+    batchChange: BatchChange
+}
+
+"""
+State for a changeset_from_diff node.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticChangeset implements AgenticWorkflowInstanceNodeState {
+    """
+    The unique ID of this node state snapshot.
+    """
+    id: ID!
+
+    """
+    The ID of the node spec this state belongs to.
+    """
+    nodeSpecID: String!
+
+    """
+    The type of the node (e.g. decision, wait).
+    """
+    nodeType: String!
+
+    """
+    The lifecycle phase of the node.
+    """
+    lifecyclePhase: AgenticWorkflowInstanceStatus!
+
+    """
+    The raw output produced by the node as a JSON string.
+    """
+    output: String!
+
+    """
+    The recorded error for this node state, if any.
+    """
+    error: String
+
+    """
+    When this state snapshot was created.
+    """
+    createdAt: DateTime!
+
+    """
+    The changeset that was created from the diff. Can be null if the changeset is not yet reconciled. Try again later.
+    """
+    changeset: Changeset
 }
 
 """
@@ -179,7 +351,7 @@ type AgenticWorkflowInstanceConnection {
     """
     Pagination information.
     """
-    pageInfo: PageInfo!
+    pageInfo: ConnectionPageInfo!
 }
 
 extend type Query {
@@ -203,6 +375,35 @@ extend type Query {
     EXPERIMENTAL: This API is experimental and subject to change.
     """
     agenticWorkflowSchema: String!
+
+    """
+    List all agentic workflow instances across all workflows.
+    Defaults to the first 50 instances if neither `first` nor `last` is provided.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    agenticWorkflowInstances(first: Int, last: Int, after: String, before: String): AgenticWorkflowInstanceConnection!
+}
+
+"""
+A key-value pair for setting a workflow instance variable.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+input AgenticWorkflowInstanceVariableInput {
+    """
+    The variable key.
+    """
+    key: String!
+
+    """
+    The variable value as a JSON literal. Since GraphQL has no "any" scalar,
+    the value is passed as a JSON string that gets parsed server-side.
+
+    Examples: `"hello"` (string), `42` (number), `true` (boolean),
+    `{"a":1}` (object), `[1,2]` (array), or `null` (to delete the key).
+    """
+    value: String!
 }
 
 extend type Mutation {
@@ -221,6 +422,11 @@ extend type Mutation {
         The JSON definition of the workflow.
         """
         definition: String!
+
+        """
+        The JSON schema for the input of this workflow. This will be used by the frontend to render input fields.
+        """
+        inputSchema: String
     ): AgenticWorkflow!
 
     """
@@ -262,5 +468,43 @@ extend type Mutation {
         The ID of the instance to unpause.
         """
         instanceID: ID!
+    ): AgenticWorkflowInstance!
+
+    """
+    Update variables on a workflow instance. Merges the provided key-value
+    pairs into the existing variables — keys not included are left unchanged.
+    Set a value to "null" to delete a key.
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    updateAgenticWorkflowInstanceVariables(
+        """
+        The ID of the instance to update.
+        """
+        instanceID: ID!
+
+        """
+        The variables to set. Each value is a JSON-encoded string.
+        """
+        variables: [AgenticWorkflowInstanceVariableInput!]!
+    ): AgenticWorkflowInstance!
+
+    """
+    Create a workflow definition and immediately start an instance of it in a single step.
+    The workflow definition is validated and stored (same as createAgenticWorkflow),
+    then an instance is started with the provided input (same as startAgenticWorkflowInstance).
+
+    EXPERIMENTAL: This API is experimental and subject to change.
+    """
+    startAdhocAgenticWorkflowInstance(
+        """
+        The JSON definition of the workflow. All variables must be fully resolved.
+        """
+        definition: String!
+
+        """
+        Optional input for the instance.
+        """
+        input: String
     ): AgenticWorkflowInstance!
 }

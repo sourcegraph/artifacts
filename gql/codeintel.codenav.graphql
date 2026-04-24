@@ -127,7 +127,7 @@ type CodeGraphData implements Node {
     |      100   |            707850 |
     """
     # Tip: One can get the percentiles above using the scip CLI's 'stats'
-    # subcommand. (https://github.com/sourcegraph/scip/blob/main/docs/CLI.md#scip-stats)
+    # subcommand. (https://github.com/scip-code/scip/blob/main/docs/CLI.md#scip-stats)
     #
     # TODO(issue: GRAPH-635): Allow passing a filter here to only get
     # occurrences for specific lines.
@@ -275,7 +275,7 @@ EXPERIMENTAL: This type may change in a backwards-incompatible way.
 type SCIPOccurrence {
     """
     Symbol name using syntax specified by the SCIP schema.
-    https://github.com/sourcegraph/scip/blob/main/scip.proto#L147-L188
+    https://github.com/scip-code/scip/blob/main/scip.proto#L147-L188
 
     Empty if the indexer did not specify this field. Such occurrences cannot
     be used for code navigation.
@@ -905,7 +905,7 @@ EXPERIMENTAL: This type may make backwards-incompatible changes in the future.
 type SymbolInformation {
     """
     Symbol name using syntax specified by the SCIP schema.
-    https://github.com/sourcegraph/scip/blob/main/scip.proto#L147-L188
+    https://github.com/scip-code/scip/blob/main/scip.proto#L147-L188
     This value will generally be used in conjunction with
     the `usagesBySymbol` API.
     """

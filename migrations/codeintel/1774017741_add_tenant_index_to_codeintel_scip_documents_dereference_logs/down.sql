@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS codeintel_scip_documents_dereference_logs_tenant_id;

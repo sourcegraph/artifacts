@@ -1,1 +1,1 @@
-DROP INDEX CONCURRENTLY IF EXISTS telemetry_events_export_queue_export_order;
+DROP INDEX IF EXISTS telemetry_events_export_queue_export_order;

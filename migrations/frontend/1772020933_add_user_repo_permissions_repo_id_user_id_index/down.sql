@@ -1,1 +1,1 @@
-DROP INDEX CONCURRENTLY IF EXISTS user_repo_permissions_repo_id_user_id_idx;
+DROP INDEX IF EXISTS user_repo_permissions_repo_id_user_id_idx;

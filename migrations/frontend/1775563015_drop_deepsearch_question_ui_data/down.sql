@@ -1,0 +1,1 @@
+-- Irreversible data cleanup. Legacy ui_data payloads are intentionally not restored.

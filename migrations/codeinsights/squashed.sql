@@ -940,6 +940,6 @@ CREATE POLICY tenant_isolation_policy ON tenants USING ((( SELECT (current_setti
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
-INSERT INTO tenants (id, name, created_at, updated_at, state, workspace_id, display_name, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO tenants (id, name, state, workspace_id, display_name, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', 'active', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 SELECT pg_catalog.setval('tenants_id_seq', 1, true);

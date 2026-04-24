@@ -1940,22 +1940,16 @@ extend type Mutation {
 
     """
     Detach archived changesets from a batch change.
-
-    Experimental: This API is likely to change in the future.
     """
     detachChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
 
     """
     Comment on multiple changesets from a batch change.
-
-    Experimental: This API is likely to change in the future.
     """
     createChangesetComments(batchChange: ID!, changesets: [ID!]!, body: String!): BulkOperation!
 
     """
     Reenqueue multiple changesets for processing.
-
-    Experimental: This API is likely to change in the future.
     """
     reenqueueChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
 
@@ -1970,40 +1964,35 @@ extend type Mutation {
     The mergeMethod parameter defaults to SQUASH if omitted.
 
     Currently only supported for GitHub changesets.
-
-    Experimental: This API is likely to change in the future.
     """
     enableAutoMergeChangesets(batchChange: ID!, changesets: [ID!]!, mergeMethod: MergeMethod): BulkOperation!
 
     """
     Merge multiple changesets. If squash is true, the commits will be squashed
     into a single commit on code hosts that support squash-and-merge.
-
-    Experimental: This API is likely to change in the future.
     """
     mergeChangesets(batchChange: ID!, changesets: [ID!]!, squash: Boolean = false): BulkOperation!
 
     """
     Close multiple changesets.
-
-    Experimental: This API is likely to change in the future.
     """
     closeChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
 
     """
     Set the UI publication state for multiple changesets. If draft is true, the
     changesets are published as drafts, provided the code host supports it.
-
-    Experimental: This API is likely to change in the future.
     """
     publishChangesets(batchChange: ID!, changesets: [ID!]!, draft: Boolean = false): BulkOperation!
 
     """
     Push code to code host for multiple changesets without creating merge requests.
-
-    Experimental: This API is likely to change in the future.
     """
     pushOnlyChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
+
+    """
+    Sync the status of multiple changesets from the code host.
+    """
+    syncChangesets(batchChange: ID!, changesets: [ID!]!): BulkOperation!
 
     """
     Attempts to cancel the execution of the given batch spec. All workspace jobs
@@ -3340,6 +3329,10 @@ enum BulkOperationType {
     Push code to a code host without making a merge request.
     """
     PUSH_ONLY
+    """
+    Sync changeset status from the code host.
+    """
+    SYNC
 }
 
 """

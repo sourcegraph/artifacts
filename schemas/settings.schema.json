@@ -394,6 +394,11 @@
             "type": "boolean",
             "default": false
           },
+          "adminOnly": {
+            "description": "Whether this notice is only visible to site administrators.",
+            "type": "boolean",
+            "default": false
+          },
           "styleOverrides": {
             "description": "Overrides for the notice's default style. You probably want to use notice 'variant' setting instead.",
             "type": "object",

@@ -984,6 +984,15 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION update_evergreen_deepsearch_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
 CREATE FUNCTION update_own_aggregate_recent_contribution() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -1074,6 +1083,7 @@ CREATE TABLE abc_executor_tasks (
     repo_name text NOT NULL,
     commit text NOT NULL,
     user_id integer NOT NULL,
+    executor_secrets text[] DEFAULT '{}'::text[] NOT NULL,
     CONSTRAINT abc_executor_tasks_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text, 'failed'::text, 'completed'::text, 'canceled'::text])))
 );
 
@@ -1142,6 +1152,7 @@ CREATE TABLE abc_workflow_instances (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     user_id integer NOT NULL,
+    error text,
     CONSTRAINT abc_workflow_instances_lifecycle_phase_check CHECK ((lifecycle_phase = ANY (ARRAY['queued'::text, 'running'::text, 'paused'::text, 'complete'::text, 'failed'::text])))
 );
 
@@ -1160,7 +1171,8 @@ CREATE TABLE abc_workflows (
     name text NOT NULL,
     definition text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    input_schema text
 );
 
 CREATE SEQUENCE abc_workflows_id_seq
@@ -1623,7 +1635,7 @@ CREATE TABLE changeset_specs (
     commit_author_email text,
     type text NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    CONSTRAINT changeset_specs_published_valid_values CHECK (((published = 'true'::text) OR (published = 'false'::text) OR (published = '"draft"'::text) OR (published = '"push-only"'::text) OR (published IS NULL)))
+    CONSTRAINT changeset_specs_published_valid_values CHECK (((published = 'true'::text) OR (published = 'false'::text) OR (published = '"draft"'::text) OR (published = '"pushed-only"'::text) OR (published IS NULL)))
 );
 
 CREATE TABLE changesets (
@@ -2725,6 +2737,56 @@ CREATE SEQUENCE event_logs_scrape_state_own_id_seq
 
 ALTER SEQUENCE event_logs_scrape_state_own_id_seq OWNED BY event_logs_scrape_state_own.id;
 
+CREATE TABLE evergreen_deepsearch (
+    id integer NOT NULL,
+    slug text NOT NULL,
+    title text NOT NULL,
+    source_conversation_id integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE SEQUENCE evergreen_deepsearch_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE evergreen_deepsearch_id_seq OWNED BY evergreen_deepsearch.id;
+
+CREATE TABLE evergreen_deepsearch_versions (
+    id integer NOT NULL,
+    evergreen_deepsearch_id integer NOT NULL,
+    conversation_id integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    state text DEFAULT 'completed'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE evergreen_deepsearch_versions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE evergreen_deepsearch_versions_id_seq OWNED BY evergreen_deepsearch_versions.id;
+
 CREATE TABLE executor_artifacts (
     id bigint NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -2733,6 +2795,7 @@ CREATE TABLE executor_artifacts (
     artifact_key text NOT NULL,
     object_storage_key text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    job_id bigint,
     CONSTRAINT executor_artifacts_domain_check CHECK ((domain = 'agenticbatchchanges'::text))
 );
 
@@ -3067,6 +3130,7 @@ CREATE TABLE external_services (
     creator_id integer,
     last_updater_id integer,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    suspended boolean DEFAULT false NOT NULL,
     CONSTRAINT check_non_empty_config CHECK ((btrim(config) <> ''::text))
 );
 
@@ -3257,7 +3321,8 @@ CREATE TABLE gitserver_repos (
     failed_fetch_attempts integer DEFAULT 0 NOT NULL,
     last_cleanup_attempt_at timestamp with time zone,
     failed_cleanup_attempts integer DEFAULT 0 NOT NULL,
-    last_cleaned_at timestamp with time zone
+    last_cleaned_at timestamp with time zone,
+    is_on_primary boolean DEFAULT true NOT NULL
 );
 
 COMMENT ON COLUMN gitserver_repos.corrupted_at IS 'Timestamp of when repo corruption was detected';
@@ -4362,6 +4427,17 @@ CREATE VIEW lsif_uploads_with_repository_name WITH (security_invoker='true') AS
      JOIN repo r ON ((r.id = u.repository_id)))
   WHERE (r.deleted_at IS NULL);
 
+CREATE TABLE metering_events_export_queue (
+    id uuid NOT NULL,
+    sku integer NOT NULL,
+    count integer NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    user_id integer,
+    exported_at timestamp with time zone,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    CONSTRAINT metering_events_export_queue_count_check CHECK ((count > 0))
+);
+
 CREATE TABLE names (
     name citext NOT NULL,
     user_id integer,
@@ -5282,6 +5358,34 @@ CREATE SEQUENCE repo_activity_graph_jobs_id_seq
 
 ALTER SEQUENCE repo_activity_graph_jobs_id_seq OWNED BY repo_activity_graph_jobs.id;
 
+CREATE TABLE repo_activity_graph_jobs_v2 (
+    id bigint NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL,
+    repo_id integer NOT NULL,
+    from_commit text,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE repo_activity_graph_jobs_v2_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE repo_activity_graph_jobs_v2_id_seq OWNED BY repo_activity_graph_jobs_v2.id;
+
 CREATE TABLE repo_activity_graph_points (
     repo_id integer NOT NULL,
     bucket_start date NOT NULL,
@@ -5290,7 +5394,23 @@ CREATE TABLE repo_activity_graph_points (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
 
+CREATE TABLE repo_activity_graph_points_v2 (
+    repo_id integer NOT NULL,
+    bucket_start date NOT NULL,
+    granularity smallint NOT NULL,
+    commit_count integer DEFAULT 0 NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
 CREATE TABLE repo_activity_graph_states (
+    repo_id integer NOT NULL,
+    last_processed_at timestamp with time zone,
+    last_processed_commit_sha text,
+    repo_birth_date date,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE TABLE repo_activity_graph_states_v2 (
     repo_id integer NOT NULL,
     last_processed_at timestamp with time zone,
     last_processed_commit_sha text,
@@ -6075,12 +6195,10 @@ CREATE TABLE user_external_accounts (
     last_valid_at timestamp with time zone,
     encryption_key_id text DEFAULT ''::text NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    scopes text[] DEFAULT '{}'::text[] NOT NULL,
     kind text DEFAULT 'AUTH'::text NOT NULL,
-    CONSTRAINT user_external_accounts_kind_not_empty CHECK ((btrim(kind) <> ''::text))
+    CONSTRAINT user_external_accounts_kind_not_empty CHECK ((btrim(kind) <> ''::text)),
+    CONSTRAINT user_external_accounts_kind_valid CHECK ((kind = ANY (ARRAY['AUTH'::text, 'BATCH_CHANGES'::text])))
 );
-
-COMMENT ON COLUMN user_external_accounts.scopes IS 'OAuth scopes granted to the token. Extracted from auth_data for efficient querying without decryption. Empty array for non-OAuth accounts or when scopes are unknown.';
 
 COMMENT ON COLUMN user_external_accounts.kind IS 'Purpose of this external account: AUTH (authentication), BATCH_CHANGES (batch changes credentials), etc.';
 
@@ -6425,6 +6543,10 @@ ALTER TABLE ONLY event_logs_scrape_state ALTER COLUMN id SET DEFAULT nextval('ev
 
 ALTER TABLE ONLY event_logs_scrape_state_own ALTER COLUMN id SET DEFAULT nextval('event_logs_scrape_state_own_id_seq'::regclass);
 
+ALTER TABLE ONLY evergreen_deepsearch ALTER COLUMN id SET DEFAULT nextval('evergreen_deepsearch_id_seq'::regclass);
+
+ALTER TABLE ONLY evergreen_deepsearch_versions ALTER COLUMN id SET DEFAULT nextval('evergreen_deepsearch_versions_id_seq'::regclass);
+
 ALTER TABLE ONLY executor_artifacts ALTER COLUMN id SET DEFAULT nextval('executor_artifacts_id_seq'::regclass);
 
 ALTER TABLE ONLY executor_heartbeats ALTER COLUMN id SET DEFAULT nextval('executor_heartbeats_id_seq'::regclass);
@@ -6560,6 +6682,8 @@ ALTER TABLE ONLY registry_extensions ALTER COLUMN id SET DEFAULT nextval('regist
 ALTER TABLE ONLY repo ALTER COLUMN id SET DEFAULT nextval('repo_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_activity_graph_jobs ALTER COLUMN id SET DEFAULT nextval('repo_activity_graph_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY repo_activity_graph_jobs_v2 ALTER COLUMN id SET DEFAULT nextval('repo_activity_graph_jobs_v2_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_cleanup_jobs ALTER COLUMN id SET DEFAULT nextval('repo_cleanup_jobs_id_seq'::regclass);
 
@@ -6872,6 +6996,12 @@ ALTER TABLE ONLY event_logs_scrape_state_own
 ALTER TABLE ONLY event_logs_scrape_state
     ADD CONSTRAINT event_logs_scrape_state_pk PRIMARY KEY (id);
 
+ALTER TABLE ONLY evergreen_deepsearch
+    ADD CONSTRAINT evergreen_deepsearch_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY evergreen_deepsearch_versions
+    ADD CONSTRAINT evergreen_deepsearch_versions_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY executor_artifacts
     ADD CONSTRAINT executor_artifacts_pkey PRIMARY KEY (id);
 
@@ -7085,6 +7215,9 @@ ALTER TABLE ONLY lsif_retention_configuration
 ALTER TABLE ONLY lsif_retention_configuration
     ADD CONSTRAINT lsif_retention_configuration_repository_id_key UNIQUE (repository_id);
 
+ALTER TABLE ONLY metering_events_export_queue
+    ADD CONSTRAINT metering_events_export_queue_pkey PRIMARY KEY (tenant_id, id);
+
 ALTER TABLE ONLY names
     ADD CONSTRAINT names_pkey PRIMARY KEY (name, tenant_id);
 
@@ -7205,11 +7338,20 @@ ALTER TABLE ONLY registry_extensions
 ALTER TABLE ONLY repo_activity_graph_jobs
     ADD CONSTRAINT repo_activity_graph_jobs_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY repo_activity_graph_jobs_v2
+    ADD CONSTRAINT repo_activity_graph_jobs_v2_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY repo_activity_graph_points
     ADD CONSTRAINT repo_activity_graph_points_pkey PRIMARY KEY (repo_id, granularity, bucket_start, tenant_id);
 
+ALTER TABLE ONLY repo_activity_graph_points_v2
+    ADD CONSTRAINT repo_activity_graph_points_v2_pkey PRIMARY KEY (repo_id, granularity, bucket_start, tenant_id);
+
 ALTER TABLE ONLY repo_activity_graph_states
     ADD CONSTRAINT repo_activity_graph_states_pkey PRIMARY KEY (repo_id, tenant_id);
+
+ALTER TABLE ONLY repo_activity_graph_states_v2
+    ADD CONSTRAINT repo_activity_graph_states_v2_pkey PRIMARY KEY (repo_id, tenant_id);
 
 ALTER TABLE ONLY repo_cleanup_jobs
     ADD CONSTRAINT repo_cleanup_jobs_pkey PRIMARY KEY (id);
@@ -7605,6 +7747,14 @@ CREATE INDEX event_logs_user_id_name ON event_logs USING btree (user_id, name);
 
 CREATE INDEX event_logs_user_id_timestamp ON event_logs USING btree (user_id, "timestamp");
 
+CREATE INDEX evergreen_deepsearch_source_conversation_id ON evergreen_deepsearch USING btree (source_conversation_id);
+
+CREATE UNIQUE INDEX evergreen_deepsearch_tenant_slug_unique ON evergreen_deepsearch USING btree (tenant_id, slug);
+
+CREATE INDEX evergreen_deepsearch_versions_dequeue_idx ON evergreen_deepsearch_versions USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX evergreen_deepsearch_versions_eds_id ON evergreen_deepsearch_versions USING btree (evergreen_deepsearch_id);
+
 CREATE INDEX executor_artifacts_lookup_idx ON executor_artifacts USING btree (domain, step, artifact_key);
 
 CREATE UNIQUE INDEX executor_secrets_unique_key_global ON executor_secrets USING btree (key, scope, tenant_id) WHERE ((namespace_user_id IS NULL) AND (namespace_org_id IS NULL));
@@ -7775,6 +7925,10 @@ CREATE INDEX lsif_references_dump_id ON lsif_references USING btree (dump_id);
 
 CREATE INDEX lsif_references_scheme_name_version_dump_id ON lsif_references USING btree (scheme, name, version, dump_id);
 
+CREATE INDEX metering_events_export_queue_created_at_idx ON metering_events_export_queue USING btree (created_at, id);
+
+CREATE INDEX metering_events_export_queue_export_order_idx ON metering_events_export_queue USING btree (created_at, id) WHERE (exported_at IS NULL);
+
 CREATE INDEX notebook_stars_user_id_idx ON notebook_stars USING btree (user_id);
 
 CREATE INDEX notebooks_blocks_tsvector_idx ON notebooks USING gin (blocks_tsvector);
@@ -7860,6 +8014,14 @@ CREATE INDEX repo_activity_graph_jobs_dequeue_order_idx ON repo_activity_graph_j
 CREATE UNIQUE INDEX repo_activity_graph_jobs_one_per_repo ON repo_activity_graph_jobs USING btree (repo_id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text]));
 
 CREATE INDEX repo_activity_graph_jobs_repo_idx ON repo_activity_graph_jobs USING btree (repo_id, tenant_id);
+
+CREATE INDEX repo_activity_graph_jobs_v2_dequeue_idx ON repo_activity_graph_jobs_v2 USING btree (state, process_after);
+
+CREATE INDEX repo_activity_graph_jobs_v2_dequeue_order_idx ON repo_activity_graph_jobs_v2 USING btree (COALESCE(process_after, queued_at), id, tenant_id);
+
+CREATE UNIQUE INDEX repo_activity_graph_jobs_v2_one_per_repo ON repo_activity_graph_jobs_v2 USING btree (repo_id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text]));
+
+CREATE INDEX repo_activity_graph_jobs_v2_repo_idx ON repo_activity_graph_jobs_v2 USING btree (repo_id, tenant_id);
 
 CREATE INDEX repo_activity_graph_points_query_idx ON repo_activity_graph_points USING btree (tenant_id, repo_id, granularity, bucket_start DESC);
 
@@ -8005,11 +8167,11 @@ CREATE INDEX user_credentials_credential_idx ON user_credentials USING btree (((
 
 CREATE UNIQUE INDEX user_emails_user_id_is_primary_idx ON user_emails USING btree (user_id, is_primary) WHERE (is_primary = true);
 
-CREATE UNIQUE INDEX user_external_accounts_account ON user_external_accounts USING btree (service_type, service_id, client_id, account_id, tenant_id) WHERE (deleted_at IS NULL);
-
 CREATE INDEX user_external_accounts_user_id ON user_external_accounts USING btree (user_id) WHERE (deleted_at IS NULL);
 
 CREATE UNIQUE INDEX user_external_accounts_user_id_scim_service_type ON user_external_accounts USING btree (user_id, service_type) WHERE ((service_type = 'scim'::text) AND (deleted_at IS NULL));
+
+CREATE UNIQUE INDEX user_external_accounts_user_kind ON user_external_accounts USING btree (tenant_id, user_id, service_type, service_id, client_id, account_id, kind) WHERE (deleted_at IS NULL);
 
 CREATE INDEX user_repo_permissions_repo_id_user_id_idx ON user_repo_permissions USING btree (repo_id, user_id);
 
@@ -8102,6 +8264,8 @@ CREATE TRIGGER update_conversation_on_question_change AFTER INSERT OR UPDATE ON 
 CREATE TRIGGER update_deepsearch_conversations_updated_at BEFORE UPDATE ON deepsearch_conversations FOR EACH ROW EXECUTE FUNCTION update_deepsearch_conversations_updated_at();
 
 CREATE TRIGGER update_deepsearch_questions_updated_at BEFORE UPDATE ON deepsearch_questions FOR EACH ROW EXECUTE FUNCTION update_deepsearch_questions_updated_at();
+
+CREATE TRIGGER update_evergreen_deepsearch_updated_at BEFORE UPDATE ON evergreen_deepsearch FOR EACH ROW EXECUTE FUNCTION update_evergreen_deepsearch_updated_at();
 
 CREATE TRIGGER update_own_aggregate_recent_contribution AFTER INSERT ON own_signal_recent_contribution FOR EACH ROW EXECUTE FUNCTION update_own_aggregate_recent_contribution();
 
@@ -8389,6 +8553,15 @@ ALTER TABLE ONLY entitlement_grants
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY evergreen_deepsearch
+    ADD CONSTRAINT evergreen_deepsearch_source_conversation_id_fkey FOREIGN KEY (source_conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY evergreen_deepsearch_versions
+    ADD CONSTRAINT evergreen_deepsearch_versions_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY evergreen_deepsearch_versions
+    ADD CONSTRAINT evergreen_deepsearch_versions_evergreen_deepsearch_id_fkey FOREIGN KEY (evergreen_deepsearch_id) REFERENCES evergreen_deepsearch(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY executor_secret_access_logs
     ADD CONSTRAINT executor_secret_access_logs_executor_secret_id_fkey FOREIGN KEY (executor_secret_id) REFERENCES executor_secrets(id) ON DELETE CASCADE;
 
@@ -8641,11 +8814,20 @@ ALTER TABLE ONLY registry_extensions
 ALTER TABLE ONLY repo_activity_graph_jobs
     ADD CONSTRAINT repo_activity_graph_jobs_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY repo_activity_graph_jobs_v2
+    ADD CONSTRAINT repo_activity_graph_jobs_v2_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY repo_activity_graph_points
     ADD CONSTRAINT repo_activity_graph_points_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY repo_activity_graph_points_v2
+    ADD CONSTRAINT repo_activity_graph_points_v2_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY repo_activity_graph_states
     ADD CONSTRAINT repo_activity_graph_states_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY repo_activity_graph_states_v2
+    ADD CONSTRAINT repo_activity_graph_states_v2_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY repo_cleanup_jobs
     ADD CONSTRAINT repo_cleanup_jobs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
@@ -8921,6 +9103,10 @@ ALTER TABLE event_logs_scrape_state ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE event_logs_scrape_state_own ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE evergreen_deepsearch ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE evergreen_deepsearch_versions ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE executor_artifacts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE executor_heartbeats ENABLE ROW LEVEL SECURITY;
@@ -9017,6 +9203,8 @@ ALTER TABLE lsif_references ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_retention_configuration ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE metering_events_export_queue ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE names ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE namespace_permissions ENABLE ROW LEVEL SECURITY;
@@ -9083,9 +9271,15 @@ ALTER TABLE repo ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_activity_graph_jobs ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE repo_activity_graph_jobs_v2 ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE repo_activity_graph_points ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE repo_activity_graph_points_v2 ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE repo_activity_graph_states ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE repo_activity_graph_states_v2 ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_cleanup_jobs ENABLE ROW LEVEL SECURITY;
 
@@ -9281,6 +9475,10 @@ CREATE POLICY tenant_isolation_policy ON event_logs_scrape_state USING ((tenant_
 
 CREATE POLICY tenant_isolation_policy ON event_logs_scrape_state_own USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON evergreen_deepsearch USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON evergreen_deepsearch_versions USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
 CREATE POLICY tenant_isolation_policy ON executor_artifacts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON executor_heartbeats USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -9377,6 +9575,8 @@ CREATE POLICY tenant_isolation_policy ON lsif_references USING ((tenant_id = ( S
 
 CREATE POLICY tenant_isolation_policy ON lsif_retention_configuration USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON metering_events_export_queue USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON names USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON namespace_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -9443,9 +9643,15 @@ CREATE POLICY tenant_isolation_policy ON repo USING ((( SELECT (current_setting(
 
 CREATE POLICY tenant_isolation_policy ON repo_activity_graph_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
+CREATE POLICY tenant_isolation_policy ON repo_activity_graph_jobs_v2 USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
 CREATE POLICY tenant_isolation_policy ON repo_activity_graph_points USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON repo_activity_graph_points_v2 USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON repo_activity_graph_states USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON repo_activity_graph_states_v2 USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON repo_cleanup_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
@@ -9579,20 +9785,20 @@ INSERT INTO own_signal_configurations (id, name, description, excluded_repo_patt
 
 SELECT pg_catalog.setval('own_signal_configurations_id_seq', 3, true);
 
-INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (1, '2023-01-04 16:29:41.195966+00', true, 'USER', 1);
-INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (2, '2023-01-04 16:29:41.195966+00', true, 'SITE_ADMINISTRATOR', 1);
-INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (4, '2024-10-30 11:54:24.127459+00', true, 'WORKSPACE_ADMINISTRATOR', 1);
-INSERT INTO roles (id, created_at, system, name, tenant_id) VALUES (5, '2025-06-17 14:47:24.127459+00', true, 'SERVICE_ACCOUNT', 1);
+INSERT INTO roles (id, system, name, tenant_id) VALUES (1, true, 'USER', 1);
+INSERT INTO roles (id, system, name, tenant_id) VALUES (2, true, 'SITE_ADMINISTRATOR', 1);
+INSERT INTO roles (id, system, name, tenant_id) VALUES (4, true, 'WORKSPACE_ADMINISTRATOR', 1);
+INSERT INTO roles (id, system, name, tenant_id) VALUES (5, true, 'SERVICE_ACCOUNT', 1);
 
 SELECT pg_catalog.setval('roles_id_seq', 5, true);
 
-INSERT INTO tenants (id, name, created_at, updated_at, workspace_id, display_name, state, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', '2024-09-28 09:41:00+00', '2024-09-28 09:41:00+00', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO tenants (id, name, workspace_id, display_name, state, external_url, redis_pruned_at, deleted_at, gitserver_pruned_at, zoekt_pruned_at, blobstore_pruned_at, database_pruned_at, searcher_cache_pruned_at) VALUES (1, 'default', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', NULL, 'active', '', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 SELECT pg_catalog.setval('tenants_id_seq', 1, true);
 
-INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (1, 'document-code', 'Document the code in a file', 'Write a brief documentation comment for  cody://selection. If documentation comments exist in  cody://current-file, or other files with the same file extension, use them as examples. Pay attention to the scope of the selected code (e.g. exported function/API vs implementation detail in a function), and use the idiomatic style for that type of code scope. Only generate the documentation for the selected code, do not generate the code. Do not enclose any other code or comments besides the documentation. Enclose only the documentation for cody://current-selection and nothing else. ', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'INSERT', false, NULL, true);
-INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (2, 'explain-code', 'Explain the code in a file', 'Explain what cody://selection code does in simple terms. Assume the audience is a beginner programmer who has just learned the language features and basic syntax. Focus on explaining: 1) The purpose of the code 2) What input(s) it takes 3) What output(s) it produces 4) How it achieves its purpose through the logic and algorithm. 5) Any important logic flows or data transformations happening. Use simple language a beginner could understand. Include enough detail to give a full picture of what the code aims to accomplish without getting too technical. Format the explanation in coherent paragraphs, using proper punctuation and grammar. Write the explanation assuming no prior context about the code is known. Do not make assumptions about variables or functions not shown in the shared code. Start the answer with the name of the code that is being explained.', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'CHAT', false, NULL, true);
-INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (3, 'generate-unit-tests', 'Generate unit tests the code in a file', 'Review the shared context and configurations to identify the test framework and libraries in use. Then, generate a suite of multiple unit tests for the functions in cody://selection using the detected test framework and libraries. Be sure to import the function being tested. Follow the same patterns as any shared context. Only add packages, imports, dependencies, and assertions if they are used in cody://current-dir . Pay attention to the file path of each shared context to see if test for cody://current-file already exists. If one exists, focus on generating new unit tests for uncovered cases. If none are detected, import common unit test libraries for cody://current-file. Focus on validating key functionality with simple and complete assertions. Only include mocks if one is detected in cody://current-dir . Before writing the tests, identify which test libraries and frameworks to import, e.g. "No new imports needed - using existing libs" or "Importing test framework that matches shared context usage" or "Importing the defined framework", etc. Then briefly summarize test coverage and any limitations. At the end, enclose the full completed code for the new unit tests, including all necessary imports, in a single markdown codeblock. No fragments or TODO. The new tests should validate expected functionality and cover edge cases for cody://selection with all required imports, including importing the function being tested. Do not repeat existing tests.', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'CHAT', false, NULL, true);
-INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, created_at, updated_by, updated_at, tenant_id, auto_submit, mode, recommended, deleted_at, builtin) VALUES (4, 'find-code-smells', 'Review and analyze code', 'Please review and analyze the cody://selection and identify potential areas for improvement related to code smells, readability, maintainability, performance, security, etc. Do not list issues already addressed in the given code. Focus on providing up to 5 constructive suggestions that could make the code more robust, efficient, or align with best practices. For each suggestion, provide a brief explanation of the potential benefits. After listing any recommendations, summarize if you found notable opportunities to enhance the code quality overall or if the code generally follows sound design principles. If no issues found, reply "There are no errors."', false, false, NULL, NULL, NULL, '2024-11-20 10:51:36.752627+00', NULL, '2024-11-20 10:51:36.752627+00', 1, true, 'CHAT', false, NULL, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, updated_by, tenant_id, auto_submit, mode, recommended, builtin) VALUES (1, 'document-code', 'Document the code in a file', 'Write a brief documentation comment for  cody://selection. If documentation comments exist in  cody://current-file, or other files with the same file extension, use them as examples. Pay attention to the scope of the selected code (e.g. exported function/API vs implementation detail in a function), and use the idiomatic style for that type of code scope. Only generate the documentation for the selected code, do not generate the code. Do not enclose any other code or comments besides the documentation. Enclose only the documentation for cody://current-selection and nothing else. ', false, false, NULL, NULL, NULL, NULL, 1, true, 'INSERT', false, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, updated_by, tenant_id, auto_submit, mode, recommended, builtin) VALUES (2, 'explain-code', 'Explain the code in a file', 'Explain what cody://selection code does in simple terms. Assume the audience is a beginner programmer who has just learned the language features and basic syntax. Focus on explaining: 1) The purpose of the code 2) What input(s) it takes 3) What output(s) it produces 4) How it achieves its purpose through the logic and algorithm. 5) Any important logic flows or data transformations happening. Use simple language a beginner could understand. Include enough detail to give a full picture of what the code aims to accomplish without getting too technical. Format the explanation in coherent paragraphs, using proper punctuation and grammar. Write the explanation assuming no prior context about the code is known. Do not make assumptions about variables or functions not shown in the shared code. Start the answer with the name of the code that is being explained.', false, false, NULL, NULL, NULL, NULL, 1, true, 'CHAT', false, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, updated_by, tenant_id, auto_submit, mode, recommended, builtin) VALUES (3, 'generate-unit-tests', 'Generate unit tests the code in a file', 'Review the shared context and configurations to identify the test framework and libraries in use. Then, generate a suite of multiple unit tests for the functions in cody://selection using the detected test framework and libraries. Be sure to import the function being tested. Follow the same patterns as any shared context. Only add packages, imports, dependencies, and assertions if they are used in cody://current-dir . Pay attention to the file path of each shared context to see if test for cody://current-file already exists. If one exists, focus on generating new unit tests for uncovered cases. If none are detected, import common unit test libraries for cody://current-file. Focus on validating key functionality with simple and complete assertions. Only include mocks if one is detected in cody://current-dir . Before writing the tests, identify which test libraries and frameworks to import, e.g. "No new imports needed - using existing libs" or "Importing test framework that matches shared context usage" or "Importing the defined framework", etc. Then briefly summarize test coverage and any limitations. At the end, enclose the full completed code for the new unit tests, including all necessary imports, in a single markdown codeblock. No fragments or TODO. The new tests should validate expected functionality and cover edge cases for cody://selection with all required imports, including importing the function being tested. Do not repeat existing tests.', false, false, NULL, NULL, NULL, NULL, 1, true, 'CHAT', false, true);
+INSERT INTO prompts (id, name, description, definition_text, draft, visibility_secret, owner_user_id, owner_org_id, created_by, updated_by, tenant_id, auto_submit, mode, recommended, builtin) VALUES (4, 'find-code-smells', 'Review and analyze code', 'Please review and analyze the cody://selection and identify potential areas for improvement related to code smells, readability, maintainability, performance, security, etc. Do not list issues already addressed in the given code. Focus on providing up to 5 constructive suggestions that could make the code more robust, efficient, or align with best practices. For each suggestion, provide a brief explanation of the potential benefits. After listing any recommendations, summarize if you found notable opportunities to enhance the code quality overall or if the code generally follows sound design principles. If no issues found, reply "There are no errors."', false, false, NULL, NULL, NULL, NULL, 1, true, 'CHAT', false, true);
 
 SELECT pg_catalog.setval('prompts_id_seq', 4, true);

@@ -1,0 +1,2 @@
+ALTER TABLE gitserver_repos
+ADD COLUMN IF NOT EXISTS is_on_primary BOOLEAN NOT NULL DEFAULT true;

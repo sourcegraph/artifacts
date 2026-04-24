@@ -1,5 +1,5 @@
 -- Document Code
-INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, created_at, updated_at, tenant_id)
+INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, tenant_id)
 SELECT
     'document-code' as name,
     'Document the code in a file' as description,
@@ -8,14 +8,12 @@ SELECT
     't' as builtin,
     't' as auto_submit,
     'f' as visibility_secret,
-    '2024-11-20 10:51:36.752627+00',
-    '2024-11-20 10:51:36.752627+00',
     tenants.id AS tenant_id
 FROM tenants
  ON CONFLICT DO NOTHING;
 
 -- Explain Code
-INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, created_at, updated_at, tenant_id)
+INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, tenant_id)
 SELECT
     'explain-code' as name,
     'Explain the code in a file' as description,
@@ -24,14 +22,12 @@ SELECT
     't' as builtin,
     't' as auto_submit,
     'f' as visibility_secret,
-    '2024-11-20 10:51:36.752627+00',
-    '2024-11-20 10:51:36.752627+00',
     tenants.id AS tenant_id
 FROM tenants
 ON CONFLICT DO NOTHING;
 
 -- Generate Unit Tests
-INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, created_at, updated_at, tenant_id)
+INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, tenant_id)
 SELECT
     'generate-unit-tests' as name,
     'Generate unit tests the code in a file' as description,
@@ -40,14 +36,12 @@ SELECT
     't' as builtin,
     't' as auto_submit,
     'f' as visibility_secret,
-    '2024-11-20 10:51:36.752627+00',
-    '2024-11-20 10:51:36.752627+00',
     tenants.id AS tenant_id
 FROM tenants
 ON CONFLICT DO NOTHING;
 
 -- Find Code Smells
-INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, created_at, updated_at, tenant_id)
+INSERT INTO prompts (name, description, definition_text, mode, builtin, auto_submit, visibility_secret, tenant_id)
 SELECT
     'find-code-smells' as name,
     'Review and analyze code' as description,
@@ -56,8 +50,6 @@ SELECT
     't' as builtin,
     't' as auto_submit,
     'f' as visibility_secret,
-    '2024-11-20 10:51:36.752627+00',
-    '2024-11-20 10:51:36.752627+00',
     tenants.id AS tenant_id
 FROM tenants
 ON CONFLICT DO NOTHING;

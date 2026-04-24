@@ -104,8 +104,8 @@
           }
         },
         "published": {
-          "oneOf": [{ "type": "boolean" }, { "type": "string", "pattern": "^draft$" }, { "type": "null" }],
-          "description": "Whether to publish the changeset. An unpublished changeset can be previewed on Sourcegraph by any person who can view the batch change, but its commit, branch, and pull request aren't created on the code host. A published changeset results in a commit, branch, and pull request being created on the code host."
+          "oneOf": [{ "type": "boolean" }, { "type": "string", "enum": ["draft", "pushed-only"] }, { "type": "null" }],
+          "description": "Whether to publish the changeset. An unpublished changeset can be previewed on Sourcegraph by any person who can view the batch change, but its commit, branch, and pull request aren't created on the code host. A published changeset results in a commit, branch, and pull request being created on the code host. The special value 'pushed-only' creates only the commit and branch on the code host without opening a pull request."
         }
       },
       "required": ["baseRepository", "baseRef", "baseRev", "headRepository", "headRef", "title", "body", "commits"],

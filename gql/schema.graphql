@@ -3193,8 +3193,7 @@ type Search {
     results: SearchResults!
     """
     A subset of results (excluding actual search results) which are heavily
-    cached and thus quicker to query. Useful for e.g. querying sparkline
-    data.
+    cached and thus quicker to query.
     """
     stats: SearchResultsStats!
 }
@@ -3299,10 +3298,6 @@ type SearchResults {
     """
     limitHit: Boolean!
     """
-    Integers representing the sparkline for the search results.
-    """
-    sparkline: [Int!]!
-    """
     Repositories from results.
     """
     repositories: [Repository!]!
@@ -3362,10 +3357,6 @@ type SearchResultsStats {
     The approximate number of results returned.
     """
     approximateResultCount: String!
-    """
-    The sparkline.
-    """
-    sparkline: [Int!]!
 
     """
     Statistics about the languages represented in the search results.
@@ -3700,6 +3691,11 @@ type ExternalService implements Node {
     The timestamp of the next sync job. Null if not scheduled for a re-sync.
     """
     nextSyncAt: DateTime
+
+    """
+    Whether automatic syncs are suspended for this code host connection.
+    """
+    suspended: Boolean!
 
     """
     The creator of this external service. Null if the user was deleted or created by a background routine.
@@ -4832,6 +4828,10 @@ type MirrorRepositoryInfo {
     Whether the repository has ever been successfully cloned.
     """
     cloned: Boolean!
+    """
+    Whether the repository is currently on its designated primary shard.
+    """
+    isOnPrimary: Boolean!
     """
     Whether the repository is currently corrupt.
     """
@@ -10455,6 +10455,26 @@ enum PermissionNamespace {
     Permissions related to deep search functionality.
     """
     DEEP_SEARCH
+
+    """
+    Permissions related to managing evergreen deep search.
+    """
+    EVERGREEN_DEEP_SEARCH
+
+    """
+    Permissions related to MCP (Model Context Protocol) access.
+    """
+    MCP
+
+    """
+    Permissions related to repository and code host management.
+    """
+    REPO_MANAGEMENT
+
+    """
+    Permissions related to advanced site configuration management.
+    """
+    ADVANCED_CONFIG
 }
 
 """

@@ -10,6 +10,10 @@ MCP (Model Context Protocol) configuration.
 """
 type McpConfig {
     """
+    Whether MCP API endpoints are enabled.
+    """
+    isMCPEnabled: Boolean!
+    """
     Whether Dynamic Client Registration is enabled.
     """
     isDCREnabled: Boolean!

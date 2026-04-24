@@ -23,20 +23,20 @@
     },
     "on": {
       "type": ["array", "null"],
-      "description": "The set of repositories (and branches) to run the batch change on, specified as a list of search queries (that match repositories) and/or specific repositories.",
+      "description": "The set of repositories to run the batch change on, specified as a list of search queries (that match repositories) and/or specific repositories. Repositories matched by repositoriesMatchingQuery use each repository's default branch unless overridden by an explicit repository entry with branch or branches.",
       "items": {
         "title": "OnQueryOrRepository",
         "oneOf": [
           {
             "title": "OnQuery",
             "type": "object",
-            "description": "A Sourcegraph search query that matches a set of repositories (and branches). Each matched repository branch is added to the list of repositories that the batch change will be run on.",
+            "description": "A Sourcegraph search query that matches a set of repositories. Each matched repository is added to the list of repositories that the batch change will be run on using the repository's default branch.",
             "additionalProperties": false,
             "required": ["repositoriesMatchingQuery"],
             "properties": {
               "repositoriesMatchingQuery": {
                 "type": "string",
-                "description": "A Sourcegraph search query that matches a set of repositories (and branches). If the query matches files, symbols, or some other object inside a repository, the object's repository is included.",
+                "description": "A Sourcegraph search query that matches a set of repositories. If the query matches files, symbols, or some other object inside a repository, the object's repository is included. Matched repositories are run on their default branch; use explicit repository entries with branch or branches to target non-default branches.",
                 "examples": ["file:README.md"]
               }
             }

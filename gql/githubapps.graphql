@@ -121,6 +121,10 @@ type GitHubApp implements Node {
     """
     domain: String!
     """
+    The kind of the GitHub App (e.g. "REPO_SYNC", "COMMIT_SIGNING", "SITE_CREDENTIAL")
+    """
+    kind: String!
+    """
     The slug of the GitHub App
     """
     slug: String!
