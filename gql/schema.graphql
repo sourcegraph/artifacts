@@ -1053,12 +1053,18 @@ type Mutation {
     setUserCodeCompletionsQuota(user: ID!, quota: Int): User!
 
     """
-    Dismisses a notification by its ID. Only site admins may perform this mutation.
+    Dismisses a notification by its ID.
+
+    Admin notifications may only be dismissed by site admins.
+    User notifications may only be dismissed by the user they belong to.
     """
     dismissNotification(id: ID!): Notification!
 
     """
-    Deletes a notification by its ID. Only site admins may perform this mutation.
+    Deletes a notification by its ID.
+
+    Admin notifications may only be deleted by site admins.
+    User notifications may only be deleted by the user they belong to.
     """
     deleteNotification(id: ID!): EmptyResponse!
 }
@@ -4073,7 +4079,6 @@ type Repository implements Node & GenericSearchResultInterface {
     """
     language: String!
     """
-    DEPRECATED: This field is unused in known clients.
     The date when this repository was created on Sourcegraph.
     """
     createdAt: DateTime!
@@ -5303,6 +5308,14 @@ type ChangedFile {
     The file object. For deletions, this is the old file. For all other changes, this is the new file.
     """
     file: File2!
+    """
+    The source blob OID. Null if the file was added in this comparison.
+    """
+    srcOID: GitObjectID
+    """
+    The destination blob OID. Null if the file was deleted in this comparison.
+    """
+    dstOID: GitObjectID
 }
 
 """
@@ -7071,6 +7084,36 @@ type User implements Node & SettingsSubject & Namespace {
     """
     siteAdmin: Boolean!
     """
+    Personal notifications for this user.
+    Only the user can access this field.
+    """
+    notifications(
+        """
+        If true, include dismissed notifications in the results.
+        """
+        includeDismissed: Boolean = true
+        """
+        Filter by notification severity.
+        """
+        severity: NotificationSeverity
+        """
+        Returns the first n notifications.
+        """
+        first: Int
+        """
+        Returns notifications after the given cursor.
+        """
+        after: String
+        """
+        Returns the last n notifications.
+        """
+        last: Int
+        """
+        Returns notifications before the given cursor.
+        """
+        before: String
+    ): NotificationConnection!
+    """
     Whether the user account uses built in auth.
     """
     builtinAuth: Boolean!
@@ -7474,6 +7517,13 @@ type ExternalAccount implements Node {
     The last-updated date of this external account on Sourcegraph.
     """
     updatedAt: DateTime!
+    """
+    The time at which this external account was marked as having expired
+    credentials (e.g. because the OAuth token failed to refresh during a
+    permissions sync). Null when the account is in good standing. When
+    non-null, the user should be prompted to reconnect.
+    """
+    expiredAt: DateTime
     """
     A URL that, when visited, re-initiates the authentication process.
     """
@@ -7985,8 +8035,8 @@ type Site implements SettingsSubject {
     """
     needsRepositoryConfiguration: Boolean!
     """
-    Whether the external services haven been created from a configuration file
-    specified in the EXTSVC_CONFIG_FILE.
+    Whether the external services have been created from configuration provided
+    via EXTSVC_CONFIG or EXTSVC_CONFIG_FILE.
     """
     externalServicesFromFile: Boolean!
     """
@@ -7996,8 +8046,12 @@ type Site implements SettingsSubject {
     """
     allowEditExternalServicesWithFile: Boolean!
     """
-    Whether the site configuration is loaded from a configuration file
-    specified in the SITE_CONFIG_FILE environment variable.
+    Paths in the site config that are blocked from editing by regular site admins (Sourcegraph Cloud only).
+    """
+    siteConfigBlocklistPaths: [String!]!
+    """
+    Whether the site configuration is loaded from external configuration
+    provided via SITE_CONFIG or SITE_CONFIG_FILE.
     """
     siteConfigurationFromFile: Boolean!
     """
@@ -8387,7 +8441,7 @@ type SiteConfigurationChange implements Node {
     """
     The user who made this change. If empty, it indicates that either the
     author's information is not available or the change in the site config was applied
-    via an internal process (example: site startup or SITE_CONFIG_FILE being reloaded).
+    via an internal process (example: site startup or SITE_CONFIG/SITE_CONFIG_FILE being reloaded).
     """
     author: User
 
@@ -8527,10 +8581,6 @@ type Notification implements Node {
     Optional URL to link to for more details or actions related to this notification.
     """
     href: String
-    """
-    Whether this notification has been dismissed.
-    """
-    isDismissed: Boolean!
     """
     When this notification was dismissed, if applicable.
     """
@@ -10467,14 +10517,59 @@ enum PermissionNamespace {
     MCP
 
     """
-    Permissions related to repository and code host management.
+    Permissions related to repository management.
     """
     REPO_MANAGEMENT
+
+    """
+    Permissions related to external services and code host management.
+    """
+    EXTERNAL_SERVICES
+
+    """
+    Permissions related to user management.
+    """
+    USER_MANAGEMENT
 
     """
     Permissions related to advanced site configuration management.
     """
     ADVANCED_CONFIG
+
+    """
+    Permissions related to entitlement management.
+    """
+    ENTITLEMENTS
+
+    """
+    Permissions related to managing integrations (Slack, webhooks, etc.).
+    """
+    INTEGRATION_MANAGEMENT
+
+    """
+    Permissions related to access token management and auth validation.
+    """
+    ACCESS_TOKENS
+
+    """
+    Permissions related to platform notifications and email delivery (admin notifications and test emails).
+    """
+    NOTIFICATIONS
+
+    """
+    Permissions related to out-of-band database migrations.
+    """
+    OOB_MIGRATIONS
+
+    """
+    Permissions related to managing global executor secrets.
+    """
+    EXECUTOR_SECRETS
+
+    """
+    Permissions related to observability and debugging (outbound requests, slow requests, gitserver/zoekt info, background jobs, and observability test alerts).
+    """
+    OBSERVABILITY
 }
 
 """

@@ -176,14 +176,6 @@
           "!go": {
             "pointer": true
           }
-        },
-        "smartHover": {
-          "description": "Controls whether you see AI-generated summaries in hover tooltips. Set to false to opt out.",
-          "type": "boolean",
-          "default": true,
-          "!go": {
-            "pointer": true
-          }
         }
       },
       "group": "Experimental"
@@ -292,6 +284,14 @@
     "codeIntel.disableRangeQueries": {
       "description": "Whether to fetch multiple precise definitions and references on hover.",
       "type": "boolean"
+    },
+    "codeIntel.smartHover": {
+      "description": "Controls whether you see AI-generated summaries in hover tooltips. Set to false to opt out.",
+      "type": "boolean",
+      "default": true,
+      "!go": {
+        "pointer": true
+      }
     },
     "codeIntel.mixPreciseAndSearchBasedReferences": {
       "description": "Whether to supplement precise references with search-based results.",
@@ -494,6 +494,14 @@
     },
     "deepSearch.slackCta.disabled": {
       "description": "Disable the Slack community call-to-action banner on the Deep Search page.",
+      "type": "boolean",
+      "default": false,
+      "!go": {
+        "pointer": true
+      }
+    },
+    "compareV2.enabled": {
+      "description": "BETA: Enable the new compare experience. This feature is under active development and will eventually become the default (and the setting will be removed)",
       "type": "boolean",
       "default": false,
       "!go": {

@@ -208,15 +208,6 @@
             "pointer": true
           }
         },
-        "preciseCodeNavFlow": {
-          "description": "Configure precise code navigation flow version",
-          "type": "string",
-          "enum": ["v1", "v2"],
-          "default": "v2",
-          "!go": {
-            "pointer": true
-          }
-        },
         "codyContextIgnore": {
           "description": "Enabled filtering of remote Cody context based on repositories ./cody/ignore file",
           "type": "boolean",
@@ -258,7 +249,8 @@
               "default": true
             },
             "minimumLength": {
-              "description": "DEPRECATED: replaced by auth.minPasswordLength",
+              "deprecationMessage": "DEPRECATED: Use auth.minPasswordLength instead.",
+              "description": "DEPRECATED: Use auth.minPasswordLength instead.",
               "type": "integer",
               "default": 12
             },
@@ -719,7 +711,7 @@
           "deprecationMessage": "DEPRECATED: Configuring a custom model (BYOK) for Deep Search is deprecated",
           "description": "DEPRECATED: The model reference to use for Deep Search",
           "type": "string",
-          "default": "anthropic::2024-10-22::claude-sonnet-4-latest"
+          "default": "anthropic::2024-10-22::claude-sonnet-4-6-latest"
         },
         "deepSearch.sharing.enabled": {
           "description": "DEPRECATED: Configure this using top-level `deepSearch.sharing.enabled` instead.",
@@ -2618,6 +2610,13 @@
             "pointer": true
           },
           "default": true
+        },
+        "disabledMessage": {
+          "description": "Markdown shown on the sign-in page in place of the default fallback message when both built-in sign-up and access requests are disabled.",
+          "type": "string",
+          "examples": [
+            "Need an account? [Open a ticket](https://tickets.example.com/new?type=sourcegraph-access) to request access."
+          ]
         }
       },
       "examples": [
@@ -2625,7 +2624,8 @@
           "enabled": true
         },
         {
-          "enabled": false
+          "enabled": false,
+          "disabledMessage": "Need an account? [Open a ticket](https://tickets.example.com/new) to request access."
         }
       ]
     },
@@ -3161,6 +3161,7 @@
       "default": null,
       "properties": {
         "statusFilter": {
+          "deprecationMessage": "DEPRECATED: This field is ignored. Sourcegraph-employee-only (experimental) models are excluded by default. Use enableSourcegraphInternalModels to include them.",
           "description": "DEPRECATED: This field is ignored. Sourcegraph-employee-only (experimental) models are excluded by default. Use enableSourcegraphInternalModels to include them.",
           "type": "array",
           "items": {

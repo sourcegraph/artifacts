@@ -23,12 +23,6 @@ type AgenticWorkflow implements Node {
     The JSON schema for the input of this workflow, if defined when creating the workflow.
     """
     inputSchema: String
-
-    """
-    The instances of this workflow. Returns at most 1000 instances.
-    Defaults to the first 50 instances if neither `first` nor `last` is provided.
-    """
-    instances(first: Int, last: Int, after: String, before: String): AgenticWorkflowInstanceConnection!
 }
 
 """
@@ -98,14 +92,19 @@ type AgenticWorkflowInstance implements Node {
     id: ID!
 
     """
-    The workflow this instance belongs to.
+    The name of the workflow instance.
     """
-    workflow: AgenticWorkflow!
+    name: String!
 
     """
-    The JSON definition of the workflow at the time the instance was created.
+    The JSON definition of the workflow instance.
     """
     definition: String!
+
+    """
+    The JSON schema for the input of this workflow instance at the time it was created.
+    """
+    inputSchema: String
 
     """
     The input provided to this instance.
@@ -194,6 +193,16 @@ interface AgenticWorkflowInstanceNodeState {
     When this state snapshot was created.
     """
     createdAt: DateTime!
+
+    """
+    When this node started executing.
+    """
+    startedAt: DateTime
+
+    """
+    When this node finished executing.
+    """
+    finishedAt: DateTime
 }
 
 """
@@ -236,6 +245,16 @@ type AgenticNodeState implements AgenticWorkflowInstanceNodeState {
     When this state snapshot was created.
     """
     createdAt: DateTime!
+
+    """
+    When this node started executing.
+    """
+    startedAt: DateTime
+
+    """
+    When this node finished executing.
+    """
+    finishedAt: DateTime
 }
 
 """
@@ -278,6 +297,16 @@ type AgenticBatchChange implements AgenticWorkflowInstanceNodeState {
     When this state snapshot was created.
     """
     createdAt: DateTime!
+
+    """
+    When this node started executing.
+    """
+    startedAt: DateTime
+
+    """
+    When this node finished executing.
+    """
+    finishedAt: DateTime
 
     """
     The batch change created by this node. Can be null before the node has produced output.
@@ -327,9 +356,139 @@ type AgenticChangeset implements AgenticWorkflowInstanceNodeState {
     createdAt: DateTime!
 
     """
+    When this node started executing.
+    """
+    startedAt: DateTime
+
+    """
+    When this node finished executing.
+    """
+    finishedAt: DateTime
+
+    """
     The changeset that was created from the diff. Can be null if the changeset is not yet reconciled. Try again later.
     """
     changeset: Changeset
+}
+
+"""
+Live state for an iterator node.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticIterator implements AgenticWorkflowInstanceNodeState {
+    """
+    The unique ID of this node state snapshot.
+    """
+    id: ID!
+
+    """
+    The ID of the node spec this state belongs to.
+    """
+    nodeSpecID: String!
+
+    """
+    The type of the node (e.g. decision, wait).
+    """
+    nodeType: String!
+
+    """
+    The lifecycle phase of the node.
+    """
+    lifecyclePhase: AgenticWorkflowInstanceStatus!
+
+    """
+    The raw output produced by the node as a JSON string.
+    This is usually empty until all iteration items have finished.
+    """
+    output: String!
+
+    """
+    The recorded error for this node state, if any.
+    """
+    error: String
+
+    """
+    When this state snapshot was created.
+    """
+    createdAt: DateTime!
+
+    """
+    When this node started executing.
+    """
+    startedAt: DateTime
+
+    """
+    When this node finished executing.
+    """
+    finishedAt: DateTime
+
+    """
+    The iterator's current progress derived from the backing iteration items.
+    This reflects live state, not just the historical snapshot in output.
+    """
+    progress: AgenticIteratorProgress!
+
+    """
+    The iteration items created for this iterator, ordered by creation time.
+    Each item may link to a spawned sub-workflow instance.
+    """
+    iterationItems: [AgenticIteratorItem!]!
+}
+
+"""
+Progress summary for an iterator node.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticIteratorProgress {
+    """
+    The total number of iteration items tracked by this iterator.
+    """
+    total: Int!
+
+    """
+    The number of items whose sub-workflow completed successfully.
+    """
+    completed: Int!
+
+    """
+    The number of items whose sub-workflow failed.
+    """
+    failed: Int!
+
+    """
+    The number of items whose sub-workflow is currently queued or running,
+    plus items that have not yet spawned a sub-workflow.
+    """
+    pending: Int!
+
+    """
+    The number of items whose sub-workflow is currently paused.
+    """
+    paused: Int!
+}
+
+"""
+One item managed by an iterator node.
+
+EXPERIMENTAL: This API is experimental and subject to change.
+"""
+type AgenticIteratorItem {
+    """
+    The unique ID of this iteration item.
+    """
+    id: ID!
+
+    """
+    The serialized item payload produced by the iterator input expression.
+    """
+    itemData: String!
+
+    """
+    The spawned sub-workflow instance for this item, if one has been created.
+    """
+    workflowInstance: AgenticWorkflowInstance
 }
 
 """

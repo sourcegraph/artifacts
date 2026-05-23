@@ -1,0 +1,71 @@
+extend type ChangedFile {
+    """
+    EXPERIMENTAL: Whether the viewing user has marked this file as reviewed
+    for the current (base, head) comparison. Automatically becomes false
+    again if the file's src or dst blob OID has changed since it was marked.
+    """
+    viewerHasViewed: Boolean!
+}
+
+"""
+Input for batched mark/unmark-viewed mutations. All files in a single call
+target the same (repository, base, head) comparison. The server does not
+reload the comparison on write; a bogus input only affects the submitting
+user's own rows.
+"""
+input MarkChangedFilesInput {
+    """
+    The repository containing the diff.
+    """
+    repository: ID!
+    """
+    The base symbolic ref of the comparison (e.g. "main"). If omitted, treated
+    as "HEAD" to match repository.comparison.
+    """
+    base: String
+    """
+    The head symbolic ref of the comparison (e.g. "feature"). If omitted,
+    treated as "HEAD" to match repository.comparison.
+    """
+    head: String
+    """
+    The files to act on within this comparison.
+    """
+    files: [ChangedFileViewedRef!]!
+}
+
+"""
+Identity of a single file within a diff: canonical path plus the src and dst
+blob OIDs that anchor the viewed state to a specific content snapshot. For
+markChangedFilesAsUnviewed, srcOID and dstOID are ignored — a delete only
+matches on path.
+"""
+input ChangedFileViewedRef {
+    """
+    The canonical path of the file (post-image path, or pre-image if deleted).
+    """
+    path: String!
+    """
+    The source (pre-image) blob OID from ChangedFile.srcOID, or null if the
+    file was added in this diff.
+    """
+    srcOID: GitObjectID
+    """
+    The destination (post-image) blob OID from ChangedFile.dstOID, or null if
+    the file was deleted in this diff.
+    """
+    dstOID: GitObjectID
+}
+
+extend type Mutation {
+    """
+    EXPERIMENTAL: Mark one or more changed files in a diff as viewed for the
+    current user. Idempotent. Batch capped at 5000 files.
+    """
+    markChangedFilesAsViewed(input: MarkChangedFilesInput!): Boolean!
+    """
+    EXPERIMENTAL: Remove the "viewed" mark from one or more changed files in
+    a diff for the current user. Batch capped at 5000 files.
+    """
+    markChangedFilesAsUnviewed(input: MarkChangedFilesInput!): Boolean!
+}

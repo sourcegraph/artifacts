@@ -305,6 +305,7 @@ enum EntitlementWindow {
     ONE_HOUR
     ONE_DAY
     SEVEN_DAYS
+    THIRTY_DAYS
 }
 
 """
@@ -312,6 +313,7 @@ EntitlementType represents the available types of entitlements.
 """
 enum EntitlementType {
     DEEP_SEARCH
+    SMART_HOVER_SUMMARY
 }
 
 """

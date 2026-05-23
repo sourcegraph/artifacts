@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS tenant_isolation_policy ON smart_hover_summary_entitlement_usage;
+DROP TABLE IF EXISTS smart_hover_summary_entitlement_usage;

@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS deepsearch_conversations_title_search_queue_trg ON deepsearch_conversations;
+DROP FUNCTION IF EXISTS deepsearch_enqueue_conversation_for_search();

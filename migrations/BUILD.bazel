@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library")
 
 # Important warning: if you add files to that package, you *must*
 # add them manually to the scrs attribute, because of the gazelle:ignore

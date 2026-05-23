@@ -192,11 +192,37 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION deepsearch_enqueue_conversation_for_search() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO deepsearch_search_queue (
+        question_id,
+        tenant_id,
+        queued_at,
+        process_after,
+        latest_question_updated_at
+    )
+    SELECT q.id, q.tenant_id, now(), NULL, now()
+    FROM deepsearch_questions q
+    WHERE q.conversation_id = NEW.id
+      AND q.status != 'processing'
+    ON CONFLICT (tenant_id, question_id) DO UPDATE SET
+        latest_question_updated_at = EXCLUDED.latest_question_updated_at,
+        queued_at                  = EXCLUDED.queued_at,
+        process_after              = EXCLUDED.process_after,
+        state                      = 'queued',
+        started_at                 = NULL,
+        cancel                     = false;
+    RETURN NEW;
+END;
+$$;
+
 CREATE FUNCTION deepsearch_enqueue_question_for_search() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    IF NEW IS NOT NULL AND NEW.status != 'processing' THEN
+    IF NEW.status != 'processing' THEN
         INSERT INTO deepsearch_search_queue (
             question_id,
             tenant_id,
@@ -219,7 +245,6 @@ BEGIN
             cancel = false;
     END IF;
 
-    -- On DELETE, the CASCADE will clean up the index automatically
     RETURN COALESCE(NEW, OLD);
 END;
 $$;
@@ -1153,6 +1178,8 @@ CREATE TABLE abc_workflow_instances (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     user_id integer NOT NULL,
     error text,
+    name text DEFAULT ''::text NOT NULL,
+    input_schema text,
     CONSTRAINT abc_workflow_instances_lifecycle_phase_check CHECK ((lifecycle_phase = ANY (ARRAY['queued'::text, 'running'::text, 'paused'::text, 'complete'::text, 'failed'::text])))
 );
 
@@ -2490,6 +2517,14 @@ CREATE SEQUENCE critical_and_site_config_id_seq
 
 ALTER SEQUENCE critical_and_site_config_id_seq OWNED BY critical_and_site_config.id;
 
+CREATE TABLE deepsearch_conversation_views (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    conversation_id integer NOT NULL,
+    last_viewed_at timestamp with time zone DEFAULT now() NOT NULL,
+    view_count integer DEFAULT 1 NOT NULL
+);
+
 CREATE TABLE deepsearch_conversations (
     id integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
@@ -2628,6 +2663,18 @@ CREATE SEQUENCE deepsearch_search_queue_id_seq
     CACHE 1;
 
 ALTER SEQUENCE deepsearch_search_queue_id_seq OWNED BY deepsearch_search_queue.id;
+
+CREATE TABLE diff_file_viewed_states (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    repo_id integer NOT NULL,
+    base_ref text NOT NULL,
+    head_ref text NOT NULL,
+    file_path text NOT NULL,
+    src_blob_sha text NOT NULL,
+    dst_blob_sha text NOT NULL,
+    viewed_at timestamp with time zone DEFAULT now() NOT NULL
+);
 
 CREATE TABLE entitlement_grants (
     entitlement_id integer NOT NULL,
@@ -3196,6 +3243,78 @@ COMMENT ON COLUMN feature_flags.rollout IS 'Rollout only defined when flag_type 
 COMMENT ON CONSTRAINT required_bool_fields ON feature_flags IS 'Checks that bool_value is set IFF flag_type = bool';
 
 COMMENT ON CONSTRAINT required_rollout_fields ON feature_flags IS 'Checks that rollout is set IFF flag_type = rollout';
+
+CREATE TABLE generic_agent_conversations (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    title text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE generic_agent_conversations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE generic_agent_conversations_id_seq OWNED BY generic_agent_conversations.id;
+
+CREATE TABLE generic_agent_question_jobs (
+    id bigint NOT NULL,
+    question_id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE generic_agent_question_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE generic_agent_question_jobs_id_seq OWNED BY generic_agent_question_jobs.id;
+
+CREATE TABLE generic_agent_questions (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    conversation_id integer NOT NULL,
+    question text NOT NULL,
+    status text DEFAULT 'processing'::text NOT NULL,
+    answer text DEFAULT ''::text NOT NULL,
+    error text DEFAULT ''::text NOT NULL,
+    messages jsonb DEFAULT '[]'::jsonb NOT NULL,
+    stats jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    turns jsonb DEFAULT '[]'::jsonb NOT NULL
+);
+
+CREATE SEQUENCE generic_agent_questions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE generic_agent_questions_id_seq OWNED BY generic_agent_questions.id;
 
 CREATE TABLE github_app_installs (
     id integer NOT NULL,
@@ -4512,18 +4631,21 @@ CREATE TABLE notifications (
     dismissed_at timestamp with time zone,
     occurrence_count integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    user_id integer
 );
 
-COMMENT ON TABLE notifications IS 'Persisted admin notifications with deduplication and dismiss/reoccur lifecycle.';
+COMMENT ON TABLE notifications IS 'Persisted admin and user notifications with deduplication and dismiss/reoccur lifecycle.';
 
-COMMENT ON COLUMN notifications.key IS 'Stable key that uniquely identifies the problem type and context. Used for upsert operations.';
+COMMENT ON COLUMN notifications.key IS 'Stable key used for deduplication. When user_id is set, the stored key is namespaced to that user.';
 
 COMMENT ON COLUMN notifications.href IS 'Optional URL to link to for more details or actions related to this notification.';
 
 COMMENT ON COLUMN notifications.dismissed_at IS 'When set, notification was dismissed by user. Cleared when a new occurrence happens.';
 
 COMMENT ON COLUMN notifications.occurrence_count IS 'Number of times this notification has been emitted (incremented on re-occurrence after dismiss).';
+
+COMMENT ON COLUMN notifications.user_id IS 'When set, this notification is scoped to a single user.';
 
 CREATE SEQUENCE notifications_id_seq
     START WITH 1
@@ -4604,7 +4726,7 @@ CREATE TABLE orgs (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     CONSTRAINT orgs_display_name_max_length CHECK ((char_length(display_name) <= 255)),
     CONSTRAINT orgs_name_max_length CHECK ((char_length((name)::text) <= 255)),
-    CONSTRAINT orgs_name_valid_chars CHECK ((name OPERATOR(~) '^[a-zA-Z0-9](?:[a-zA-Z0-9]|[-.](?=[a-zA-Z0-9]))*-?$'::citext))
+    CONSTRAINT orgs_name_valid_chars CHECK ((name OPERATOR(~) '^\w(?:\w|[-.](?=\w))*-?$'::citext))
 );
 
 CREATE SEQUENCE orgs_id_seq
@@ -5866,6 +5988,15 @@ CREATE SEQUENCE slack_conversation_mappings_id_seq
 
 ALTER SEQUENCE slack_conversation_mappings_id_seq OWNED BY slack_conversation_mappings.id;
 
+CREATE TABLE smart_hover_summary_entitlement_usage (
+    user_id integer NOT NULL,
+    entitlement_id integer NOT NULL,
+    consumed bigint DEFAULT 0 NOT NULL,
+    window_started_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
 CREATE TABLE sub_repo_permissions (
     repo_id integer NOT NULL,
     user_id integer NOT NULL,
@@ -6196,11 +6327,14 @@ CREATE TABLE user_external_accounts (
     encryption_key_id text DEFAULT ''::text NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     kind text DEFAULT 'AUTH'::text NOT NULL,
+    refresh_failure_at timestamp with time zone,
     CONSTRAINT user_external_accounts_kind_not_empty CHECK ((btrim(kind) <> ''::text)),
     CONSTRAINT user_external_accounts_kind_valid CHECK ((kind = ANY (ARRAY['AUTH'::text, 'BATCH_CHANGES'::text])))
 );
 
 COMMENT ON COLUMN user_external_accounts.kind IS 'Purpose of this external account: AUTH (authentication), BATCH_CHANGES (batch changes credentials), etc.';
+
+COMMENT ON COLUMN user_external_accounts.refresh_failure_at IS 'Timestamp of the first OAuth refresh failure observed against the current refresh_token. Set on the first failure and reset to NULL whenever auth_data is rewritten (successful refresh or browser re-auth). Used together with a minimum-interval check to ride out provider eventual-consistency lags before clearing a refresh_token.';
 
 CREATE SEQUENCE user_external_accounts_id_seq
     START WITH 1
@@ -6568,6 +6702,12 @@ ALTER TABLE ONLY explicit_permissions_bitbucket_projects_jobs ALTER COLUMN id SE
 ALTER TABLE ONLY external_services ALTER COLUMN id SET DEFAULT nextval('external_services_id_seq'::regclass);
 
 ALTER TABLE ONLY feature_flag_overrides ALTER COLUMN id SET DEFAULT nextval('feature_flag_overrides_id_seq'::regclass);
+
+ALTER TABLE ONLY generic_agent_conversations ALTER COLUMN id SET DEFAULT nextval('generic_agent_conversations_id_seq'::regclass);
+
+ALTER TABLE ONLY generic_agent_question_jobs ALTER COLUMN id SET DEFAULT nextval('generic_agent_question_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY generic_agent_questions ALTER COLUMN id SET DEFAULT nextval('generic_agent_questions_id_seq'::regclass);
 
 ALTER TABLE ONLY github_app_installs ALTER COLUMN id SET DEFAULT nextval('github_app_installs_id_seq'::regclass);
 
@@ -6951,6 +7091,9 @@ ALTER TABLE ONLY contributor_repos
 ALTER TABLE ONLY critical_and_site_config
     ADD CONSTRAINT critical_and_site_config_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY deepsearch_conversation_views
+    ADD CONSTRAINT deepsearch_conversation_views_pkey PRIMARY KEY (tenant_id, user_id, conversation_id);
+
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_pkey PRIMARY KEY (id);
 
@@ -6977,6 +7120,9 @@ ALTER TABLE ONLY deepsearch_search_queue
 
 ALTER TABLE ONLY deepsearch_search_queue
     ADD CONSTRAINT deepsearch_search_queue_tenant_id_question_id_key UNIQUE (tenant_id, question_id);
+
+ALTER TABLE ONLY diff_file_viewed_states
+    ADD CONSTRAINT diff_file_viewed_states_pkey PRIMARY KEY (tenant_id, user_id, repo_id, base_ref, head_ref, file_path);
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_pkey PRIMARY KEY (entitlement_id, user_id);
@@ -7058,6 +7204,15 @@ ALTER TABLE ONLY feature_flag_overrides
 
 ALTER TABLE ONLY feature_flags
     ADD CONSTRAINT feature_flags_pkey PRIMARY KEY (flag_name, tenant_id);
+
+ALTER TABLE ONLY generic_agent_conversations
+    ADD CONSTRAINT generic_agent_conversations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY generic_agent_question_jobs
+    ADD CONSTRAINT generic_agent_question_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY generic_agent_questions
+    ADD CONSTRAINT generic_agent_questions_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY github_app_installs
     ADD CONSTRAINT github_app_installs_pkey PRIMARY KEY (id);
@@ -7440,6 +7595,9 @@ ALTER TABLE ONLY slack_conversation_mappings
 ALTER TABLE ONLY slack_conversation_mappings
     ADD CONSTRAINT slack_conversation_mappings_unique_deepsearch_id UNIQUE (tenant_id, deepsearch_conversation_id);
 
+ALTER TABLE ONLY smart_hover_summary_entitlement_usage
+    ADD CONSTRAINT smart_hover_summary_entitlement_usage_pkey PRIMARY KEY (user_id, entitlement_id);
+
 ALTER TABLE ONLY sub_repo_permissions
     ADD CONSTRAINT sub_repo_permissions_pkey PRIMARY KEY (repo_id, user_id, version);
 
@@ -7709,6 +7867,10 @@ CREATE INDEX contributor_jobs_repo_id ON contributor_jobs USING btree (repo_id);
 
 CREATE INDEX contributor_repos_repo_id ON contributor_repos USING btree (repo_id);
 
+CREATE INDEX deepsearch_conversation_views_per_conversation ON deepsearch_conversation_views USING btree (tenant_id, conversation_id);
+
+CREATE INDEX deepsearch_conversation_views_user_recent ON deepsearch_conversation_views USING btree (tenant_id, user_id, last_viewed_at DESC);
+
 CREATE INDEX deepsearch_conversations_read_token_idx ON deepsearch_conversations USING hash (read_token);
 
 CREATE INDEX deepsearch_conversations_user_updated_idx ON deepsearch_conversations USING btree (user_id, updated_at DESC);
@@ -7790,6 +7952,14 @@ CREATE INDEX feature_flag_overrides_org_id ON feature_flag_overrides USING btree
 CREATE INDEX feature_flag_overrides_user_id ON feature_flag_overrides USING btree (namespace_user_id) WHERE (namespace_user_id IS NOT NULL);
 
 CREATE INDEX finished_at_insights_query_runner_jobs_idx ON insights_query_runner_jobs USING btree (finished_at);
+
+CREATE INDEX generic_agent_conversations_user_updated_at_idx ON generic_agent_conversations USING btree (tenant_id, user_id, updated_at DESC);
+
+CREATE INDEX generic_agent_question_jobs_dequeue_idx ON generic_agent_question_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX generic_agent_question_jobs_question_id_idx ON generic_agent_question_jobs USING btree (tenant_id, question_id);
+
+CREATE INDEX generic_agent_questions_conversation_id_idx ON generic_agent_questions USING btree (tenant_id, conversation_id, id);
 
 CREATE INDEX github_app_installs_account_login ON github_app_installs USING btree (account_login);
 
@@ -7942,6 +8112,10 @@ CREATE INDEX notebooks_title_trgm_idx ON notebooks USING gin (title gin_trgm_ops
 CREATE INDEX notifications_tenant_active_idx ON notifications USING btree (tenant_id) WHERE (dismissed_at IS NULL);
 
 CREATE INDEX notifications_tenant_severity_idx ON notifications USING btree (tenant_id, severity);
+
+CREATE INDEX notifications_tenant_user_active_idx ON notifications USING btree (tenant_id, user_id, id DESC) WHERE ((dismissed_at IS NULL) AND (user_id IS NOT NULL));
+
+CREATE INDEX notifications_tenant_user_severity_idx ON notifications USING btree (tenant_id, user_id, severity) WHERE (user_id IS NOT NULL);
 
 CREATE INDEX org_invitations_org_id ON org_invitations USING btree (org_id) WHERE (deleted_at IS NULL);
 
@@ -8137,6 +8311,10 @@ CREATE INDEX slack_conversation_mappings_channel_thread_idx ON slack_conversatio
 
 CREATE INDEX slack_conversation_mappings_conversation_id_idx ON slack_conversation_mappings USING btree (deepsearch_conversation_id);
 
+CREATE INDEX smart_hover_summary_entitlement_usage_entitlement_id_idx ON smart_hover_summary_entitlement_usage USING btree (entitlement_id);
+
+CREATE INDEX smart_hover_summary_entitlement_usage_user_id_idx ON smart_hover_summary_entitlement_usage USING btree (user_id);
+
 CREATE INDEX sub_repo_perms_user_id ON sub_repo_permissions USING btree (user_id);
 
 CREATE INDEX syntactic_scip_indexing_jobs_audit_logs_indexing_job_id ON syntactic_scip_indexing_jobs_audit_logs USING btree (job_id);
@@ -8210,6 +8388,8 @@ CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_insert AFTER INSERT 
 CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_update AFTER UPDATE ON batch_spec_workspace_execution_jobs REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert();
 
 CREATE TRIGGER changesets_update_computed_state BEFORE INSERT OR UPDATE ON changesets FOR EACH ROW EXECUTE FUNCTION changesets_computed_state_ensure();
+
+CREATE TRIGGER deepsearch_conversations_title_search_queue_trg AFTER UPDATE OF title ON deepsearch_conversations FOR EACH ROW WHEN ((old.title IS DISTINCT FROM new.title)) EXECUTE FUNCTION deepsearch_enqueue_conversation_for_search();
 
 CREATE TRIGGER deepsearch_questions_search_queue_trg AFTER INSERT OR UPDATE ON deepsearch_questions FOR EACH ROW EXECUTE FUNCTION deepsearch_enqueue_question_for_search();
 
@@ -8288,9 +8468,6 @@ ALTER TABLE ONLY abc_node_states
 
 ALTER TABLE ONLY abc_workflow_instances
     ADD CONSTRAINT abc_workflow_instances_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY abc_workflow_instances
-    ADD CONSTRAINT abc_workflow_instances_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES abc_workflows(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY access_requests
     ADD CONSTRAINT access_requests_decision_by_user_id_fkey FOREIGN KEY (decision_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
@@ -8410,7 +8587,7 @@ ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_owned_by_batch_spec_id_fkey FOREIGN KEY (owned_by_batch_change_id) REFERENCES batch_changes(id) ON DELETE SET NULL DEFERRABLE;
 
 ALTER TABLE ONLY changesets
-    ADD CONSTRAINT changesets_previous_spec_id_fkey FOREIGN KEY (previous_spec_id) REFERENCES changeset_specs(id) DEFERRABLE;
+    ADD CONSTRAINT changesets_previous_spec_id_fkey FOREIGN KEY (previous_spec_id) REFERENCES changeset_specs(id) ON DELETE SET NULL DEFERRABLE;
 
 ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE DEFERRABLE;
@@ -8514,6 +8691,12 @@ ALTER TABLE ONLY contributor_jobs
 ALTER TABLE ONLY contributor_repos
     ADD CONSTRAINT contributor_repos_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY deepsearch_conversation_views
+    ADD CONSTRAINT deepsearch_conversation_views_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY deepsearch_conversation_views
+    ADD CONSTRAINT deepsearch_conversation_views_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_forked_from_question_id_fkey FOREIGN KEY (forked_from_question_id) REFERENCES deepsearch_questions(id) ON DELETE SET NULL;
 
@@ -8546,6 +8729,12 @@ ALTER TABLE ONLY deepsearch_search_index
 
 ALTER TABLE ONLY deepsearch_search_queue
     ADD CONSTRAINT deepsearch_search_queue_question_id_fkey FOREIGN KEY (question_id) REFERENCES deepsearch_questions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY diff_file_viewed_states
+    ADD CONSTRAINT diff_file_viewed_states_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY diff_file_viewed_states
+    ADD CONSTRAINT diff_file_viewed_states_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
@@ -8637,6 +8826,15 @@ ALTER TABLE ONLY vulnerability_affected_symbols
 ALTER TABLE ONLY vulnerability_matches
     ADD CONSTRAINT fk_vulnerability_affected_packages FOREIGN KEY (vulnerability_affected_package_id) REFERENCES vulnerability_affected_packages(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY generic_agent_conversations
+    ADD CONSTRAINT generic_agent_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY generic_agent_question_jobs
+    ADD CONSTRAINT generic_agent_question_jobs_question_id_fkey FOREIGN KEY (question_id) REFERENCES generic_agent_questions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY generic_agent_questions
+    ADD CONSTRAINT generic_agent_questions_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES generic_agent_conversations(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY github_app_installs
     ADD CONSTRAINT github_app_installs_app_id_fkey FOREIGN KEY (app_id) REFERENCES github_apps(id) ON DELETE CASCADE;
 
@@ -8702,6 +8900,9 @@ ALTER TABLE ONLY notebooks
 
 ALTER TABLE ONLY notebooks
     ADD CONSTRAINT notebooks_updater_user_id_fkey FOREIGN KEY (updater_user_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY notifications
+    ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY org_invitations
     ADD CONSTRAINT org_invitations_org_id_fkey FOREIGN KEY (org_id) REFERENCES orgs(id);
@@ -8904,6 +9105,15 @@ ALTER TABLE ONLY settings
 ALTER TABLE ONLY slack_conversation_mappings
     ADD CONSTRAINT slack_conversation_mappings_slack_configuration_id_fkey FOREIGN KEY (slack_configuration_id) REFERENCES slack_configurations(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY smart_hover_summary_entitlement_usage
+    ADD CONSTRAINT smart_hover_summary_entitlement_usage_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY smart_hover_summary_entitlement_usage
+    ADD CONSTRAINT smart_hover_summary_entitlement_usage_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+ALTER TABLE ONLY smart_hover_summary_entitlement_usage
+    ADD CONSTRAINT smart_hover_summary_entitlement_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY sub_repo_permissions
     ADD CONSTRAINT sub_repo_permissions_repo_id_fk FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
@@ -9079,6 +9289,8 @@ ALTER TABLE contributor_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE contributor_repos ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE deepsearch_conversation_views ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE deepsearch_conversations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_entitlement_usage ENABLE ROW LEVEL SECURITY;
@@ -9092,6 +9304,8 @@ ALTER TABLE deepsearch_quota ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deepsearch_search_index ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE deepsearch_search_queue ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE diff_file_viewed_states ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
 
@@ -9134,6 +9348,12 @@ ALTER TABLE external_services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feature_flag_overrides ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE generic_agent_conversations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE generic_agent_question_jobs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE generic_agent_questions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE github_app_installs ENABLE ROW LEVEL SECURITY;
 
@@ -9327,6 +9547,8 @@ ALTER TABLE slack_configurations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE slack_conversation_mappings ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE smart_hover_summary_entitlement_usage ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE sub_repo_permissions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE survey_responses ENABLE ROW LEVEL SECURITY;
@@ -9451,6 +9673,8 @@ CREATE POLICY tenant_isolation_policy ON contributor_jobs USING ((( SELECT (curr
 
 CREATE POLICY tenant_isolation_policy ON contributor_repos USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON deepsearch_conversation_views USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON deepsearch_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -9464,6 +9688,8 @@ CREATE POLICY tenant_isolation_policy ON deepsearch_quota USING ((tenant_id = ( 
 CREATE POLICY tenant_isolation_policy ON deepsearch_search_index USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON deepsearch_search_queue USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON diff_file_viewed_states USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -9506,6 +9732,12 @@ CREATE POLICY tenant_isolation_policy ON external_services USING ((tenant_id = (
 CREATE POLICY tenant_isolation_policy ON feature_flag_overrides USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON feature_flags USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON generic_agent_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON generic_agent_question_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON generic_agent_questions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON github_app_installs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -9698,6 +9930,8 @@ CREATE POLICY tenant_isolation_policy ON settings USING ((tenant_id = ( SELECT (
 CREATE POLICY tenant_isolation_policy ON slack_configurations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON slack_conversation_mappings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON smart_hover_summary_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON sub_repo_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

@@ -1,0 +1,29 @@
+extend type Query {
+    """
+    Reports on whether or not the caller has enough quota remaining to
+    use the feature specified by the given SKU.
+
+    Note: This is used to drive UI gating (e.g., disabling a chat input if
+    the instance doesn't have enough credits remaining, etc.)
+    """
+    checkQuota(sku: QuotaSKU!): QuotaCheckResult!
+}
+
+"""
+Identifier for a quota-limited feature.
+"""
+enum QuotaSKU {
+    # Note: Extend as new SKUs are introduced on the backend; every value must
+    # have a corresponding gating.QuotaSKU mapping.
+    DEEP_SEARCH
+}
+
+"""
+Result of a quota check.
+"""
+type QuotaCheckResult {
+    """
+    True iff a request for this SKU would be rejected by CheckQuota right now.
+    """
+    blocked: Boolean!
+}

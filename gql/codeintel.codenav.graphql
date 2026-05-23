@@ -11,20 +11,6 @@ extend type GitBlob {
     ): GitBlobLSIFData
 
     """
-    Provides code intelligence within the file.
-
-    Experimental: This API is likely to change in the future.
-    """
-    localCodeIntel: JSONValue
-
-    """
-    A wrapper around syntactic hover and definition query methods.
-
-    Experimental: This API is likely to change in the future.
-    """
-    symbolInfo(line: Int!, character: Int!): SymbolInfo
-
-    """
     Return the code graph data associated with this blob.
 
     If there are multiple tools (i.e. name and version pairs) which
@@ -1018,79 +1004,4 @@ type Hover {
     Lazy-loaded - only computed when requested. Returns null if summary cannot be generated.
     """
     summary: Markdown
-}
-
-"""
-SymbolInfo contains hover and definition methods. It's returned by GitBlob.symbolInfo(line, character).
-"""
-type SymbolInfo {
-    """
-    The definition of the symbol.
-    """
-    definition: SymbolLocation
-
-    """
-    The hover for the symbol.
-    """
-    hover: String
-}
-
-"""
-SymbolLocation is a single-line range within a repository. It's returned by SymbolInfo.definition.
-"""
-type SymbolLocation {
-    """
-    The repo.
-    """
-    repo: String!
-
-    """
-    The commit.
-    """
-    commit: String!
-
-    """
-    The path.
-    """
-    path: String!
-
-    """
-    The range.
-    """
-    range: LineRange
-
-    """
-    The line.
-    """
-    line: Int! @deprecated(reason: "use range.line instead")
-
-    """
-    The character.
-    """
-    character: Int! @deprecated(reason: "use range.character instead")
-
-    """
-    The length.
-    """
-    length: Int! @deprecated(reason: "use range.length instead")
-}
-
-"""
-LineRange is a span within a line.
-"""
-type LineRange {
-    """
-    The line.
-    """
-    line: Int!
-
-    """
-    The character.
-    """
-    character: Int!
-
-    """
-    The length.
-    """
-    length: Int!
 }

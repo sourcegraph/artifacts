@@ -64,7 +64,7 @@ extend type Query {
         """
         after: String
         """
-        Query to filter the search contexts by spec.
+        Free-form query to filter search contexts by spec, namespace, or name.
         """
         query: String
         """
@@ -111,6 +111,11 @@ type SearchContext implements Node {
     The unique id of the search context.
     """
     id: ID!
+    """
+    Stable database ID for persisted search contexts. Unlike `id`, this does not change when the spec changes.
+    Auto-defined contexts such as `global` do not have a persisted database ID and return `0`.
+    """
+    databaseID: Int!
     """
     The name of the search context.
     """
