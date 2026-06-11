@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS batch_change_agent_deepsearch_conversation_mappings;

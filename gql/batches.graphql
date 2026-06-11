@@ -2008,6 +2008,12 @@ extend type Mutation {
     retryBatchSpecWorkspaceExecution(batchSpecWorkspaces: [ID!]!): EmptyResponse!
 
     """
+    Enqueue pending workspaces for execution. All workspaces must belong to the
+    same batch spec and must not already have execution jobs.
+    """
+    enqueueBatchSpecWorkspaceExecution(batchSpecWorkspaces: [ID!]!): EmptyResponse!
+
+    """
     Retry execution of a changeset spec by finding its associated workspace and retrying it.
 
     Note: this will delete and reexecute all changesets associated with the changeset's workspace. This is normally
@@ -2325,33 +2331,6 @@ extend type Query {
         """
         changesets: [ID!]!
     ): [BulkOperationType!]!
-
-    """
-    A list of batch specs.
-
-
-    Site-admin only.
-
-    Experimental: This API is likely to change in the future.
-    """
-    batchSpecs(
-        """
-        Returns the first n batch specs from the list.
-        """
-        first: Int = 50
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-        """
-        Include locally executed (i.e. with src-cli) batch specs in the list of specs returned.
-        """
-        includeLocallyExecutedSpecs: Boolean
-        """
-        Exclude the empty batch specs that are initially created and applied to draft batch changes.
-        """
-        excludeEmptySpecs: Boolean
-    ): BatchSpecConnection!
 
     """
     Determines if a batch change credential is authorized for a code host.
@@ -3743,6 +3722,69 @@ type BatchSpec implements Node {
         """
         after: String
     ): BatchSpecWorkspaceFileConnection
+
+    """
+    The changesets attached to each workspace of this batch spec.
+
+    Only populated for agent-managed batch changes.
+    """
+    attachedChangesets(
+        """
+        Returns the first n entries from the list.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): AttachedChangesetConnection!
+}
+
+"""
+A list of AttachedChangeset nodes.
+"""
+type AttachedChangesetConnection {
+    """
+    The total number of attachments in the connection.
+    """
+    totalCount: Int!
+
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+
+    """
+    The attachments in the connection.
+    """
+    nodes: [AttachedChangeset!]!
+}
+
+"""
+A changeset attached to a workspace of a batch spec.
+"""
+type AttachedChangeset implements Node {
+    """
+    The opaque ID of the attachment.
+    """
+    id: ID!
+
+    """
+    The workspace the changeset is attached to.
+    """
+    workspaceID: ID!
+
+    """
+    The attached changeset.
+    """
+    changeset: Changeset!
+
+    """
+    True when the changeset's spec is not the workspace's current spec,
+    e.g. because the batch spec was re-prepared after the changeset was
+    published.
+    """
+    stale: Boolean!
 }
 
 """

@@ -31,6 +31,7 @@ type PreviewLicenseKeyResult {
 
     """
     The maximum number of users allowed by this license.
+    A value of 0 means unlimited users (no seat cap will be enforced).
     Only present if isValid is true.
     """
     userCount: Int

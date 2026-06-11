@@ -176,6 +176,14 @@
           "!go": {
             "pointer": true
           }
+        },
+        "deepSearchGuidance": {
+          "description": "EXPERIMENTAL: Additional guidance and skills loaded into Deep Search agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentGuidanceEntry"
+          },
+          "default": []
         }
       },
       "group": "Experimental"
@@ -510,6 +518,62 @@
     }
   },
   "definitions": {
+    "AgentGuidanceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "Repository location to load agent guidance from. The source is expected to contain an AGENTS.md file and/or skills under skills/ or .agents/skills/. Within a source, skills/ is loaded before .agents/skills/, so duplicate skill names in .agents/skills/ override duplicate names from skills/.",
+          "$ref": "#/definitions/AgentGuidanceSource"
+        },
+        "agentsMd": {
+          "description": "Inline AGENTS.md guidance snippet to append to agent runs.",
+          "type": "string"
+        },
+        "skill": {
+          "description": "Inline skill to expose to agent runs. If multiple skills have the same name, the last loaded skill wins and only that winning skill is shown in the load_skill tool description.",
+          "$ref": "#/definitions/AgentGuidanceSkill"
+        }
+      }
+    },
+    "AgentGuidanceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo"],
+      "properties": {
+        "repo": {
+          "description": "Repository name that contains guidance files, for example github.com/sourcegraph/sourcegraph.",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Branch or revision to load guidance from. When empty, the repository default branch is used.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Repository path containing AGENTS.md, skills/, or .agents/skills/. Defaults to the repository root.",
+          "type": "string"
+        }
+      }
+    },
+    "AgentGuidanceSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "content"],
+      "properties": {
+        "name": {
+          "description": "Skill name used by the agent to load this skill.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Short description shown in the skill list.",
+          "type": "string"
+        },
+        "content": {
+          "description": "The SKILL.md body loaded when this skill is selected.",
+          "type": "string"
+        }
+      }
+    },
     "SearchScope": {
       "type": "object",
       "additionalProperties": false,

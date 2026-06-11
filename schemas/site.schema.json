@@ -1731,7 +1731,7 @@
     "executors.srcCLIImageTag": {
       "description": "The tag to use for the src-cli image in executors. Use this value to use a custom tag. Sourcegraph by default uses the best match, so use this setting only if you really need to overwrite it and make sure to keep it updated.",
       "type": "string",
-      "examples": ["4.1.0"]
+      "examples": ["7.2.0"]
     },
     "executors.lsifGoImage": {
       "description": "The tag to use for the lsif-go image in executors. Use this value to use a custom tag. Sourcegraph by default uses the best match, so use this setting only if you really need to overwrite it and make sure to keep it updated.",
@@ -1746,7 +1746,7 @@
     "executors.batcheshelperImageTag": {
       "description": "The tag to use for the batcheshelper image in executors when using native execution. Use this value to use a custom tag. Sourcegraph by default uses the best match, so use this setting only if you really need to overwrite it and make sure to keep it updated.",
       "type": "string",
-      "examples": ["4.1.0"]
+      "examples": ["7.2.0"]
     },
     "executors.accessToken": {
       "description": "The shared secret between Sourcegraph and executors. The value must contain at least 20 characters.",
@@ -2512,6 +2512,12 @@
       "description": "The maximum duration a user session may be idle (not making any requests), after which it expires and the user is required to re-authenticate. Must be at least 1 hour. Defaults to no idle expiry.",
       "default": "0",
       "examples": ["2h"],
+      "group": "Authentication"
+    },
+    "auth.allowEmbeddedAuth": {
+      "description": "When enabled, the sign-in and sign-up pages can be loaded inside an iframe (e.g. for embedded applications). When disabled (the default), these pages reject framing requests using Sec-Fetch-Dest/Sec-Fetch-Site fetch metadata headers to prevent clickjacking attacks. Password reset endpoints are always protected regardless of this setting.",
+      "type": "boolean",
+      "default": false,
       "group": "Authentication"
     },
     "auth.enableUsernameChanges": {

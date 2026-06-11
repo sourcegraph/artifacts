@@ -2867,6 +2867,103 @@ extend type Mutation {
         """
         id: ID!
     ): EmptyResponse
+
+    """
+    Adds or updates a single container registry credential inside a
+    DOCKER_AUTH_CONFIG executor secret. If the DOCKER_AUTH_CONFIG executor
+    secret does not yet exist in the target namespace, it is created with the
+    supplied credential as its single entry.
+    Exactly one of (`username` + `password`) or `auth` must be supplied:
+      - When `username` and `password` are supplied, the server encodes
+        `base64(username:password)` and stores that as the credential.
+      - When `auth` is supplied, it must already be a `base64(username:password)`
+        string (e.g. taken from `docker login`'s `~/.docker/config.json`).
+    Only BATCHES scope is currently supported.
+    `namespace` selects which DOCKER_AUTH_CONFIG secret to modify. It may be a
+    User ID or an Org ID. Non-admins may only target their own user namespace
+    or an org they belong to; site admins may target any namespace. When
+    `namespace` is omitted, the site-wide (global) DOCKER_AUTH_CONFIG secret
+    is targeted; this is restricted to site admins.
+    """
+    upsertDockerRegistryCredential(
+        """
+        The container registry host (e.g. "index.docker.io" or "ghcr.io").
+        """
+        registry: String!
+        """
+        The username to authenticate to the registry as. Mutually exclusive with `auth`.
+        """
+        username: String
+        """
+        The password / token to authenticate to the registry with. Mutually exclusive with `auth`.
+        """
+        password: String
+        """
+        A pre-encoded `base64(username:password)` credential string. Mutually
+        exclusive with `username` / `password`.
+        """
+        auth: String
+        """
+        The namespace that owns the DOCKER_AUTH_CONFIG secret. May be a User
+        ID or an Org ID. Non-admins may only target their own user namespace
+        or an org they belong to; site admins may target any namespace. When
+        omitted, the site-wide (global) secret is targeted; this is restricted
+        to site admins.
+        """
+        namespace: ID
+    ): ExecutorSecret!
+
+    """
+    Removes a single container registry credential from a DOCKER_AUTH_CONFIG
+    executor secret. If the resulting auth config has no remaining entries,
+    the entire executor secret is deleted and null is returned.
+    Only BATCHES scope is currently supported.
+    See `upsertDockerRegistryCredential` for namespace selection rules.
+    """
+    deleteDockerRegistryCredential(
+        """
+        The container registry host whose credential should be removed.
+        """
+        registry: String!
+        """
+        The namespace that owns the DOCKER_AUTH_CONFIG secret. May be a User
+        ID or an Org ID. When omitted, the site-wide (global) secret is
+        targeted; this is restricted to site admins.
+        """
+        namespace: ID
+    ): ExecutorSecret
+}
+
+"""
+A single container registry credential entry stored inside a user's
+DOCKER_AUTH_CONFIG executor secret. The credential value itself is never
+exposed; only the registry it applies to.
+"""
+type DockerRegistryCredential {
+    """
+    The container registry host (e.g. "index.docker.io" or "ghcr.io").
+    """
+    registry: String!
+}
+
+extend type Query {
+    """
+    Lists the container registries configured in a DOCKER_AUTH_CONFIG executor
+    secret. Credential values themselves are never returned. Returns an empty
+    list when the target namespace has no DOCKER_AUTH_CONFIG secret.
+    `namespace` may be a User ID or an Org ID; non-admins may only target
+    their own user namespace or an org they belong to. When omitted, the
+    site-wide (global) secret is read; this is restricted to site admins.
+    """
+    dockerRegistryCredentials(
+        """
+        The namespace whose DOCKER_AUTH_CONFIG secret should be inspected.
+        May be a User ID or an Org ID. Non-admins may only target their own
+        user namespace or an org they belong to. When omitted, the site-wide
+        (global) secret is read; this is restricted to site admins.
+        """
+        namespace: ID
+    ): [DockerRegistryCredential!]!
 }
 
 """
@@ -4186,6 +4283,10 @@ type Repository implements Node & GenericSearchResultInterface {
         other Git refs.
         """
         type: GitRefType
+        """
+        Return only Git refs that point directly at the given commit.
+        """
+        pointsAtCommit: GitObjectID
     ): GitRefConnection!
     """
     The repository's Git branches.
@@ -9105,6 +9206,8 @@ type ProductSubscriptionStatus {
     """
     The number of users allowed. If there is a license, this is equal to ProductLicenseInfo.userCount. Otherwise,
     it is the user limit for instances without a license.
+
+    A value of 0 means unlimited users: no seat cap is enforced on this instance.
     """
     maximumAllowedUserCount: Int!
     """
