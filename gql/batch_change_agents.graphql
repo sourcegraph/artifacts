@@ -3,6 +3,12 @@ extend type Query {
     A batch change agent addressed by its public read token.
     """
     batchChangeAgentByReadToken(readToken: String!): BatchChangeAgent
+
+    """
+    A batch change agent addressed by its database ID. Resolves only for the
+    authenticated owner; returns null otherwise.
+    """
+    batchChangeAgentByID(id: Int!): BatchChangeAgent
 }
 
 extend type User {
@@ -45,8 +51,20 @@ extend type Mutation {
     Submits the user's response to an ask_user tool call and resumes the same
     in-flight batch change agent message. Clients receive the submitted answer
     as a tool_call_complete event for the provided toolCallID.
+
+    If the prompt is no longer active, the mutation returns a GraphQL error
+    with extensions.code = BatchChangeAgentAskUserPromptInactive.
     """
     submitBatchChangeAgentAskUserResponse(input: SubmitBatchChangeAgentAskUserResponseInput!): BatchChangeAgentMessage!
+
+    """
+    Submits the user's decision for a pending tool-approval gate (e.g. on
+    prepare_batch_spec) and resumes the same in-flight batch change agent
+    message. The decision is returned to the agent without running the original
+    gated tool call; after ALLOW, the model may issue a follow-up call that runs
+    normally.
+    """
+    submitBatchChangeAgentToolApproval(input: SubmitBatchChangeAgentToolApprovalInput!): BatchChangeAgentMessage!
 
     """
     Cancels one in-flight message in a batch change agent thread.
@@ -60,6 +78,45 @@ extend type Mutation {
     is removed.
     """
     deleteBatchChangeAgent(id: ID!): EmptyResponse
+
+    """
+    Updates the display title of one batch change agent owned by the viewer,
+    replacing it with the provided value. Returns the updated agent.
+    """
+    updateBatchChangeAgentTitle(input: UpdateBatchChangeAgentTitleInput!): BatchChangeAgent!
+
+    """
+    Regenerates the public read token of one batch change agent owned by the
+    viewer, invalidating any previously shared link. Returns the updated agent
+    carrying the new readToken.
+    """
+    rotateBatchChangeAgentReadToken(input: RotateBatchChangeAgentReadTokenInput!): BatchChangeAgent!
+}
+
+"""
+Input for rotateBatchChangeAgentReadToken.
+"""
+input RotateBatchChangeAgentReadTokenInput {
+    """
+    The ID of the agent whose read token is being regenerated.
+    """
+    id: ID!
+}
+
+"""
+Input for updateBatchChangeAgentTitle.
+"""
+input UpdateBatchChangeAgentTitleInput {
+    """
+    The ID of the agent whose title is being updated.
+    """
+    id: ID!
+
+    """
+    The new display title for the agent. Leading and trailing whitespace is
+    trimmed; the trimmed value must not be empty.
+    """
+    title: String!
 }
 
 """
@@ -116,19 +173,40 @@ input BatchChangeAgentMessageInput {
 }
 
 """
-One structured content block in an input message. Exactly one of the
-optional fields must be set.
+One structured content block in an input message. Any combination of text,
+image, file, diffComment, and workspaceReference may be set.
 """
 input BatchChangeAgentMessageContentBlockInput {
     """
-    A text block. Mutually exclusive with image.
+    A text block. May be provided on its own or together with other block
+    kinds.
     """
     text: BatchChangeAgentTextBlockInput
 
     """
-    An image block. Mutually exclusive with text.
+    An image block. May be provided on its own or together with other block
+    kinds.
     """
     image: BatchChangeAgentImageBlockInput
+
+    """
+    A file block for an uploaded text file (CSV, Markdown, plain text, etc.).
+    May be provided on its own or together with other block kinds.
+    """
+    file: BatchChangeAgentFileBlockInput
+
+    """
+    A diff comment block. May be provided on its own or together with other
+    block kinds.
+    """
+    diffComment: BatchChangeAgentDiffCommentBlockInput
+
+    """
+    A workspace reference block pointing at a workspace the user selected in
+    the workspace explorer. Send one block per referenced workspace. May be
+    provided on its own or together with other block kinds.
+    """
+    workspaceReference: BatchChangeAgentWorkspaceReferenceBlockInput
 }
 
 """
@@ -149,6 +227,130 @@ input BatchChangeAgentImageBlockInput {
     Image data URL (for example, data:image/png;base64,...).
     """
     url: String!
+}
+
+"""
+Input for a file content block. The file's bytes are stored in the agent
+virtual filesystem and read on demand by the agent; they are not echoed back.
+"""
+input BatchChangeAgentFileBlockInput {
+    """
+    The original file name (for example, data.csv).
+    """
+    name: String!
+
+    """
+    File data URL (for example, data:text/csv;base64,...). Set this for a new
+    upload. The MIME type is detected and validated server-side; only text files
+    are accepted.
+    """
+    url: String
+
+    """
+    Existing file path in the agent virtual filesystem. Set this instead of
+    url when resubmitting a previously uploaded file reference, such as on
+    retry.
+    """
+    path: String
+
+    """
+    MIME type for an existing file reference. Required with path.
+    """
+    mimeType: String
+
+    """
+    Byte size for an existing file reference. Required with path.
+    """
+    byteSize: Int
+}
+
+"""
+The side of the diff that a line number belongs to.
+"""
+enum BatchChangeAgentDiffSide {
+    BASE
+    HEAD
+}
+
+"""
+Input for a diff comment content block.
+"""
+input BatchChangeAgentDiffCommentBlockInput {
+    """
+    The repository that the diff belongs to.
+    """
+    repo: String!
+
+    """
+    The base revision of the diff.
+    """
+    base: String!
+
+    """
+    The head revision of the diff.
+    """
+    head: String!
+
+    """
+    The old path of the file, or null if the file was added.
+    """
+    oldPath: String
+
+    """
+    The new path of the file, or null if the file was deleted.
+    """
+    newPath: String
+
+    """
+    The user's comment attached to this diff selection.
+    """
+    comment: String!
+
+    """
+    The exact diff text selected by the user.
+    """
+    source: String!
+
+    """
+    The start line of the selection on startSide.
+    """
+    startLine: Int!
+
+    """
+    The side that startLine belongs to.
+    """
+    startSide: BatchChangeAgentDiffSide!
+
+    """
+    The end line of the selection on endSide.
+    """
+    endLine: Int!
+
+    """
+    The side that endLine belongs to.
+    """
+    endSide: BatchChangeAgentDiffSide!
+}
+
+"""
+Input for a workspace reference content block. Identifies a single workspace
+the user selected in the workspace explorer so the agent can focus on it.
+"""
+input BatchChangeAgentWorkspaceReferenceBlockInput {
+    """
+    The repository name of the workspace (for example, github.com/org/repo).
+    """
+    repo: String!
+
+    """
+    The working-directory path within the repository, for monorepo workspaces.
+    """
+    path: String
+
+    """
+    The branch the workspace targets.
+    """
+    branch: String
 }
 
 """
@@ -197,9 +399,52 @@ input BatchChangeAgentAskUserAnswerInput {
 
     """
     The user's answer. For text questions this is the text answer. For options
-    questions this is the selected option ID.
+    questions this is the selected option ID, except freeform options use the
+    typed answer. Null, omitted, or blank means the user ignored this question.
     """
-    answer: String!
+    answer: String
+}
+
+"""
+A human's decision for a pending tool-approval gate. These are the only valid
+choices.
+"""
+enum BatchChangeAgentToolApprovalDecision {
+    """
+    Approve the gate and return that decision to the agent.
+    """
+    ALLOW
+    """
+    Reject the gated tool call but send the agent free-text feedback (note) so
+    it can revise and try again.
+    """
+    REQUEST_CHANGES
+}
+
+"""
+Input for submitBatchChangeAgentToolApproval.
+"""
+input SubmitBatchChangeAgentToolApprovalInput {
+    """
+    The processing message that contains the pending, approval-gated tool call.
+    """
+    messageID: ID!
+
+    """
+    The model-emitted tool call ID being approved.
+    """
+    toolCallID: String!
+
+    """
+    The user's decision.
+    """
+    decision: BatchChangeAgentToolApprovalDecision!
+
+    """
+    Free-text feedback for the agent. Required when decision is REQUEST_CHANGES;
+    ignored otherwise.
+    """
+    note: String
 }
 
 """
@@ -251,6 +496,11 @@ type BatchChangeAgent implements Node {
     snapshots and shared read endpoints consumed by AgentThread-style clients.
     """
     readToken: String!
+
+    """
+    The activity status of the agent.
+    """
+    status: BatchChangeAgentStatus!
 
     """
     The timestamp when the agent was created.
@@ -541,6 +791,12 @@ type BatchChangeAgentMessage implements Node {
     status: BatchChangeAgentMessageStatus!
 
     """
+    The inbox fact kind that woke the agent to create this message, or null for
+    a user-authored message. Drives the "Resumed automatically" notice.
+    """
+    wakeKind: BatchChangeAgentInboxFactKind
+
+    """
     The final assistant answer for this message.
     Null while processing or when no answer exists.
     """
@@ -576,7 +832,12 @@ type BatchChangeAgentMessage implements Node {
 """
 A single structured content block in a batch change agent message or turn.
 """
-union BatchChangeAgentMessageContentBlock = BatchChangeAgentTextBlock | BatchChangeAgentImageBlock
+union BatchChangeAgentMessageContentBlock =
+    | BatchChangeAgentTextBlock
+    | BatchChangeAgentImageBlock
+    | BatchChangeAgentFileBlock
+    | BatchChangeAgentDiffCommentBlock
+    | BatchChangeAgentWorkspaceReferenceBlock
 
 """
 A text content block.
@@ -596,6 +857,116 @@ type BatchChangeAgentImageBlock {
     Image data URL (for example, data:image/png;base64,...).
     """
     url: String!
+}
+
+"""
+A file content block referencing a user-uploaded text file. The file's bytes
+live in the agent virtual filesystem and are not returned here.
+"""
+type BatchChangeAgentFileBlock {
+    """
+    The original file name (for example, data.csv).
+    """
+    name: String!
+
+    """
+    The detected MIME type of the file (for example, text/csv).
+    """
+    mimeType: String!
+
+    """
+    The size of the file in bytes.
+    """
+    byteSize: Int!
+
+    """
+    The file's path within the agent virtual filesystem. Combined with the
+    agent's read token, this addresses the file for authenticated download via
+    the /.api/agent-files/v1 endpoint by viewers who can access the shared
+    batch change agent.
+    """
+    path: String!
+}
+
+"""
+A diff comment content block.
+"""
+type BatchChangeAgentDiffCommentBlock {
+    """
+    The repository that the diff belongs to.
+    """
+    repo: String!
+
+    """
+    The base revision of the diff.
+    """
+    base: String!
+
+    """
+    The head revision of the diff.
+    """
+    head: String!
+
+    """
+    The old path of the file, or null if the file was added.
+    """
+    oldPath: String
+
+    """
+    The new path of the file, or null if the file was deleted.
+    """
+    newPath: String
+
+    """
+    The user's comment attached to this diff selection.
+    """
+    comment: String!
+
+    """
+    The exact diff text selected by the user.
+    """
+    source: String!
+
+    """
+    The start line of the selection on startSide.
+    """
+    startLine: Int!
+
+    """
+    The side that startLine belongs to.
+    """
+    startSide: BatchChangeAgentDiffSide!
+
+    """
+    The end line of the selection on endSide.
+    """
+    endLine: Int!
+
+    """
+    The side that endLine belongs to.
+    """
+    endSide: BatchChangeAgentDiffSide!
+}
+
+"""
+A workspace reference content block. Identifies a workspace the user selected
+in the workspace explorer when composing the message.
+"""
+type BatchChangeAgentWorkspaceReferenceBlock {
+    """
+    The repository name of the workspace (for example, github.com/org/repo).
+    """
+    repo: String!
+
+    """
+    The working-directory path within the repository, for monorepo workspaces.
+    """
+    path: String
+
+    """
+    The branch the workspace targets.
+    """
+    branch: String
 }
 
 """
@@ -724,6 +1095,83 @@ type BatchChangeAgentToolCall {
     The JSON-encoded arguments passed to the tool.
     """
     arguments: String!
+
+    """
+    The kind of tool: "function" is a client-provided tool the agent executes,
+    "provider" is a provider-executed tool (e.g. web search) that the model
+    provider runs inline and that is surfaced for display only. Provider tools
+    never produce a tool result, so the client renders them as complete on
+    arrival rather than waiting for one.
+    """
+    type: String!
+
+    """
+    The human-approval gate for this tool call, if one was raised. Non-null only
+    for approval-gated tool calls (e.g. prepare_batch_spec) that matched a
+    server approval policy. While pending, the message is waiting on the user.
+    """
+    approvalRequest: BatchChangeAgentToolApprovalRequest
+}
+
+"""
+A human-approval gate raised before an approval-gated tool call runs.
+"""
+type BatchChangeAgentToolApprovalRequest {
+    """
+    The human-readable prompt shown to the approver, snapshotted when the gate
+    was raised.
+    """
+    message: String!
+
+    """
+    The structured reasons backing the prompt, each shown as a bullet and
+    optionally carrying an affected snippet the UI can reveal on demand.
+    Snapshotted when the gate was raised; may be empty.
+    """
+    findings: [BatchChangeAgentToolApprovalFinding!]!
+
+    """
+    The approval lifecycle state: one of "pending", "allowed", or
+    "changes_requested".
+    """
+    state: String!
+
+    """
+    The human's decision once made, or null while pending.
+    """
+    decision: BatchChangeAgentToolApprovalDecision
+
+    """
+    The human's free-text feedback for a REQUEST_CHANGES decision, if any.
+    """
+    note: String
+}
+
+"""
+One structured reason an approval-gated tool call requires approval.
+"""
+type BatchChangeAgentToolApprovalFinding {
+    """
+    Stable finding identity used to remember approved items.
+    """
+    key: String
+
+    """
+    The short one-line reason, shown to the approver as a bullet.
+    """
+    summary: String!
+
+    """
+    What the snippet is, e.g. "Run script", "Build image", or "Coding agent".
+    Null when the finding has no associated snippet.
+    """
+    subject: String
+
+    """
+    The affected content the UI can reveal on demand (it may be long). Null when
+    the finding has no associated snippet.
+    """
+    snippet: String
 }
 
 """
@@ -829,6 +1277,47 @@ enum BatchChangeAgentMessageStatus {
     The message failed.
     """
     FAILED
+}
+
+"""
+A batch change agent inbox fact kind: the type of event that can be recorded
+in a thread's inbox and wake the agent.
+"""
+enum BatchChangeAgentInboxFactKind {
+    """
+    A BCA-owned batch spec workspace execution job failed.
+    """
+    WORKSPACE_EXECUTION_FAILED
+
+    """
+    A BCA-owned changeset hook execution job failed.
+    """
+    WORKSPACE_CHANGESET_HOOK_FAILED
+
+    """
+    A BCA-owned changeset hook execution job succeeded.
+    """
+    WORKSPACE_CHANGESET_HOOK_SUCCEEDED
+}
+
+"""
+The activity status of a batch change agent.
+"""
+enum BatchChangeAgentStatus {
+    """
+    Nothing is happening.
+    """
+    IDLE
+
+    """
+    The agent is processing, or the underlying batch change has in-flight work.
+    """
+    RUNNING
+
+    """
+    The agent is waiting for the user to answer a pending ask_user tool call.
+    """
+    WAITING_FOR_USER
 }
 
 """

@@ -617,6 +617,18 @@ type Mutation {
     ): EmptyResponse
 
     """
+    Sets Batch Changes coding agent provider configuration in the site configuration.
+
+    Only site admins may perform this mutation.
+    """
+    setBatchChangesCodingAgentProviderConfiguration(
+        """
+        The coding agent provider configuration to set.
+        """
+        input: BatchChangesCodingAgentProviderConfigurationInput!
+    ): EmptyResponse
+
+    """
     Sets the instance settings (external URL, CORS origins, branding, HTML injection)
     in the site configuration.
 
@@ -1557,6 +1569,32 @@ input SMTPConfigurationInput {
 }
 
 """
+Input for configuring a Batch Changes coding agent provider in site configuration.
+"""
+input BatchChangesCodingAgentProviderConfigurationInput {
+    """
+    The coding agent provider to configure.
+    """
+    provider: BatchChangesCodingAgentProvider!
+    """
+    The access token to set. If omitted or null, the access token is unchanged. If empty, this provider configuration is removed.
+    """
+    accessToken: String
+    """
+    Optional base endpoint for the direct provider API. If omitted or null, the endpoint is unchanged. If empty, the endpoint is removed and the provider default is used.
+    """
+    endpoint: String
+}
+
+"""
+Batch Changes coding agent providers with configurable access tokens.
+"""
+enum BatchChangesCodingAgentProvider {
+    CODEX
+    CLAUDE_CODE
+}
+
+"""
 Input for configuring instance settings in the site configuration.
 """
 input InstanceSettingsInput {
@@ -1696,6 +1734,38 @@ type BrandAssetsConfiguration {
     symbol: String!
 }
 
+"""
+The current Batch Changes coding agent provider configuration.
+"""
+type BatchChangesCodingAgentConfigurations {
+    """
+    Codex provider configuration.
+    """
+    codex: BatchChangesCodingAgentProviderConfiguration!
+    """
+    Claude Code provider configuration.
+    """
+    claudeCode: BatchChangesCodingAgentProviderConfiguration!
+}
+
+"""
+The current Batch Changes coding agent configuration for one provider.
+"""
+type BatchChangesCodingAgentProviderConfiguration {
+    """
+    Whether an access token is configured for this provider.
+    """
+    accessTokenConfigured: Boolean!
+    """
+    Optional custom base endpoint for the direct provider API.
+    """
+    endpoint: String!
+    """
+    Default base endpoint for the direct provider API.
+    """
+    defaultEndpoint: String!
+}
+
 extend type Query {
     """
     Returns the current instance settings configuration (external URL, CORS origins,
@@ -1703,6 +1773,12 @@ extend type Query {
     Only site admins may query this.
     """
     instanceSettingsConfiguration: InstanceSettingsConfiguration!
+
+    """
+    Returns the current Batch Changes coding agent provider configuration.
+    Only site admins may query this.
+    """
+    batchChangesCodingAgentConfigurations: BatchChangesCodingAgentConfigurations!
 }
 
 """
@@ -2635,6 +2711,10 @@ type ExecutorSecret implements Node {
     """
     key: String!
     """
+    Optional human-readable metadata that explains what this secret is used for.
+    """
+    description: String
+    """
     The scope of this secret. The secret will only be usable for jobs in this
     particular scope.
     """
@@ -2828,6 +2908,10 @@ extend type Mutation {
         """
         value: String!
         """
+        Optional human-readable metadata that explains what this secret is used for.
+        """
+        description: String
+        """
         The namespace this secret is for. If not set, a global secret is created
         that is accessible by all users.
         Creating a global secret requires site-admin permissions.
@@ -2837,7 +2921,7 @@ extend type Mutation {
     ): ExecutorSecret!
 
     """
-    Update the value of an existing executor secret.
+    Update the value and/or description of an existing executor secret.
     """
     updateExecutorSecret(
         """
@@ -2849,9 +2933,14 @@ extend type Mutation {
         """
         id: ID!
         """
-        The new secret value.
+        The new secret value. Omit to update only the description.
         """
-        value: String!
+        value: String
+        """
+        Optional human-readable metadata that explains what this secret is used for.
+        Pass an empty string to clear it.
+        """
+        description: String
     ): ExecutorSecret!
 
     """
@@ -5114,6 +5203,14 @@ type RepositoryTextSearchIndex {
     """
     status: RepositoryTextSearchIndexStatus
     """
+    The result of the most recent persisted indexing attempt, if one has been reported.
+    """
+    lastIndexStatus: RepositoryTextSearchIndexLastIndexStatus
+    """
+    The failure message from the most recent persisted indexing attempt, if one was reported.
+    """
+    lastIndexFailureMessage: String
+    """
     Git refs in the repository that are configured for text search indexing.
     """
     refs: [RepositoryTextSearchIndexedRef!]!
@@ -5162,6 +5259,14 @@ type RepositoryTextSearchIndexStatus {
     EXPERIMENTAL: The number of newlines in the other branches.
     """
     otherBranchesNewLinesCount: Int!
+}
+
+"""
+The status of the most recent persisted text search indexing attempt.
+"""
+enum RepositoryTextSearchIndexLastIndexStatus {
+    SUCCESS
+    FAILURE
 }
 
 """
@@ -10608,11 +10713,6 @@ enum PermissionNamespace {
     Permissions related to deep search functionality.
     """
     DEEP_SEARCH
-
-    """
-    Permissions related to managing evergreen deep search.
-    """
-    EVERGREEN_DEEP_SEARCH
 
     """
     Permissions related to MCP (Model Context Protocol) access.

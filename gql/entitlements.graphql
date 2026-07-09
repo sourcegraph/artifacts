@@ -314,6 +314,7 @@ EntitlementType represents the available types of entitlements.
 enum EntitlementType {
     DEEP_SEARCH
     SMART_HOVER_SUMMARY
+    BATCH_CHANGES_CODING_AGENT
 }
 
 """

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS batch_spec_workspaces_repo_path_branch;

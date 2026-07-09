@@ -1,7 +1,11 @@
 CREATE TABLE IF NOT EXISTS changeset_hook_jobs (
     id BIGSERIAL PRIMARY KEY,
 
-    -- Standard dbworker fields:
+    -- Standard dbworker fields. DO NOT DROP these even if they appear unused:
+    -- the shared dbworker store (internal/tenant/workerutil/dbworker/store)
+    -- references failure_message, process_after, execution_logs (and the other
+    -- dbworker columns) in the SQL it runs on every dequeue/requeue/heartbeat,
+    -- so removing any of them breaks the changeset_hook_jobs worker at runtime.
     state             text NOT NULL DEFAULT 'queued',
     failure_message   text,
     queued_at         timestamp with time zone NOT NULL DEFAULT NOW(),

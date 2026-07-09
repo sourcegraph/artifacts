@@ -20,6 +20,28 @@
               ]
             }
           },
+          "changesetHooks": {
+            "properties": {
+              "onCIFailure": {
+                "properties": {
+                  "steps": {
+                    "items": {
+                      "oneOf": [{ "required": ["run", "image"] }, { "required": ["codingAgent", "image"] }]
+                    }
+                  }
+                }
+              },
+              "onMergeConflict": {
+                "properties": {
+                  "steps": {
+                    "items": {
+                      "oneOf": [{ "required": ["run", "image"] }, { "required": ["codingAgent", "image"] }]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "importChangesets": {
             "not": {}
           },
@@ -47,6 +69,20 @@
       "$comment": "The `changesetHooks` property is only allowed when `version: 3` is set.",
       "if": {
         "required": ["changesetHooks"]
+      },
+      "then": {
+        "required": ["version"],
+        "properties": {
+          "version": {
+            "const": 3
+          }
+        }
+      }
+    },
+    {
+      "$comment": "The `checkout` property is only allowed when `version: 3` is set.",
+      "if": {
+        "required": ["checkout"]
       },
       "then": {
         "required": ["version"],
@@ -114,7 +150,7 @@
     },
     "BuildImage": {
       "type": "object",
-      "description": "A step that creates a local image by running a shell command in a base image using buildah. Later steps can use the generated image via ${{ outputs.imageName }}. The generated image name is deterministic for the exact baseImage and run values.",
+      "description": "A step that creates a local image by running a shell command in a base image using kaniko. Later steps can use the generated image via ${{ outputs.imageName }}. The generated image name is deterministic for the exact baseImage and run values.",
       "additionalProperties": false,
       "required": ["run", "baseImage"],
       "properties": {
@@ -141,12 +177,12 @@
         },
         "container": {
           "type": "string",
-          "description": "The Docker image used to launch the Docker container in which the shell command is run.",
+          "description": "The Docker image used to launch the Docker container in which the shell command is run. Templated variables (e.g. ${{ outputs.imageName }}) may only resolve to an internal-registry image produced by a buildImage step; any other resolved image is rejected.",
           "examples": ["alpine:3"]
         },
         "image": {
           "type": "string",
-          "description": "The Docker image used to launch the Docker container in which the shell command is run.",
+          "description": "The Docker image used to launch the Docker container in which the shell command is run. Templated variables (e.g. ${{ outputs.imageName }}) may only resolve to an internal-registry image produced by a buildImage step; any other resolved image is rejected.",
           "examples": ["alpine:3"]
         },
         "codingAgent": {
@@ -236,7 +272,7 @@
     "HookStep": {
       "title": "HookStep",
       "type": "object",
-      "description": "A command to run (as part of a sequence) inside a changeset hook action. Uses the version 3 step shape and supports additional hook-only fields such as maxAttempts.",
+      "description": "A command to run (as part of a sequence) inside a changeset hook action. Uses the version 3 step shape.",
       "additionalProperties": false,
       "properties": {
         "run": {
@@ -329,8 +365,59 @@
         },
         "maxAttempts": {
           "type": "integer",
-          "description": "The maximum number of times this step will be attempted before the hook action is considered failed. Defaults to 1 (no retries).",
-          "minimum": 1
+          "description": "DEPRECATED: this field has no effect and is ignored. It is kept only so existing batch specs still validate. Use the hook action's maxAttempts (the per-changeset firing cap) instead.",
+          "deprecationMessage": "DEPRECATED: This field has no effect and is ignored. Use the hook action's maxAttempts (the per-changeset firing cap) instead.",
+          "deprecated": true
+        }
+      }
+    },
+    "GitCommitAuthor": {
+      "title": "GitCommitAuthor",
+      "type": "object",
+      "description": "The author of the Git commit.",
+      "additionalProperties": false,
+      "required": ["name", "email"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The Git commit author name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The Git commit author email."
+        }
+      }
+    },
+    "ExpandedGitCommitDescription": {
+      "title": "ExpandedGitCommitDescription",
+      "type": "object",
+      "description": "The Git commit to create with the changes.",
+      "additionalProperties": false,
+      "required": ["message"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The Git commit message."
+        },
+        "author": {
+          "$ref": "#/definitions/GitCommitAuthor"
+        }
+      }
+    },
+    "ChangesetHookCommitDescription": {
+      "title": "ChangesetHookCommitDescription",
+      "type": "object",
+      "description": "The Git commit to create for changes produced by a changeset hook's steps. Both fields are optional and are resolved independently.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The Git commit message. If omitted, a per-event default message is used (e.g. \"Fix for CI failure on ${{ repository.branch }}\")."
+        },
+        "author": {
+          "$ref": "#/definitions/GitCommitAuthor"
         }
       }
     },
@@ -346,6 +433,20 @@
           "description": "The sequence of steps to execute when the hook fires. Uses the version 3 step shape, with additional hook-only fields.",
           "items": {
             "$ref": "#/definitions/HookStep"
+          }
+        },
+        "commit": {
+          "description": "The Git commit to create for changes produced by the hook's steps. The message and author are resolved independently: if message is omitted, a per-event default is used; if author is omitted, the changesetTemplate's author is inherited, falling back to the changeset's author.",
+          "$ref": "#/definitions/ChangesetHookCommitDescription"
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "description": "The maximum number of times this hook will fire for a single changeset while a given changeset spec is applied. Each new commit that re-triggers the hook counts as one attempt (on code hosts that expose a commit OID); once this limit is reached the hook stops firing until a new changeset spec is applied, which grants a fresh attempt budget. Defaults to 1. Must be between 1 and 5.",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 1,
+          "!go": {
+            "pointer": true
           }
         }
       }
@@ -434,7 +535,7 @@
     },
     "workspaces": {
       "type": ["array", "null"],
-      "description": "Individual workspace configurations for one or more repositories that define which workspaces to use for the execution of steps in the repositories.",
+      "description": "Individual workspace configurations for one or more repositories that define which workspaces to use for the execution of steps in the repositories. A repository may match at most one workspaces.in glob; to create multiple workspaces in one repository, use one matching configuration whose rootAtLocationOf file exists at each desired workspace root.",
       "items": {
         "title": "WorkspaceConfiguration",
         "type": "object",
@@ -444,7 +545,7 @@
         "properties": {
           "rootAtLocationOf": {
             "type": "string",
-            "description": "The name of the file that sits at the root of the desired workspace.",
+            "description": "The exact file path or file name that sits at the root of each desired workspace. This is not a glob or list.",
             "examples": ["package.json", "go.mod", "Gemfile", "Cargo.toml", "README.md"]
           },
           "in": {
@@ -457,6 +558,19 @@
             "description": "If this is true only the files in the workspace (and additional .gitignore) are downloaded instead of an archive of the full repository.",
             "default": false
           }
+        }
+      }
+    },
+    "checkout": {
+      "type": "object",
+      "description": "Options controlling how repositories are checked out for workspace execution. Only supported in version 3 batch specs.",
+      "additionalProperties": false,
+      "properties": {
+        "fetchDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "The number of commits of git history to fetch into the workspace checkout. The default, 1, fetches only the target commit (a shallow clone). Set to 0 to fetch the full history, which is useful for history-related tasks (e.g. updating CODEOWNERS based on git history) or changeset hooks such as onMergeConflict."
         }
       }
     },
@@ -488,8 +602,12 @@
               },
               "branch": {
                 "type": "string",
-                "description": "The branch on the repository to propose changes to. If unset, the repository's default branch is used.",
+                "description": "The branch on the repository to propose changes to. This is a literal branch name; changesetTemplate template variables such as ${{ batch_change.name }} are not rendered here.",
                 "minLength": 1
+              },
+              "title": {
+                "type": "string",
+                "description": "Optional title for the changeset created from this group. Supports the same template variables as changesetTemplate.title, with steps.path set to this group's directory. If unset, the rendered changesetTemplate.title is used."
               },
               "repository": {
                 "type": "string",
@@ -534,7 +652,7 @@
     },
     "changesetTemplate": {
       "type": "object",
-      "description": "A template describing how to create (and update) changesets with the file changes produced by the command steps.",
+      "description": "A template describing how to create (and update) changesets with the file changes produced by the command steps. Template expressions may use repository.name, repository.branch, batch_change.name, steps.path, steps.modified_files, and outputs.<name>.",
       "additionalProperties": false,
       "required": ["title", "branch", "commit"],
       "properties": {
@@ -548,42 +666,14 @@
         },
         "branch": {
           "type": "string",
-          "description": "The name of the Git branch to create or update on each repository with the changes."
+          "description": "The name of the Git branch to create or update on each repository with the changes. If one repository resolves to multiple workspaces, include steps.path or another workspace-distinguishing template value so the changesets do not target the same branch."
         },
         "fork": {
           "type": "boolean",
           "description": "Whether to publish the changeset to a fork of the target repository. If omitted, the changeset will be published to a branch directly on the target repository, unless the global `batches.enforceFork` setting is enabled. If set, this property will override any global setting."
         },
         "commit": {
-          "title": "ExpandedGitCommitDescription",
-          "type": "object",
-          "description": "The Git commit to create with the changes.",
-          "additionalProperties": false,
-          "required": ["message"],
-          "properties": {
-            "message": {
-              "type": "string",
-              "description": "The Git commit message."
-            },
-            "author": {
-              "title": "GitCommitAuthor",
-              "type": "object",
-              "description": "The author of the Git commit.",
-              "additionalProperties": false,
-              "required": ["name", "email"],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "The Git commit author name."
-                },
-                "email": {
-                  "type": "string",
-                  "format": "email",
-                  "description": "The Git commit author email."
-                }
-              }
-            }
-          }
+          "$ref": "#/definitions/ExpandedGitCommitDescription"
         },
         "published": {
           "description": "Whether to publish the changeset. An unpublished changeset can be previewed on Sourcegraph by any person who can view the batch change, but its commit, branch, and pull request aren't created on the code host. A published changeset results in a commit, branch, and pull request being created on the code host. If omitted, the publication state is controlled from the Batch Changes UI.",
@@ -634,11 +724,11 @@
       "additionalProperties": false,
       "properties": {
         "onCIFailure": {
-          "description": "Action to run when the changeset's combined check state transitions into `failed` for a given head SHA.",
+          "description": "Action to run when the changeset's combined check state transitions into `failed` for a given head SHA. The check state is derived from the head commit's CI checks and does not require an open pull request, so this hook also fires for branch-only (pushed-only) changesets whenever the code host runs CI on the pushed branch.",
           "$ref": "#/definitions/ChangesetHookAction"
         },
         "onMergeConflict": {
-          "description": "Action to run when the changeset's external mergeability transitions into `conflicting` for a given (base, head) SHA pair.",
+          "description": "Action to run when the changeset's external mergeability transitions into `conflicting` for a given head SHA. Mergeability is a pull-request-only signal that is never computed for branch-only (pushed-only) changesets, so this hook never fires for them.",
           "$ref": "#/definitions/ChangesetHookAction"
         }
       }

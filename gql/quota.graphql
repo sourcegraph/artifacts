@@ -16,6 +16,7 @@ enum QuotaSKU {
     # Note: Extend as new SKUs are introduced on the backend; every value must
     # have a corresponding gating.QuotaSKU mapping.
     DEEP_SEARCH
+    BATCH_CHANGE_AGENT_MESSAGES
 }
 
 """

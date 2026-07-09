@@ -332,6 +332,18 @@ type ConsentDetails {
     The scopes being requested by the client.
     """
     requestedScopes: [IDPScope!]!
+    """
+    The redirect URI that the authorization code will be sent to after approval.
+    """
+    redirectURI: String!
+    """
+    Whether the redirect URI matches a known-trusted pattern (a loopback address,
+    a private-use native-app URI scheme, or a well-known client's redirect URI).
+    When false, the consent screen should warn the user that the authorization
+    code will be sent to an unrecognized destination. This is a best-effort
+    heuristic to aid the user, not a security boundary.
+    """
+    redirectURITrusted: Boolean!
 }
 
 """

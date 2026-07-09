@@ -2,21 +2,23 @@ extend type Mutation {
     """
     Delete a GitHub App. The GitHub App, along with all of its associated code host connections and
     authentication provider, will be deleted.
-    🚨 SECURITY: Requires site-admin.
+    🚨 SECURITY: Requires site-admin or REPO_MANAGEMENT#WRITE permission.
     """
     deleteGitHubApp(gitHubApp: ID!): EmptyResponse
 
     """
     Refresh a GitHub App. This fetches information about the GitHub app and updates all installations
     associated with it.
-    🚨 SECURITY: Requires site-admin.
+    🚨 SECURITY: Authorization depends on the App's kind. Site credential Apps require site-admin;
+    user credential Apps require site-admin or the creating user; all other Apps require site-admin
+    or REPO_MANAGEMENT#READ permission.
     """
     refreshGitHubApp(gitHubApp: ID!): EmptyResponse
 
     """
     Add an existing GitHub App. This uses the provided Client ID and Private Key to fetch the GitHub
     App details from GitHub and store it in the database.
-    🚨 SECURITY: Requires site-admin.
+    🚨 SECURITY: Requires site-admin or REPO_MANAGEMENT#WRITE permission.
     """
     createGitHubApp(gitHubURL: String!, clientID: String!, privateKey: String!): GitHubApp
 
@@ -24,7 +26,7 @@ extend type Mutation {
     Adds a GitHub App as an authentication provider in the site configuration.
     This appends a new GitHub auth provider entry (using the app's clientID, clientSecret, and baseURL)
     to the "auth.providers" list in site config. If a matching provider already exists, this is a no-op.
-    🚨 SECURITY: Requires site-admin.
+    🚨 SECURITY: Requires site-admin or REPO_MANAGEMENT#WRITE permission.
     """
     addGitHubAppAuthProvider(gitHubApp: ID!): EmptyResponse
 }
@@ -32,7 +34,7 @@ extend type Mutation {
 extend type Query {
     """
     All configured GitHub Apps, optionally filtered by the domain in which they are used.
-    🚨 SECURITY: Requires site-admin.
+    🚨 SECURITY: Requires site-admin or REPO_MANAGEMENT#READ permission.
     """
     gitHubApps(domain: GitHubAppDomain): GitHubAppConnection!
     """
@@ -42,7 +44,7 @@ extend type Query {
     batchChangesUserCredentialGitHubApps(user: ID!): BatchChangesUserCredentialGitHubAppConnection!
     """
     Looks up a GitHub App by its AppID and BaseURL.
-    🚨 SECURITY: Requires site-admin.
+    🚨 SECURITY: Requires site-admin or REPO_MANAGEMENT#READ permission.
     """
     gitHubAppByAppID(appID: Int!, baseURL: String!): GitHubApp
 }
@@ -209,6 +211,10 @@ type GitHubApp implements Node {
     The updated at timestamp of the GitHub App in our database
     """
     updatedAt: DateTime!
+    """
+    The user who created the GitHub App in Sourcegraph, if known.
+    """
+    createdBy: User
     """
     Fetches a list of installation IDs for this GitHub App.
     """

@@ -63,14 +63,6 @@
             "pointer": true
           }
         },
-        "batchChangesExecution": {
-          "description": "Enables/disables the Batch Changes server side execution feature.",
-          "type": "boolean",
-          "default": true,
-          "!go": {
-            "pointer": true
-          }
-        },
         "clientSearchResultRanking": {
           "description": "How to rank search results in the client",
           "type": "string",
@@ -176,6 +168,22 @@
           "!go": {
             "pointer": true
           }
+        },
+        "batchChangeAgentsGuidance": {
+          "description": "EXPERIMENTAL: Additional guidance and skills loaded into Batch Change Agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.\nNOTE: This is purely for the coordinator, inner loop agents such as codex do not load this in.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentGuidanceEntry"
+          },
+          "default": []
+        },
+        "batchChangeAgentsDisabledDefaultSkills": {
+          "description": "EXPERIMENTAL: Default Batch Change Agent skill names to disable. Matching is case-insensitive. User-configured skills with the same name still load and override the disabled default skill.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         },
         "deepSearchGuidance": {
           "description": "EXPERIMENTAL: Additional guidance and skills loaded into Deep Search agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.",

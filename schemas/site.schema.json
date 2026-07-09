@@ -296,42 +296,6 @@
           "enum": ["enabled", "disabled"],
           "default": "enabled"
         },
-        "goPackages": {
-          "description": "Allow adding Go package host connections",
-          "type": "string",
-          "enum": ["enabled", "disabled"],
-          "default": "disabled"
-        },
-        "jvmPackages": {
-          "description": "Allow adding JVM package host connections",
-          "type": "string",
-          "enum": ["enabled", "disabled"],
-          "default": "disabled"
-        },
-        "npmPackages": {
-          "description": "Allow adding npm package code host connections",
-          "type": "string",
-          "enum": ["enabled", "disabled"],
-          "default": "disabled"
-        },
-        "pythonPackages": {
-          "description": "Allow adding Python package code host connections",
-          "type": "string",
-          "enum": ["enabled", "disabled"],
-          "default": "disabled"
-        },
-        "rustPackages": {
-          "description": "Allow adding Rust package code host connections",
-          "type": "string",
-          "enum": ["enabled", "disabled"],
-          "default": "disabled"
-        },
-        "rubyPackages": {
-          "description": "Allow adding Ruby package host connections",
-          "type": "string",
-          "enum": ["enabled", "disabled"],
-          "default": "disabled"
-        },
         "pagure": {
           "description": "Allow adding Pagure code host connections",
           "type": "string",
@@ -525,14 +489,6 @@
             "pointer": false
           }
         },
-        "enableStorm": {
-          "description": "Enables the Storm frontend architecture changes.",
-          "type": "boolean",
-          "default": false,
-          "!go": {
-            "pointer": false
-          }
-        },
         "ranking": {
           "description": "Experimental search result ranking options.",
           "type": "object",
@@ -654,6 +610,15 @@
           "group": "BatchChanges",
           "default": false
         },
+        "batchChanges.enableAgentWebSearch": {
+          "description": "EXPERIMENTAL: Enables web search for Agentic Batch Changes. This grants web search to the outer batch change agent, and to inner coding agent steps.",
+          "type": "boolean",
+          "group": "BatchChanges",
+          "default": true,
+          "!go": {
+            "pointer": true
+          }
+        },
         "batchChanges.enableForkNameSuffix": {
           "description": "When enabled, batch changes will append a sequence of characters to new fork names to avoid name collisions. The sequence is unique per batch change. This does not apply to existing batch changes.",
           "type": "boolean",
@@ -768,6 +733,28 @@
       "group": "BatchChanges",
       "default": true
     },
+    "batchChanges.agenticBatchChanges.enabled": {
+      "description": "Enables/disables Agentic Batch Changes. Disabled by default. When explicitly set to true, Agentic Batch Changes are enabled only if Batch Changes is licensed and the license includes AI Terms 2025. When unset or false, Agentic Batch Changes are disabled.",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "group": "BatchChanges",
+      "default": false
+    },
+    "batchChanges.codingAgents": {
+      "description": "Configuration for out-of-the-box coding agent steps in Batch Changes. When an access token is configured for an agent, Sourcegraph routes that agent's LLM traffic directly to the corresponding provider from the frontend proxy. Access tokens remain server-side and are never sent to executors. Agents without an access token continue to use the Sourcegraph Model Provider.",
+      "$ref": "#/definitions/BatchChangesCodingAgents",
+      "group": "BatchChanges"
+    },
+    "batchChanges.buildImage.enabled": {
+      "description": "Enables/disables buildImage steps for Agentic Batch Changes. When unset, buildImage steps are enabled on Sourcegraph Cloud and disabled otherwise.",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "group": "BatchChanges"
+    },
     "batchChanges.nativeServerSideExecution": {
       "description": "Enables/disables native server-side execution for Batch Changes workspaces. ONLY ENABLE THIS IF YOU ARE USING EXECUTORS ON KUBERNETES.",
       "type": "boolean",
@@ -781,7 +768,8 @@
       "default": false
     },
     "batchChanges.restrictToAdmins": {
-      "description": "When enabled, only site admins can create and apply batch changes.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect, use RBAC instead",
+      "description": "DEPRECATED: This setting has no effect, use RBAC instead",
       "type": "boolean",
       "!go": {
         "pointer": true
@@ -1795,23 +1783,6 @@
                   "default": 1
                 }
               }
-            },
-            "agenticbatchchanges": {
-              "description": "The configuration for the agentic batch changes queue.",
-              "type": "object",
-              "required": ["limit", "weight"],
-              "properties": {
-                "limit": {
-                  "description": "The maximum number of dequeues allowed within the expiration window.",
-                  "type": "integer",
-                  "default": 50
-                },
-                "weight": {
-                  "description": "The relative weight of this queue. Higher weights mean a higher chance of being picked at random.",
-                  "type": "integer",
-                  "default": 1
-                }
-              }
             }
           }
         }
@@ -2197,7 +2168,8 @@
       "examples": [12, 24, 50]
     },
     "own.bestEffortTeamMatching": {
-      "description": "The Own service will attempt to match a Team by the last part of its handle if it contains a slash and no match is found for its full handle.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect.",
+      "description": "DEPRECATED: This setting has no effect.",
       "type": "boolean",
       "group": "Own",
       "!go": {
@@ -2206,19 +2178,22 @@
       "default": true
     },
     "own.background.repoIndexConcurrencyLimit": {
-      "description": "The max number of concurrent Own jobs that will run per worker node.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect.",
+      "description": "DEPRECATED: This setting has no effect.",
       "type": "integer",
       "group": "Own",
       "default": 5
     },
     "own.background.repoIndexRateLimit": {
-      "description": "The maximum per second rate of repositories for Own jobs per worker node.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect.",
+      "description": "DEPRECATED: This setting has no effect.",
       "type": "integer",
       "group": "Own",
       "default": 20
     },
     "own.background.repoIndexRateBurstLimit": {
-      "description": "The maximum per second burst of repositories for Own jobs per worker node. Generally this value should not be less than the max concurrency.",
+      "deprecationMessage": "DEPRECATED: This setting has no effect.",
+      "description": "DEPRECATED: This setting has no effect.",
       "type": "integer",
       "group": "Own",
       "default": 5
@@ -3021,6 +2996,50 @@
     }
   },
   "definitions": {
+    "BatchChangesCodingAgents": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "codex": {
+          "description": "Configuration for Codex coding agent steps. When accessToken is set, Codex LLM traffic is routed directly to OpenAI instead of the Sourcegraph Model Provider.",
+          "$ref": "#/definitions/BatchChangesCodingAgentProvider"
+        },
+        "claudeCode": {
+          "description": "Configuration for Claude Code coding agent steps. When accessToken is set, Claude Code LLM traffic is routed directly to Anthropic instead of the Sourcegraph Model Provider.",
+          "$ref": "#/definitions/BatchChangesCodingAgentProvider"
+        }
+      },
+      "examples": [
+        {
+          "codex": {
+            "accessToken": "sk-...",
+            "endpoint": "https://api.openai.com/v1"
+          },
+          "claudeCode": {
+            "accessToken": "sk-ant-...",
+            "endpoint": "https://api.anthropic.com"
+          }
+        }
+      ]
+    },
+    "BatchChangesCodingAgentProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessToken"],
+      "properties": {
+        "accessToken": {
+          "description": "The provider API key used by Sourcegraph's frontend proxy for this coding agent. This value is never sent to executors.",
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint": {
+          "description": "Optional base endpoint for the direct provider API. Sourcegraph appends the provider-specific request path. Defaults to https://api.openai.com/v1 for Codex and https://api.anthropic.com for Claude Code.",
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
     "SiteModelConfiguration": {
       "type": "object",
       "description": "BETA FEATURE, only enable if you know what you are doing. If set, Cody will use the new model configuration system and ignore the old 'completions' site configuration entirely.",
@@ -3433,7 +3452,7 @@
         "fallbackChat": {
           "description": "The qualified name of the model to use for unlimited chat, in '${ProviderID}::${APIVersionID}::${ModelID}' format",
           "type": "string",
-          "examples": [["google::v1::gemini-2.0-flash"]]
+          "examples": [["anthropic::2023-06-01::claude-3-sonnet", "openai::2024-02-01::gpt-4-turbo"]]
         }
       }
     },
