@@ -315,6 +315,8 @@ enum EntitlementType {
     DEEP_SEARCH
     SMART_HOVER_SUMMARY
     BATCH_CHANGES_CODING_AGENT
+    MCP_CODE_FINDER
+    DIFF_TOUR
 }
 
 """

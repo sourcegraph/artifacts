@@ -256,7 +256,14 @@ CREATE FUNCTION delete_batch_change_reference_on_changesets() RETURNS trigger
         UPDATE
           changesets
         SET
-          batch_change_ids = changesets.batch_change_ids - OLD.id::text
+          batch_change_ids = changesets.batch_change_ids - OLD.id::text,
+          updated_at = NOW(),
+          detached_at = CASE
+              WHEN changesets.batch_change_ids - OLD.id::text = '{}'::jsonb
+                   AND changesets.detached_at IS NULL
+              THEN NOW()
+              ELSE changesets.detached_at
+          END
         WHERE
           changesets.batch_change_ids ? OLD.id::text;
 
@@ -1609,8 +1616,18 @@ CREATE TABLE batch_changes_coding_agent_entitlement_usage (
     consumed bigint DEFAULT 0 NOT NULL,
     window_started_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL
 );
+
+CREATE SEQUENCE batch_changes_coding_agent_entitlement_usage_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_changes_coding_agent_entitlement_usage_id_seq OWNED BY batch_changes_coding_agent_entitlement_usage.id;
 
 CREATE SEQUENCE batch_changes_id_seq
     START WITH 1
@@ -2924,8 +2941,18 @@ CREATE TABLE deepsearch_entitlement_usage (
     consumed bigint DEFAULT 0 NOT NULL,
     window_started_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL
 );
+
+CREATE SEQUENCE deepsearch_entitlement_usage_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE deepsearch_entitlement_usage_id_seq OWNED BY deepsearch_entitlement_usage.id;
 
 CREATE TABLE deepsearch_question_jobs (
     id bigint NOT NULL,
@@ -3048,11 +3075,105 @@ CREATE TABLE diff_file_viewed_states (
     viewed_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+CREATE TABLE diff_tour_entitlement_usage (
+    user_id integer NOT NULL,
+    entitlement_id integer NOT NULL,
+    consumed bigint DEFAULT 0 NOT NULL,
+    window_started_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL
+);
+
+CREATE SEQUENCE diff_tour_entitlement_usage_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE diff_tour_entitlement_usage_id_seq OWNED BY diff_tour_entitlement_usage.id;
+
+CREATE TABLE diff_tours (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    repo_id integer NOT NULL,
+    base_oid text NOT NULL,
+    head_oid text NOT NULL,
+    tour jsonb,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    user_id integer,
+    failure_kind text
+);
+
+COMMENT ON COLUMN diff_tours.user_id IS 'The user who requested generation of this tour, or NULL for unauthenticated/legacy rows. Set to NULL if the user is deleted; the cached tour is retained.';
+
+COMMENT ON COLUMN diff_tours.failure_kind IS 'Kind of the recorded failure, for a requester-local denial that Enqueue re-queues for a later requester; NULL for no failure or a genuine, sticky-shared generation failure. Values are defined in application code (see internal/difftour).';
+
+CREATE SEQUENCE diff_tours_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE diff_tours_id_seq OWNED BY diff_tours.id;
+
 CREATE TABLE entitlement_grants (
     entitlement_id integer NOT NULL,
     user_id integer NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
 );
+
+CREATE TABLE entitlement_usage_history (
+    id bigint NOT NULL,
+    user_id integer NOT NULL,
+    entitlement_id integer NOT NULL,
+    entitlement_type text NOT NULL,
+    window_start timestamp with time zone NOT NULL,
+    window_end timestamp with time zone NOT NULL,
+    consumed bigint NOT NULL,
+    total bigint NOT NULL,
+    telemetry_emitted_at timestamp with time zone,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+COMMENT ON COLUMN entitlement_usage_history.user_id IS 'ID of the user who consumed the entitlement';
+
+COMMENT ON COLUMN entitlement_usage_history.entitlement_id IS 'ID of the entitlement the usage window referenced (purposefully not a foreign key so it survives deletion)';
+
+COMMENT ON COLUMN entitlement_usage_history.entitlement_type IS 'Type of entitlement (e.g., "deep_search")';
+
+COMMENT ON COLUMN entitlement_usage_history.window_start IS 'Start of the usage window';
+
+COMMENT ON COLUMN entitlement_usage_history.window_end IS 'End of the usage window';
+
+COMMENT ON COLUMN entitlement_usage_history.consumed IS 'Number of units in the entitlement consumed within the window';
+
+COMMENT ON COLUMN entitlement_usage_history.total IS 'Total number of units available to consume within the window';
+
+COMMENT ON COLUMN entitlement_usage_history.telemetry_emitted_at IS 'Timestamp when telemetry was emitted for this usage history entry (or NULL if not emitted)';
+
+CREATE SEQUENCE entitlement_usage_history_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE entitlement_usage_history_id_seq OWNED BY entitlement_usage_history.id;
 
 CREATE TABLE entitlements (
     id integer NOT NULL,
@@ -4821,6 +4942,25 @@ CREATE VIEW lsif_uploads_with_repository_name WITH (security_invoker='true') AS
      JOIN repo r ON ((r.id = u.repository_id)))
   WHERE (r.deleted_at IS NULL);
 
+CREATE TABLE mcp_code_finder_entitlement_usage (
+    user_id integer NOT NULL,
+    entitlement_id integer NOT NULL,
+    consumed bigint DEFAULT 0 NOT NULL,
+    window_started_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL
+);
+
+CREATE SEQUENCE mcp_code_finder_entitlement_usage_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE mcp_code_finder_entitlement_usage_id_seq OWNED BY mcp_code_finder_entitlement_usage.id;
+
 CREATE TABLE metering_events_export_queue (
     id uuid NOT NULL,
     sku integer NOT NULL,
@@ -6083,6 +6223,27 @@ CREATE SEQUENCE settings_id_seq
 
 ALTER SEQUENCE settings_id_seq OWNED BY settings.id;
 
+CREATE TABLE settings_migrations (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    migration_id integer NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    last_error text,
+    last_error_at timestamp with time zone,
+    site_skipped_external boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE settings_migrations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE settings_migrations_id_seq OWNED BY settings_migrations.id;
+
 CREATE VIEW site_config WITH (security_invoker='true') AS
  SELECT site_id,
     initialized
@@ -6140,8 +6301,18 @@ CREATE TABLE smart_hover_summary_entitlement_usage (
     consumed bigint DEFAULT 0 NOT NULL,
     window_started_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    id bigint NOT NULL
 );
+
+CREATE SEQUENCE smart_hover_summary_entitlement_usage_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE smart_hover_summary_entitlement_usage_id_seq OWNED BY smart_hover_summary_entitlement_usage.id;
 
 CREATE TABLE sub_repo_permissions (
     repo_id integer NOT NULL,
@@ -6757,6 +6928,8 @@ ALTER TABLE ONLY batch_change_agents ALTER COLUMN id SET DEFAULT nextval('batch_
 
 ALTER TABLE ONLY batch_changes ALTER COLUMN id SET DEFAULT nextval('batch_changes_id_seq'::regclass);
 
+ALTER TABLE ONLY batch_changes_coding_agent_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('batch_changes_coding_agent_entitlement_usage_id_seq'::regclass);
+
 ALTER TABLE ONLY batch_changes_site_credentials ALTER COLUMN id SET DEFAULT nextval('batch_changes_site_credentials_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_spec_execution_cache_entries ALTER COLUMN id SET DEFAULT nextval('batch_spec_execution_cache_entries_id_seq'::regclass);
@@ -6839,6 +7012,8 @@ ALTER TABLE ONLY critical_and_site_config ALTER COLUMN id SET DEFAULT nextval('c
 
 ALTER TABLE ONLY deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('deepsearch_conversations_id_seq'::regclass);
 
+ALTER TABLE ONLY deepsearch_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('deepsearch_entitlement_usage_id_seq'::regclass);
+
 ALTER TABLE ONLY deepsearch_question_jobs ALTER COLUMN id SET DEFAULT nextval('deepsearch_question_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY deepsearch_questions ALTER COLUMN id SET DEFAULT nextval('deepsearch_questions_id_seq'::regclass);
@@ -6846,6 +7021,12 @@ ALTER TABLE ONLY deepsearch_questions ALTER COLUMN id SET DEFAULT nextval('deeps
 ALTER TABLE ONLY deepsearch_quota ALTER COLUMN id SET DEFAULT nextval('deepsearch_quota_id_seq'::regclass);
 
 ALTER TABLE ONLY deepsearch_search_queue ALTER COLUMN id SET DEFAULT nextval('deepsearch_search_queue_id_seq'::regclass);
+
+ALTER TABLE ONLY diff_tour_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('diff_tour_entitlement_usage_id_seq'::regclass);
+
+ALTER TABLE ONLY diff_tours ALTER COLUMN id SET DEFAULT nextval('diff_tours_id_seq'::regclass);
+
+ALTER TABLE ONLY entitlement_usage_history ALTER COLUMN id SET DEFAULT nextval('entitlement_usage_history_id_seq'::regclass);
 
 ALTER TABLE ONLY entitlements ALTER COLUMN id SET DEFAULT nextval('entitlements_id_seq'::regclass);
 
@@ -6937,6 +7118,8 @@ ALTER TABLE ONLY lsif_references ALTER COLUMN id SET DEFAULT nextval('lsif_refer
 
 ALTER TABLE ONLY lsif_retention_configuration ALTER COLUMN id SET DEFAULT nextval('lsif_retention_configuration_id_seq'::regclass);
 
+ALTER TABLE ONLY mcp_code_finder_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('mcp_code_finder_entitlement_usage_id_seq'::regclass);
+
 ALTER TABLE ONLY namespace_permissions ALTER COLUMN id SET DEFAULT nextval('namespace_permissions_id_seq'::regclass);
 
 ALTER TABLE ONLY notebooks ALTER COLUMN id SET DEFAULT nextval('notebooks_id_seq'::regclass);
@@ -7017,9 +7200,13 @@ ALTER TABLE ONLY search_contexts ALTER COLUMN id SET DEFAULT nextval('search_con
 
 ALTER TABLE ONLY settings ALTER COLUMN id SET DEFAULT nextval('settings_id_seq'::regclass);
 
+ALTER TABLE ONLY settings_migrations ALTER COLUMN id SET DEFAULT nextval('settings_migrations_id_seq'::regclass);
+
 ALTER TABLE ONLY slack_configurations ALTER COLUMN id SET DEFAULT nextval('slack_configurations_id_seq'::regclass);
 
 ALTER TABLE ONLY slack_conversation_mappings ALTER COLUMN id SET DEFAULT nextval('slack_conversation_mappings_id_seq'::regclass);
+
+ALTER TABLE ONLY smart_hover_summary_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('smart_hover_summary_entitlement_usage_id_seq'::regclass);
 
 ALTER TABLE ONLY survey_responses ALTER COLUMN id SET DEFAULT nextval('survey_responses_id_seq'::regclass);
 
@@ -7137,7 +7324,10 @@ ALTER TABLE ONLY batch_change_agents
     ADD CONSTRAINT batch_change_agents_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY batch_changes_coding_agent_entitlement_usage
-    ADD CONSTRAINT batch_changes_coding_agent_entitlement_usage_pkey PRIMARY KEY (user_id, entitlement_id);
+    ADD CONSTRAINT batch_changes_coding_agent_entitlement_usage_id_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_changes_coding_agent_entitlement_usage
+    ADD CONSTRAINT batch_changes_coding_agent_entitlement_usage_pkey UNIQUE (tenant_id, user_id, entitlement_id);
 
 ALTER TABLE ONLY batch_changes
     ADD CONSTRAINT batch_changes_pkey PRIMARY KEY (id);
@@ -7320,7 +7510,10 @@ ALTER TABLE ONLY deepsearch_conversations
     ADD CONSTRAINT deepsearch_conversations_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY deepsearch_entitlement_usage
-    ADD CONSTRAINT deepsearch_entitlement_usage_pkey PRIMARY KEY (user_id, entitlement_id);
+    ADD CONSTRAINT deepsearch_entitlement_usage_id_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY deepsearch_entitlement_usage
+    ADD CONSTRAINT deepsearch_entitlement_usage_pkey UNIQUE (tenant_id, user_id, entitlement_id);
 
 ALTER TABLE ONLY deepsearch_question_jobs
     ADD CONSTRAINT deepsearch_question_jobs_pkey PRIMARY KEY (id);
@@ -7346,8 +7539,26 @@ ALTER TABLE ONLY deepsearch_search_queue
 ALTER TABLE ONLY diff_file_viewed_states
     ADD CONSTRAINT diff_file_viewed_states_pkey PRIMARY KEY (tenant_id, user_id, repo_id, base_ref, head_ref, file_path);
 
+ALTER TABLE ONLY diff_tour_entitlement_usage
+    ADD CONSTRAINT diff_tour_entitlement_usage_id_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY diff_tour_entitlement_usage
+    ADD CONSTRAINT diff_tour_entitlement_usage_pkey UNIQUE (tenant_id, user_id, entitlement_id);
+
+ALTER TABLE ONLY diff_tours
+    ADD CONSTRAINT diff_tours_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY diff_tours
+    ADD CONSTRAINT diff_tours_repo_base_head_key UNIQUE (tenant_id, repo_id, base_oid, head_oid);
+
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_pkey PRIMARY KEY (entitlement_id, user_id);
+
+ALTER TABLE ONLY entitlement_usage_history
+    ADD CONSTRAINT entitlement_usage_history_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY entitlement_usage_history
+    ADD CONSTRAINT entitlement_usage_history_unique UNIQUE (user_id, entitlement_type, window_start, window_end, tenant_id);
 
 ALTER TABLE ONLY entitlements
     ADD CONSTRAINT entitlements_name_type_tenant_unique UNIQUE (name, type, tenant_id);
@@ -7589,6 +7800,12 @@ ALTER TABLE ONLY lsif_retention_configuration
 ALTER TABLE ONLY lsif_retention_configuration
     ADD CONSTRAINT lsif_retention_configuration_repository_id_key UNIQUE (repository_id);
 
+ALTER TABLE ONLY mcp_code_finder_entitlement_usage
+    ADD CONSTRAINT mcp_code_finder_entitlement_usage_id_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY mcp_code_finder_entitlement_usage
+    ADD CONSTRAINT mcp_code_finder_entitlement_usage_pkey UNIQUE (tenant_id, user_id, entitlement_id);
+
 ALTER TABLE ONLY metering_events_export_queue
     ADD CONSTRAINT metering_events_export_queue_pkey PRIMARY KEY (tenant_id, id);
 
@@ -7784,6 +8001,12 @@ ALTER TABLE ONLY search_context_stars
 ALTER TABLE ONLY search_contexts
     ADD CONSTRAINT search_contexts_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY settings_migrations
+    ADD CONSTRAINT settings_migrations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY settings_migrations
+    ADD CONSTRAINT settings_migrations_tenant_migration_unique UNIQUE (tenant_id, migration_id);
+
 ALTER TABLE ONLY settings
     ADD CONSTRAINT settings_pkey PRIMARY KEY (id);
 
@@ -7797,7 +8020,10 @@ ALTER TABLE ONLY slack_conversation_mappings
     ADD CONSTRAINT slack_conversation_mappings_unique_deepsearch_id UNIQUE (tenant_id, deepsearch_conversation_id);
 
 ALTER TABLE ONLY smart_hover_summary_entitlement_usage
-    ADD CONSTRAINT smart_hover_summary_entitlement_usage_pkey PRIMARY KEY (user_id, entitlement_id);
+    ADD CONSTRAINT smart_hover_summary_entitlement_usage_id_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY smart_hover_summary_entitlement_usage
+    ADD CONSTRAINT smart_hover_summary_entitlement_usage_pkey UNIQUE (tenant_id, user_id, entitlement_id);
 
 ALTER TABLE ONLY sub_repo_permissions
     ADD CONSTRAINT sub_repo_permissions_pkey PRIMARY KEY (repo_id, user_id, version);
@@ -8162,7 +8388,17 @@ CREATE INDEX deepsearch_search_index_search_text_trgm_idx ON deepsearch_search_i
 
 CREATE INDEX deepsearch_search_queue_dequeue_idx ON deepsearch_search_queue USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
+CREATE INDEX diff_tour_entitlement_usage_entitlement_id_idx ON diff_tour_entitlement_usage USING btree (entitlement_id);
+
+CREATE INDEX diff_tour_entitlement_usage_user_id_idx ON diff_tour_entitlement_usage USING btree (user_id);
+
+CREATE INDEX diff_tours_dequeue_idx ON diff_tours USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
 CREATE INDEX entitlement_grants_user_id_idx ON entitlement_grants USING btree (user_id);
+
+CREATE INDEX entitlement_usage_history_export_order_idx ON entitlement_usage_history USING btree (window_end, id) WHERE (telemetry_emitted_at IS NULL);
+
+CREATE INDEX entitlement_usage_history_telemetry_emitted_at ON entitlement_usage_history USING btree (telemetry_emitted_at, id);
 
 CREATE INDEX event_logs_name_timestamp ON event_logs USING btree (name, "timestamp" DESC);
 
@@ -8353,6 +8589,10 @@ CREATE INDEX lsif_packages_scheme_name_version_dump_id ON lsif_packages USING bt
 CREATE INDEX lsif_references_dump_id ON lsif_references USING btree (dump_id);
 
 CREATE INDEX lsif_references_scheme_name_version_dump_id ON lsif_references USING btree (scheme, name, version, dump_id);
+
+CREATE INDEX mcp_code_finder_entitlement_usage_entitlement_id_idx ON mcp_code_finder_entitlement_usage USING btree (entitlement_id);
+
+CREATE INDEX mcp_code_finder_entitlement_usage_user_id_idx ON mcp_code_finder_entitlement_usage USING btree (user_id);
 
 CREATE INDEX metering_events_export_queue_created_at_idx ON metering_events_export_queue USING btree (created_at, id);
 
@@ -9076,11 +9316,29 @@ ALTER TABLE ONLY diff_file_viewed_states
 ALTER TABLE ONLY diff_file_viewed_states
     ADD CONSTRAINT diff_file_viewed_states_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY diff_tour_entitlement_usage
+    ADD CONSTRAINT diff_tour_entitlement_usage_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY diff_tour_entitlement_usage
+    ADD CONSTRAINT diff_tour_entitlement_usage_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+ALTER TABLE ONLY diff_tour_entitlement_usage
+    ADD CONSTRAINT diff_tour_entitlement_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY diff_tours
+    ADD CONSTRAINT diff_tours_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY diff_tours
+    ADD CONSTRAINT diff_tours_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY entitlement_grants
     ADD CONSTRAINT entitlement_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY entitlement_usage_history
+    ADD CONSTRAINT entitlement_usage_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY executor_secret_access_logs
     ADD CONSTRAINT executor_secret_access_logs_executor_secret_id_fkey FOREIGN KEY (executor_secret_id) REFERENCES executor_secrets(id) ON DELETE CASCADE;
@@ -9201,6 +9459,15 @@ ALTER TABLE ONLY lsif_references
 
 ALTER TABLE ONLY lsif_retention_configuration
     ADD CONSTRAINT lsif_retention_configuration_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_code_finder_entitlement_usage
+    ADD CONSTRAINT mcp_code_finder_entitlement_usage_entitlement_id_fkey FOREIGN KEY (entitlement_id) REFERENCES entitlements(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_code_finder_entitlement_usage
+    ADD CONSTRAINT mcp_code_finder_entitlement_usage_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_code_finder_entitlement_usage
+    ADD CONSTRAINT mcp_code_finder_entitlement_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY names
     ADD CONSTRAINT names_org_id_fkey FOREIGN KEY (org_id) REFERENCES orgs(id) ON UPDATE CASCADE ON DELETE CASCADE;
@@ -9654,7 +9921,13 @@ ALTER TABLE deepsearch_search_queue ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE diff_file_viewed_states ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE diff_tour_entitlement_usage ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE diff_tours ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE entitlement_usage_history ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlements ENABLE ROW LEVEL SECURITY;
 
@@ -9763,6 +10036,8 @@ ALTER TABLE lsif_packages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lsif_references ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_retention_configuration ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE mcp_code_finder_entitlement_usage ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE metering_events_export_queue ENABLE ROW LEVEL SECURITY;
 
@@ -9873,6 +10148,8 @@ ALTER TABLE search_context_stars ENABLE ROW LEVEL SECURITY;
 ALTER TABLE search_contexts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE settings_migrations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE slack_configurations ENABLE ROW LEVEL SECURITY;
 
@@ -10056,7 +10333,13 @@ CREATE POLICY tenant_isolation_policy ON deepsearch_search_queue USING ((( SELEC
 
 CREATE POLICY tenant_isolation_policy ON diff_file_viewed_states USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON diff_tour_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON diff_tours USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON entitlement_usage_history USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON entitlements USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -10165,6 +10448,8 @@ CREATE POLICY tenant_isolation_policy ON lsif_packages USING ((tenant_id = ( SEL
 CREATE POLICY tenant_isolation_policy ON lsif_references USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON lsif_retention_configuration USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON mcp_code_finder_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON metering_events_export_queue USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -10275,6 +10560,8 @@ CREATE POLICY tenant_isolation_policy ON search_context_stars USING ((tenant_id 
 CREATE POLICY tenant_isolation_policy ON search_contexts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON settings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON settings_migrations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON slack_configurations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

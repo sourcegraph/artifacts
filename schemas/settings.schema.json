@@ -15,28 +15,28 @@
         "pointer": true
       }
     },
+    "batchChangeAgents": {
+      "title": "SettingsBatchChangeAgents",
+      "description": "Settings for Batch Change Agents.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "guidance": {
+          "description": "Additional guidance and skills loaded into Batch Change Agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.\nNOTE: This is purely for the coordinator, inner loop agents such as codex do not load this in.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentGuidanceEntry"
+          },
+          "default": []
+        }
+      }
+    },
     "experimentalFeatures": {
       "title": "SettingsExperimentalFeatures",
       "description": "Experimental features and settings.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "newSearchResultFiltersPanel": {
-          "description": "Enables new experimental search results filters panel",
-          "type": "boolean",
-          "default": false,
-          "!go": {
-            "pointer": true
-          }
-        },
-        "newSearchNavigationUI": {
-          "description": "Enables new experimental search UI navigation",
-          "type": "boolean",
-          "default": false,
-          "!go": {
-            "pointer": true
-          }
-        },
         "newSearchResultsUI": {
           "description": "Enables new experimental search results UI, such as preview panel feature and updated search and filter layouts.",
           "type": "boolean",
@@ -128,27 +128,10 @@
             "pointer": true
           }
         },
-        "proactiveSearchResultsAggregations": {
-          "description": "Search results aggregations are triggered automatically with a search.",
-          "type": "boolean",
-          "default": true,
-          "!go": {
-            "pointer": true
-          }
-        },
         "symbolKindTags": {
           "description": "Show the initial letter of the symbol kind instead of icons.",
           "type": "boolean",
           "default": false
-        },
-        "searchQueryInput": {
-          "description": "Specify which version of the search query input to use",
-          "type": "string",
-          "default": "v1",
-          "enum": ["v1", "v2"],
-          "!go": {
-            "pointer": true
-          }
         },
         "keywordSearch": {
           "deprecationMessage": "DEPRECATED: To disable keyword search, set `search.defaultPatternType: standard`",
@@ -437,7 +420,7 @@
       }
     },
     "cody.chatCodeSyntaxHighlightingEnabled": {
-      "description": "Whether the cody chat code snippets should be code highlighted.",
+      "description": "Whether the Cody chat code snippets should be code highlighted.",
       "type": "boolean",
       "default": true,
       "!go": {
@@ -493,7 +476,8 @@
       "default": 55
     },
     "perforce.codeHostToSwarmMap": {
-      "description": "Key-value pairs of code host URLs to Swarm URLs. Keys should have no prefix and should not end with a slash, like \"perforce.company.com:1666\". Values should look like \"https://swarm.company.com/\", with a slash at the end.",
+      "deprecationMessage": "DEPRECATED: This setting is no longer used.",
+      "description": "DEPRECATED: This setting is no longer used. Key-value pairs of code host URLs to Swarm URLs. Keys should have no prefix and should not end with a slash, like \"perforce.company.com:1666\". Values should look like \"https://swarm.company.com/\", with a slash at the end.",
       "type": "object",
       "additionalProperties": {
         "type": "string"
@@ -516,8 +500,25 @@
         "pointer": true
       }
     },
+    "deepSearch.useDefaultSearchContext": {
+      "description": "EXPERIMENTAL: When enabled, new Deep Search conversations will be automatically scoped to your default search context (if one is configured). If a question is pre-filled (e.g. from a URL parameter or draft), the context is not applied.",
+      "type": "boolean",
+      "default": false,
+      "!go": {
+        "pointer": true
+      }
+    },
+    "deepSearch.guidance": {
+      "description": "Additional guidance and skills loaded into Deep Search agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/AgentGuidanceEntry"
+      },
+      "default": []
+    },
     "compareV2.enabled": {
-      "description": "BETA: Enable the new compare experience. This feature is under active development and will eventually become the default (and the setting will be removed)",
+      "deprecationMessage": "DEPRECATED: This feature is now permanently enabled. Enables the new compare UI.",
+      "description": "DEPRECATED: This feature is now permanently enabled. Enables the new compare UI.",
       "type": "boolean",
       "default": false,
       "!go": {

@@ -93,6 +93,12 @@ extend type Query {
     """
     searchContextBySpec(spec: String!): SearchContext
     """
+    Fetch search contexts by their stable database IDs. Only contexts available to the current
+    user are returned, in the same order as the requested IDs; unknown or inaccessible IDs are
+    omitted, so the result may be shorter than the input.
+    """
+    searchContextsByIDs(ids: [Int!]!): [SearchContext!]!
+    """
     Determines whether the search context is within the set of search contexts available to the current user.
     The set consists of contexts created by the user, contexts created by the users' organizations, and instance-level contexts.
     """

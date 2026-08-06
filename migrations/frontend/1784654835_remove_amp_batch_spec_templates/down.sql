@@ -1,0 +1,3 @@
+-- Intentionally a no-op: the up migration only deletes seeded example data
+-- (the Amp batch spec templates), which no code depends on. Rolling back
+-- does not need to restore it.

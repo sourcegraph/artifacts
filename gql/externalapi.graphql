@@ -25,6 +25,22 @@ type ExternalAPIQuery {
         """
         services: [String!]
     ): String!
+
+    """
+    Generate a serialized google.protobuf.FileDescriptorSet for the specified
+    services, encoded as a base64 string. The descriptor set includes all
+    transitive proto dependencies and is intended for ConnectRPC / protobuf
+    consumers (e.g. `buf generate` or `protoc --descriptor_set_in`).
+    If no services are specified, the descriptor set for all registered services
+    is returned.
+    """
+    protoDescriptorSet(
+        """
+        List of service names to include in the descriptor set.
+        If not provided, all registered services are included.
+        """
+        services: [String!]
+    ): String!
 }
 
 """

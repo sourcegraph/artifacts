@@ -459,6 +459,21 @@ type GitBlobLSIFData {
     ): Hover
 
     """
+    A generated summary providing context about how the symbol under the given document position is used across the codebase.
+    """
+    hoverSummary(
+        """
+        The line on which the symbol occurs (zero-based, inclusive).
+        """
+        line: Int!
+
+        """
+        The character (not byte) of the start line on which the symbol occurs (zero-based, inclusive).
+        """
+        character: Int!
+    ): Markdown
+
+    """
     The indexes that could provide precise code intelligence for the current blob.
     """
     visibleIndexes: [PreciseIndex!]
@@ -1004,4 +1019,7 @@ type Hover {
     Lazy-loaded - only computed when requested. Returns null if summary cannot be generated.
     """
     summary: Markdown
+        @deprecated(
+            reason: "Use GitBlobLSIFData.hoverSummary instead, which does not resolve the ordinary hover a second time."
+        )
 }

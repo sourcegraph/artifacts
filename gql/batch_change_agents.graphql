@@ -403,6 +403,11 @@ input BatchChangeAgentAskUserAnswerInput {
     typed answer. Null, omitted, or blank means the user ignored this question.
     """
     answer: String
+
+    """
+    The key of the selected freeform option.
+    """
+    optionKey: String
 }
 
 """
@@ -479,12 +484,75 @@ type BatchChangeAgentConnection {
 
 """
 A batch change agent.
+
+This is an interface following the visible/hidden pattern also used by
+Changeset: it resolves to a VisibleBatchChangeAgent for any viewer with read
+access to the agent — the owner, or anyone holding a valid read-token link —
+and to a HiddenBatchChangeAgent for a viewer without access, exposing only the
+agent's identity. Every detail beyond id and viewerIsOwner lives on
+VisibleBatchChangeAgent, so clients must fragment on
+`... on VisibleBatchChangeAgent` to read those fields.
 """
-type BatchChangeAgent implements Node {
+interface BatchChangeAgent {
     """
     The unique ID for the batch change agent.
     """
     id: ID!
+
+    """
+    The user who owns this agent. Exposed on the shared interface so it is
+    readable by every viewer, including those who resolve to
+    HiddenBatchChangeAgent.
+    """
+    owner: User!
+
+    """
+    Whether the current viewer owns this agent. False for unauthenticated
+    viewers and for logged-in users who reached the agent via its public read
+    token. This does not gate the visible/hidden split (read-token viewers
+    still get VisibleBatchChangeAgent); clients should use it to disable
+    owner-only controls (e.g. the chat input).
+    """
+    viewerIsOwner: Boolean!
+}
+
+"""
+A batch change agent that the current viewer cannot read. Only the agent's
+identity and the viewerIsOwner flag are exposed; all other details are
+withheld.
+"""
+type HiddenBatchChangeAgent implements Node & BatchChangeAgent {
+    """
+    The unique ID for the batch change agent.
+    """
+    id: ID!
+
+    """
+    The user who owns this agent.
+    """
+    owner: User!
+
+    """
+    Whether the current viewer owns this agent. Always false for a
+    HiddenBatchChangeAgent.
+    """
+    viewerIsOwner: Boolean!
+}
+
+"""
+A batch change agent the current viewer can read, exposing its full details.
+Returned to the owner and to any viewer holding a valid read-token link.
+"""
+type VisibleBatchChangeAgent implements Node & BatchChangeAgent {
+    """
+    The unique ID for the batch change agent.
+    """
+    id: ID!
+
+    """
+    The user who owns this agent.
+    """
+    owner: User!
 
     """
     The display title for the agent. This can be null when not set.
@@ -513,10 +581,8 @@ type BatchChangeAgent implements Node {
     updatedAt: DateTime!
 
     """
-    Whether the current viewer owns this agent. False for unauthenticated
-    viewers and for logged-in users who reached the agent via its public
-    read token. Clients should use this to disable owner-only controls
-    (e.g. the chat input).
+    Whether the current viewer owns this agent. True for the owner; false for
+    a viewer who reached this agent via a shared read-token link.
     """
     viewerIsOwner: Boolean!
 
@@ -1298,6 +1364,11 @@ enum BatchChangeAgentInboxFactKind {
     A BCA-owned changeset hook execution job succeeded.
     """
     WORKSPACE_CHANGESET_HOOK_SUCCEEDED
+
+    """
+    A BCA-owned changeset's CI check state transitioned into passed.
+    """
+    CHANGESET_CI_PASSED
 }
 
 """

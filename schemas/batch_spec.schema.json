@@ -144,7 +144,7 @@
         },
         "prompt": {
           "type": "string",
-          "description": "The prompt to send to the agent."
+          "description": "The prompt to send to the agent. Passed to the agent binary as a command-line argument, so keep it small: write large content to a file and reference its path instead of inlining it, to avoid exceeding the OS argument-size limit."
         }
       }
     },
@@ -217,7 +217,7 @@
                 "oneOf": [
                   {
                     "type": "string",
-                    "description": "An environment variable to set in the step environment: the value will be passed through from the environment src is running within."
+                    "description": "An environment variable to set in the step environment: the value will be passed through from the environment in which the batch spec is executed."
                   },
                   {
                     "type": "object",
@@ -313,7 +313,7 @@
                 "oneOf": [
                   {
                     "type": "string",
-                    "description": "An environment variable to set in the step environment: the value will be passed through from the environment src is running within."
+                    "description": "An environment variable to set in the step environment: the value will be passed through from the environment in which the batch spec is executed."
                   },
                   {
                     "type": "object",
@@ -588,7 +588,7 @@
       "properties": {
         "group": {
           "type": ["array", "null"],
-          "description": "A list of groups of changes in a repository that each create a separate, additional changeset for this repository, with all ungrouped changes being in the default changeset.",
+          "description": "A list of groups of changes in a repository that each create a separate, additional changeset for this repository, with all ungrouped changes being in the default changeset. Each group maps to exactly one branch and one changeset, so grouping can only split changes into more changesets; it cannot combine changes from multiple directories into a single changeset (to keep changes together, leave them ungrouped so they land in the default changeset).",
           "items": {
             "title": "TransformChangesGroup",
             "type": "object",
@@ -602,7 +602,7 @@
               },
               "branch": {
                 "type": "string",
-                "description": "The branch on the repository to propose changes to. This is a literal branch name; changesetTemplate template variables such as ${{ batch_change.name }} are not rendered here.",
+                "description": "The branch on the repository to propose changes to. Supports the same template variables as changesetTemplate.branch, with steps.path set to this group's directory. Must be unique across all groups in the repository and must differ from changesetTemplate.branch; grouping two directories onto the same branch is rejected with a validation error.",
                 "minLength": 1
               },
               "title": {

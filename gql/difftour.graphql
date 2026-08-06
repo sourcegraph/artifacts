@@ -1,0 +1,104 @@
+extend type RepositoryComparison {
+    """
+    An AI-generated guided tour that groups the changed files in this comparison
+    into thematic sections, each with a heading and summary.
+
+    Requesting this field kicks off generation if no tour exists yet and returns
+    immediately with status QUEUED (content fields null); it never blocks waiting
+    for generation. Poll the field until status is COMPLETED, at which point the
+    content fields are populated. Returns null only when the feature is not
+    enabled or the comparison has no base/head commit.
+
+    Because reading this field triggers generation, clients should request it
+    only when the user actually wants a tour (e.g. opens the tour panel), not on
+    every comparison view.
+    """
+    diffTour(
+        """
+        Regenerate the tour even if one already exists. This is a one-shot
+        command, NOT a poll parameter: send it once (e.g. on an explicit
+        "regenerate" action), then poll with force omitted. Polling with
+        force: true would re-queue the job on every request and never reach
+        COMPLETED.
+        """
+        force: Boolean = false
+    ): DiffTour
+}
+
+"""
+The lifecycle state of a DiffTour.
+"""
+enum DiffTourState {
+    """
+    Generation is queued but has not started.
+    """
+    QUEUED
+    """
+    Generation is in progress.
+    """
+    PROCESSING
+    """
+    Generation finished successfully; content fields are populated.
+    """
+    COMPLETED
+    """
+    Generation failed.
+    """
+    FAILED
+}
+
+"""
+DiffTour is an AI-generated guided tour through a repository comparison.
+"""
+type DiffTour {
+    """
+    The generation lifecycle state of this tour.
+    """
+    status: DiffTourState!
+    """
+    A short, specific title for the diff as a whole.
+    """
+    heading: String
+    """
+    A one-paragraph orientation describing what the diff does.
+    """
+    summary: String
+    """
+    The thematic sections of the tour, in reading order.
+    """
+    sections: [DiffTourSection!]!
+}
+
+"""
+DiffTourSection is a thematic group of changed files within a DiffTour.
+"""
+type DiffTourSection {
+    """
+    A short title for this group of files, e.g. "API changes" or "Tests".
+    """
+    heading: String!
+    """
+    A concise description of what changed in this group and why it matters.
+    """
+    summary: String!
+    """
+    The changed files that belong to this section.
+    """
+    files: [DiffTourFile!]!
+}
+
+"""
+DiffTourFile references a single changed file within a DiffTourSection.
+"""
+type DiffTourFile {
+    """
+    The changed file in the comparison. This is the same ChangedFile the compare
+    view uses, so clients can drive file-tree selection, "mark as viewed", and
+    diff rendering directly from it.
+    """
+    changedFile: ChangedFile!
+    """
+    An optional one-line explanation of this file's role in the change.
+    """
+    note: String
+}

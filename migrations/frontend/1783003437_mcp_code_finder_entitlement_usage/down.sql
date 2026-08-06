@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS tenant_isolation_policy ON mcp_code_finder_entitlement_usage;
+DROP TABLE IF EXISTS mcp_code_finder_entitlement_usage;

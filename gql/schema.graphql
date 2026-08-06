@@ -5408,6 +5408,12 @@ type RepositoryComparison {
         Path can be either a file or a containing directory.
         """
         path: String
+
+        """
+        Opaque cursor for forward pagination. Pass the endCursor returned in a
+        previous page's pageInfo to fetch the next page.
+        """
+        after: String
     ): GitCommitConnection!
     """
     The file diffs for each changed file.
@@ -6064,6 +6070,10 @@ type GitCommit implements Node {
     """
     abbreviatedOID: String!
     """
+    Whether this commit contains a CODEOWNERS file in a supported location. Returns false when code ownership is disabled.
+    """
+    hasCodeownersFile: Boolean
+    """
     EXPERIMENTAL: The perforce changelist ID if this git commit was originally converted from a perforce depot.
     """
     perforceChangelist: PerforceChangelist
@@ -6163,17 +6173,18 @@ type GitCommit implements Node {
         """
         follow: Boolean = false
         """
-        Return commits more recent than the specified date.
+        Opaque cursor for forward pagination. Pass the endCursor returned in a
+        previous page's pageInfo to fetch the next page.
         """
         after: String
         """
-        Skip the first N commits of the repo before returning the number of commits as set in the field "first".
+        Return commits more recent than the specified date.
         """
-        afterCursor: String
+        afterDate: String
         """
         Return commits older than the specified date.
         """
-        before: String
+        beforeDate: String
     ): GitCommitConnection!
     """
     Returns the number of commits that this commit is behind and ahead of revspec.
@@ -8064,6 +8075,20 @@ enum RepositoryOrderBy {
     Order by the last time the repository content changed (most recent activity first by default).
     """
     LAST_CHANGED
+}
+
+"""
+The direction in which to sort a list of results.
+"""
+enum SortDirection {
+    """
+    Ascending order.
+    """
+    ASC
+    """
+    Descending order.
+    """
+    DESC
 }
 
 """

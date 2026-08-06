@@ -988,50 +988,27 @@ enum BatchChangesSortOrder {
 }
 
 """
-This enum declares all supported sorting orders for changesets.
+Field to order a changeset connection by. The direction is controlled
+separately by the `direction` argument.
 """
-enum ChangesetsSortOrder {
+enum ChangesetsOrderBy {
     """
-    Sort by id in ascending order (oldest first).
+    Order by changeset id (creation order).
     """
-    OLDEST_FIRST
-
+    ID
     """
-    Sort by id in descending order (newest first).
+    Order by changeset spec title.
     """
-    NEWEST_FIRST
-
+    TITLE
     """
-    Sort by changeset spec title in ascending order (A-Z).
+    Order by repository name.
     """
-    TITLE_ASCENDING
-
+    REPOSITORY
     """
-    Sort by changeset spec title in desscending order (Z-A).
-    """
-    TITLE_DESCENDING
-
-    """
-    Sort by repository name in ascending order (A-Z).
-    """
-    REPO_ASCENDING
-
-    """
-    Sort by repository name in desscending order (Z-A).
-    """
-    REPO_DESCENDING
-
-    """
-    Sort by changeset state in ascending lifecycle order (earliest lifecycle
+    Order by changeset lifecycle state (ascending means earliest lifecycle
     stage first, e.g. unpublished before merged).
     """
-    STATE_ASCENDING
-
-    """
-    Sort by changeset state in descending lifecycle order (latest lifecycle
-    stage first).
-    """
-    STATE_DESCENDING
+    STATE
 }
 
 """
@@ -2630,7 +2607,7 @@ enum BatchSpecWorkspaceResolutionState {
 
 """
 Field to order a workspace connection by. The direction is controlled
-separately by the `descending` argument.
+separately by the `direction` argument.
 """
 enum BatchSpecWorkspacesOrderBy {
     """
@@ -2690,14 +2667,14 @@ type BatchSpecWorkspaceResolution {
         after: String
         """
         Field to order results by. When omitted, results are ordered by a
-        stable internal key (workspace ID).
+        stable internal key (workspace ID). The direction is controlled by
+        the `direction` argument.
         """
         orderBy: BatchSpecWorkspacesOrderBy
         """
-        Sort in descending order. Reverses whatever ordering is in effect,
-        including the default.
+        Direction to order results in. Defaults to ASC.
         """
-        descending: Boolean = false
+        direction: SortDirection
         """
         Search for workspaces matching this query. Queries may include quoted substrings
         to match phrases, and words may be preceded by - to negate them.
@@ -3081,6 +3058,22 @@ type VisibleBatchSpecWorkspace implements BatchSpecWorkspace & Node {
     changesetSpecs: [VisibleChangesetSpec!]
 
     """
+    The most recent PRIOR run of the same logical workspace — matched by
+    repository, path, and branch — within this batch change, surfaced as a stale
+    fallback so the UI can show the workspace's last-known state (diff, steps,
+    changeset specs, timing) after the batch change agent re-prepares a new spec
+    but before the new workspace has been re-executed.
+
+    It is a full workspace resolver, so every field resolves from that prior run.
+    Only populated when this workspace has not produced its own results yet (no
+    changeset specs, not skipped, no finished execution job), so it never
+    overlaps with this workspace's own data; null when there is no qualifying
+    prior run or the batch spec is not linked to a batch change. Callers should
+    not recurse into its own previousRun.
+    """
+    previousRun: BatchSpecWorkspace
+
+    """
     The rank of this execution in the queue of the user. The value of this field is null if the
     execution has started.
     """
@@ -3273,8 +3266,7 @@ type BatchSpecWorkspaceStep {
     skipped: Boolean!
 
     """
-    The output logs, prefixed with either "stdout " or "stderr ". Null, if the
-    step has not run yet.
+    The output logs, prefixed with either "stdout: " or "stderr: ".
     """
     outputLines(
         """
@@ -3285,6 +3277,18 @@ type BatchSpecWorkspaceStep {
         Return the log lines after N lines.
         """
         after: String
+
+        """
+        Include output from a cached step result. These logs are NOT from a current
+        execution so treat them as purely informational. However, this is the data
+        that is available in templating from this step.
+
+        When from a cached result, stderr and stdout are returned in this order, instead
+        of the intertwined format from a fresh execution. We may overhaul that eventually.
+
+        TODO(eseliger): Tag individual log lines with timestamps so we can sort them.
+        """
+        includeCached: Boolean = false
     ): BatchSpecWorkspaceStepOutputLineConnection!
 
     """
@@ -3502,8 +3506,15 @@ type BatchChange implements Node {
         Only include changesets belonging to the given repository.
         """
         repo: ID
-
-        sortOrder: ChangesetsSortOrder = OLDEST_FIRST
+        """
+        Field to order results by. Defaults to id ascending (oldest first).
+        """
+        orderBy: ChangesetsOrderBy
+        """
+        Direction to order results in. Defaults to ASC. May be passed without
+        orderBy, in which case it applies to the default id ordering.
+        """
+        direction: SortDirection
     ): ChangesetConnection!
 
     """
@@ -3534,6 +3545,12 @@ type BatchChange implements Node {
     """
     The last batch spec applied to this batch change, or an "empty" spec if the batch
     change has never had a spec applied.
+
+    For batch changes managed by a batch change agent, this is the latest PREPARED
+    spec instead: the agent advances it when it prepares a new spec, before that
+    spec has been executed or published. Workspaces of such a spec that have not
+    produced their own results yet surface their prior state via
+    BatchSpecWorkspace.previousRun.
     """
     currentSpec: BatchSpec!
 
