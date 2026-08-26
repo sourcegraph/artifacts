@@ -19,7 +19,7 @@ BEGIN
   -- in the same database, the table will already exist since every schema has a
   -- copy of tenants.
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_schema = 'public' AND table_name='tenants' AND column_name='workspace_id') THEN
+             WHERE table_schema = current_schema() AND table_name='tenants' AND column_name='workspace_id') THEN
     INSERT INTO tenants (id, name, workspace_id, created_at, updated_at) VALUES (1, 'default', '6a6b043c-ffed-42ec-b1f4-abc231cd7222', '2024-09-28 09:41:00.000000+00', '2024-09-28 09:41:00.000000+00') ON CONFLICT DO NOTHING;
   ELSE
     INSERT INTO tenants (id, name, created_at, updated_at) VALUES (1, 'default', '2024-09-28 09:41:00.000000+00', '2024-09-28 09:41:00.000000+00') ON CONFLICT DO NOTHING;

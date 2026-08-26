@@ -92,6 +92,34 @@
           }
         }
       }
+    },
+    {
+      "$comment": "The `transformChanges.group.directories` property is only allowed when `version: 3` is set.",
+      "if": {
+        "required": ["transformChanges"],
+        "properties": {
+          "transformChanges": {
+            "type": "object",
+            "required": ["group"],
+            "properties": {
+              "group": {
+                "type": "array",
+                "contains": {
+                  "required": ["directories"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["version"],
+        "properties": {
+          "version": {
+            "const": 3
+          }
+        }
+      }
     }
   ],
   "definitions": {
@@ -141,6 +169,11 @@
           "type": "string",
           "description": "The coding agent to use.",
           "enum": ["codex", "claude-code"]
+        },
+        "mode": {
+          "type": "string",
+          "description": "The cost and reasoning profile to use. Defaults to medium.",
+          "enum": ["low", "medium", "high"]
         },
         "prompt": {
           "type": "string",
@@ -588,26 +621,36 @@
       "properties": {
         "group": {
           "type": ["array", "null"],
-          "description": "A list of groups of changes in a repository that each create a separate, additional changeset for this repository, with all ungrouped changes being in the default changeset. Each group maps to exactly one branch and one changeset, so grouping can only split changes into more changesets; it cannot combine changes from multiple directories into a single changeset (to keep changes together, leave them ungrouped so they land in the default changeset).",
+          "description": "A list of groups of changes in a repository that each create a separate, additional changeset for this repository, with all ungrouped changes being in the default changeset. Each group maps to exactly one branch and one changeset. A group may span multiple directories via the 'directories' field, so a single changeset can collect changes from several directories at once.",
           "items": {
             "title": "TransformChangesGroup",
             "type": "object",
             "additionalProperties": false,
-            "required": ["directory", "branch"],
+            "required": ["branch"],
+            "oneOf": [{ "required": ["directory"] }, { "required": ["directories"] }],
             "properties": {
               "directory": {
                 "type": "string",
-                "description": "The directory path (relative to the repository root) of the changes to include in this group.",
+                "description": "The directory path (relative to the repository root) of the changes to include in this group. Retained for backwards compatibility; prefer 'directories', which lets one group span multiple directories. Mutually exclusive with 'directories'; set exactly one.",
                 "minLength": 1
+              },
+              "directories": {
+                "type": "array",
+                "description": "A list of directory paths (relative to the repository root) whose changes are all collected into this group's single changeset. Use this to make one changeset span multiple directories. Mutually exclusive with 'directory'; set exactly one.",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               },
               "branch": {
                 "type": "string",
-                "description": "The branch on the repository to propose changes to. Supports the same template variables as changesetTemplate.branch, with steps.path set to this group's directory. Must be unique across all groups in the repository and must differ from changesetTemplate.branch; grouping two directories onto the same branch is rejected with a validation error.",
+                "description": "The branch on the repository to propose changes to. Supports the same template variables as changesetTemplate.branch, with steps.path set to this group's first directory. Must be unique across all groups in the repository and must differ from changesetTemplate.branch.",
                 "minLength": 1
               },
               "title": {
                 "type": "string",
-                "description": "Optional title for the changeset created from this group. Supports the same template variables as changesetTemplate.title, with steps.path set to this group's directory. If unset, the rendered changesetTemplate.title is used."
+                "description": "Optional title for the changeset created from this group. Supports the same template variables as changesetTemplate.title, with steps.path set to this group's first directory. If unset, the rendered changesetTemplate.title is used."
               },
               "repository": {
                 "type": "string",

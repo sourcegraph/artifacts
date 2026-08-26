@@ -39,12 +39,12 @@ CREATE OR REPLACE FUNCTION rename_table_scip_to_lsif(
 ) RETURNS VOID AS $func$
 BEGIN
     -- 1. Drop the back-compat view first if it exists
-    IF EXISTS (SELECT 1 FROM information_schema.views WHERE table_name = new_table_name AND table_schema = 'public') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.views WHERE table_name = new_table_name AND table_schema = current_schema()) THEN
         EXECUTE format('DROP VIEW %I', new_table_name);
     END IF;
 
     -- 2. Table rename
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = old_table_name AND table_schema = 'public' AND table_type = 'BASE TABLE') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = old_table_name AND table_schema = current_schema() AND table_type = 'BASE TABLE') THEN
         EXECUTE format('ALTER TABLE %I RENAME TO %I', old_table_name, new_table_name);
     END IF;
 
@@ -60,7 +60,7 @@ BEGIN
 
     -- 5. Rename sequences (ownership is preserved automatically)
     FOR i in 1..COALESCE(array_length(old_sequences, 1), 0) LOOP
-        IF EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = old_sequences[i] AND schemaname = 'public') THEN
+        IF EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = old_sequences[i] AND schemaname = current_schema()) THEN
             EXECUTE format('ALTER SEQUENCE %I RENAME TO %I', old_sequences[i], new_sequences[i]);
         END IF;
     END LOOP;

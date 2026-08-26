@@ -995,6 +995,13 @@ type Mutation {
     syncExternalService(id: ID!): EmptyResponse!
 
     """
+    Resumes automatic syncing for a suspended external service.
+
+    Site-admin or owner of the external service only.
+    """
+    unsuspendExternalService(id: ID!): ExternalService!
+
+    """
     Cancels an external service sync job. Must be in queued or processing state.
 
     Site-admin or owner of the external service only.
@@ -2052,6 +2059,27 @@ type Query {
         If provided, fetch external services which contain a repo with the given ID.
         """
         repo: ID
+        """
+        If provided, only fetch external services whose display name matches the query.
+        """
+        query: String
+        """
+        If provided, only fetch external services of the given kinds.
+        """
+        kinds: [ExternalServiceKind!]
+        """
+        If provided, only fetch external services with the given sync status.
+        """
+        status: ExternalServiceStatus
+        """
+        The property the results are ordered by.
+        """
+        orderBy: ExternalServiceOrderBy = ID
+        """
+        Whether the results are ordered in descending order. The default (descending
+        by ID) lists the most recently created external services first.
+        """
+        descending: Boolean = true
     ): ExternalServiceConnection!
     """
     Lists all namespaces for a given external service connection.
@@ -3771,6 +3799,39 @@ enum ExternalServiceKind {
     PAGURE
     PERFORCE
     PHABRICATOR
+}
+
+"""
+The sync status of an external service, derived from its suspension state and
+the outcome of its most recent finished sync.
+"""
+enum ExternalServiceStatus {
+    """
+    The external service is not suspended and its most recent finished sync did not fail.
+    """
+    HEALTHY
+    """
+    The external service is not suspended and its most recent finished sync failed.
+    """
+    UNHEALTHY
+    """
+    The external service is suspended.
+    """
+    SUSPENDED
+}
+
+"""
+The property an external service list is ordered by.
+"""
+enum ExternalServiceOrderBy {
+    """
+    Order by ID, i.e. in order of creation.
+    """
+    ID
+    """
+    Order by the number of repositories the external service yields.
+    """
+    REPO_COUNT
 }
 
 """
@@ -10708,6 +10769,11 @@ enum PermissionNamespace {
     Permissions related to user external accounts.
     """
     USER_EXTERNAL_ACCOUNTS
+
+    """
+    Permissions related to user credentials.
+    """
+    USER_CREDENTIALS
 
     """
     Permissions related to the prompts and saved searches library.

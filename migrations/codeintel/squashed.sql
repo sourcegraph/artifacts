@@ -469,6 +469,8 @@ CREATE INDEX codeintel_last_reconcile_last_reconcile_at_dump_id ON codeintel_las
 
 CREATE INDEX codeintel_scip_document_lookup_document_id ON codeintel_scip_document_lookup USING hash (document_id);
 
+CREATE INDEX codeintel_scip_document_lookup_tenant_id ON codeintel_scip_document_lookup USING btree (tenant_id) WHERE (tenant_id <> 1);
+
 CREATE INDEX codeintel_scip_documents_dereference_logs_last_removal_time_des ON codeintel_scip_documents_dereference_logs USING btree (last_removal_time DESC, document_id);
 
 CREATE INDEX codeintel_scip_metadata_upload_id ON codeintel_scip_metadata USING btree (upload_id);

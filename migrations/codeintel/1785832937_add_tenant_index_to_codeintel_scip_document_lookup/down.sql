@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS codeintel_scip_document_lookup_tenant_id;

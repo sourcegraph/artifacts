@@ -63,6 +63,14 @@ extend type Mutation {
         This setting cannot be changed after creation.
         """
         public: Boolean!
+        """
+        The maximum duration, in seconds, that an OAuth session for this client may
+        live since the user's original authentication. When set, access and refresh
+        tokens stop working that long after the user authenticated, even if they
+        were recently issued or rotated, forcing the user to re-authenticate. Null
+        means no limit.
+        """
+        maxSessionDurationSeconds: Int
     ): CreateIDPClientResult!
     """
     Update an existing IdP client.
@@ -91,6 +99,14 @@ extend type Mutation {
         The list of scopes this client can request.
         """
         scopes: [String!]!
+        """
+        The maximum duration, in seconds, that an OAuth session for this client may
+        live since the user's original authentication. When set, access and refresh
+        tokens stop working that long after the user authenticated, even if they
+        were recently issued or rotated, forcing the user to re-authenticate. Null
+        removes the limit.
+        """
+        maxSessionDurationSeconds: Int
     ): IDPClient!
     """
     Delete an existing IdP client. Caution: all access tokens issued by this client
@@ -258,6 +274,14 @@ type IDPClient implements Node {
     How this client was registered.
     """
     registrationSource: ClientRegistrationSource!
+    """
+    The maximum duration, in seconds, that an OAuth session for this client may
+    live since the user's original authentication. When set, access and refresh
+    tokens stop working that long after the user authenticated, even if they
+    were recently issued or rotated, forcing the user to re-authenticate. Null
+    means no limit.
+    """
+    maxSessionDurationSeconds: Int
     """
     The time the client was created.
     """

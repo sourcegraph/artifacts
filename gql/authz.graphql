@@ -22,7 +22,6 @@ extend type Mutation {
     addRepositoryPermissionForUser(
         """
         The repository permission specification - either a specific repository or unrestricted access.
-        Unrestricted access is currently only supported for service accounts.
         """
         permission: RepositoryPermissionInput!
         """

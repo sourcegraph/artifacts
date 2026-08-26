@@ -1,5 +1,5 @@
 -- Recreate the gitserver_repos_statistics table
-CREATE TABLE IF NOT EXISTS public.gitserver_repos_statistics (
+CREATE TABLE IF NOT EXISTS gitserver_repos_statistics (
     shard_id text,
     total bigint DEFAULT 0 NOT NULL,
     not_cloned bigint DEFAULT 0 NOT NULL,
@@ -11,31 +11,31 @@ CREATE TABLE IF NOT EXISTS public.gitserver_repos_statistics (
 );
 
 
-COMMENT ON COLUMN public.gitserver_repos_statistics.shard_id IS 'ID of this gitserver shard. If an empty string then the repositories havent been assigned a shard.';
-COMMENT ON COLUMN public.gitserver_repos_statistics.total IS 'Number of repositories in gitserver_repos table on this shard';
-COMMENT ON COLUMN public.gitserver_repos_statistics.not_cloned IS 'Number of repositories in gitserver_repos table on this shard that are not cloned yet';
-COMMENT ON COLUMN public.gitserver_repos_statistics.cloning IS 'Number of repositories in gitserver_repos table on this shard that cloning';
-COMMENT ON COLUMN public.gitserver_repos_statistics.cloned IS 'Number of repositories in gitserver_repos table on this shard that are cloned';
-COMMENT ON COLUMN public.gitserver_repos_statistics.failed_fetch IS 'Number of repositories in gitserver_repos table on this shard where last_error is set';
-COMMENT ON COLUMN public.gitserver_repos_statistics.corrupted IS 'Number of repositories that are NOT soft-deleted and not blocked and have corrupted_at set in gitserver_repos table';
+COMMENT ON COLUMN gitserver_repos_statistics.shard_id IS 'ID of this gitserver shard. If an empty string then the repositories havent been assigned a shard.';
+COMMENT ON COLUMN gitserver_repos_statistics.total IS 'Number of repositories in gitserver_repos table on this shard';
+COMMENT ON COLUMN gitserver_repos_statistics.not_cloned IS 'Number of repositories in gitserver_repos table on this shard that are not cloned yet';
+COMMENT ON COLUMN gitserver_repos_statistics.cloning IS 'Number of repositories in gitserver_repos table on this shard that cloning';
+COMMENT ON COLUMN gitserver_repos_statistics.cloned IS 'Number of repositories in gitserver_repos table on this shard that are cloned';
+COMMENT ON COLUMN gitserver_repos_statistics.failed_fetch IS 'Number of repositories in gitserver_repos table on this shard where last_error is set';
+COMMENT ON COLUMN gitserver_repos_statistics.corrupted IS 'Number of repositories that are NOT soft-deleted and not blocked and have corrupted_at set in gitserver_repos table';
 
-CREATE INDEX IF NOT EXISTS gitserver_repos_statistics_shard_id ON public.gitserver_repos_statistics USING btree (shard_id);
-ALTER TABLE public.gitserver_repos_statistics ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS gitserver_repos_statistics_shard_id ON gitserver_repos_statistics USING btree (shard_id);
+ALTER TABLE gitserver_repos_statistics ENABLE ROW LEVEL SECURITY;
 DO $$
 BEGIN
    IF NOT EXISTS (
       SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public'
+      WHERE schemaname = current_schema()
         AND tablename = 'gitserver_repos_statistics'
         AND policyname = 'tenant_isolation_policy'
    ) THEN
-        CREATE POLICY tenant_isolation_policy ON public.gitserver_repos_statistics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+        CREATE POLICY tenant_isolation_policy ON gitserver_repos_statistics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
    END IF;
 END;
 $$;
 
 
-CREATE OR REPLACE FUNCTION public.recalc_gitserver_repos_statistics_on_delete() RETURNS trigger
+CREATE OR REPLACE FUNCTION recalc_gitserver_repos_statistics_on_delete() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
       INSERT INTO gitserver_repos_statistics AS grs (shard_id, total, not_cloned, cloning, cloned, failed_fetch, corrupted)
@@ -54,7 +54,7 @@ CREATE OR REPLACE FUNCTION public.recalc_gitserver_repos_statistics_on_delete() 
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.recalc_gitserver_repos_statistics_on_insert() RETURNS trigger
+CREATE OR REPLACE FUNCTION recalc_gitserver_repos_statistics_on_insert() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
       -------------------------------------------------
@@ -78,7 +78,7 @@ CREATE OR REPLACE FUNCTION public.recalc_gitserver_repos_statistics_on_insert() 
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.recalc_gitserver_repos_statistics_on_update() RETURNS trigger
+CREATE OR REPLACE FUNCTION recalc_gitserver_repos_statistics_on_update() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
 

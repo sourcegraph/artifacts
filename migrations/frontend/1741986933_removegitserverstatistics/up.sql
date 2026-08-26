@@ -1,5 +1,5 @@
 
-CREATE OR REPLACE FUNCTION public.recalc_gitserver_repos_statistics_on_update() RETURNS trigger
+CREATE OR REPLACE FUNCTION recalc_gitserver_repos_statistics_on_update() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
       WITH diff(not_cloned, cloning, cloned, failed_fetch, corrupted) AS (

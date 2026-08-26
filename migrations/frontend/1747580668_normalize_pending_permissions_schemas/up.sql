@@ -1,6 +1,6 @@
 DO $$
 BEGIN
-    IF to_regclass('public.pending_repo_permissions') IS NULL THEN
+    IF to_regclass('pending_repo_permissions') IS NULL THEN
         CREATE TABLE pending_repo_permissions (
             id BIGSERIAL PRIMARY KEY,
             bind_id text NOT NULL,

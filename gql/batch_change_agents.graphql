@@ -427,6 +427,28 @@ enum BatchChangeAgentToolApprovalDecision {
 }
 
 """
+How far an ALLOW decision extends beyond the gated call itself. Non-ONCE scopes
+persist per-secret grants for the secrets named in the approval's findings, so
+the approval gate does not ask about those secrets again.
+"""
+enum BatchChangeAgentToolApprovalGrantScope {
+    """
+    Approve only this call. The default; no grants are persisted.
+    """
+    ONCE
+    """
+    Also grant the findings' secrets to this agent, covering all of its
+    threads, for the lifetime of the agent.
+    """
+    SINGLE_AGENT
+    """
+    Also grant the findings' secrets to the granting user across all of their
+    current and future agents.
+    """
+    ALL_USER_AGENTS
+}
+
+"""
 Input for submitBatchChangeAgentToolApproval.
 """
 input SubmitBatchChangeAgentToolApprovalInput {
@@ -450,6 +472,12 @@ input SubmitBatchChangeAgentToolApprovalInput {
     ignored otherwise.
     """
     note: String
+
+    """
+    How far an ALLOW decision extends. Non-ONCE values are only valid when
+    decision is ALLOW and the approval's findings name at least one secret.
+    """
+    grantScope: BatchChangeAgentToolApprovalGrantScope = ONCE
 }
 
 """
@@ -1062,6 +1090,11 @@ type BatchChangeAgentTurn implements Node {
     reasoning: String
 
     """
+    Extended thinking produced by the model before its assistant text.
+    """
+    thinking: String
+
+    """
     The ordered structured content blocks for this turn (for example, text
     blocks and image blocks).
     """
@@ -1238,6 +1271,13 @@ type BatchChangeAgentToolApprovalFinding {
     the finding has no associated snippet.
     """
     snippet: String
+
+    """
+    The execution secret names the flagged content references. An ALLOW
+    decision with a non-ONCE grant scope grants exactly these names. Empty for
+    findings that are not secret-based.
+    """
+    secrets: [String!]!
 }
 
 """

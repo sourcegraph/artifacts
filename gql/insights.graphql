@@ -193,7 +193,22 @@ extend type Query {
     """
     Return dashboards visible to the authenticated user.
     """
-    insightsDashboards(first: Int, after: String, id: ID): InsightsDashboardConnection!
+    insightsDashboards(
+        first: Int
+        """
+        An opaque cursor: the id of the dashboard to continue after.
+        """
+        after: String
+        id: ID
+        """
+        How to order the list.
+        """
+        orderBy: InsightsDashboardOrderBy = DASHBOARD_ID
+        """
+        Sort direction.
+        """
+        descending: Boolean = false
+    ): InsightsDashboardConnection!
 
     """
     Return all insight views visible to the authenticated user.
@@ -256,6 +271,14 @@ extend type Mutation {
     Remove an insight view from a dashboard.
     """
     removeInsightViewFromDashboard(input: RemoveInsightViewFromDashboardInput!): InsightsDashboardPayload!
+}
+
+"""
+InsightsDashboardOrderBy enumerates the ways an insights dashboards list can be ordered.
+"""
+enum InsightsDashboardOrderBy {
+    DASHBOARD_ID
+    DASHBOARD_TITLE
 }
 
 """
@@ -1021,7 +1044,22 @@ type InsightView implements Node {
     """
     Dashboards this insight has been added to that the current user has permission to view
     """
-    dashboards(first: Int, after: String, id: ID): InsightsDashboardConnection
+    dashboards(
+        first: Int
+        """
+        An opaque cursor: the id of the dashboard to continue after.
+        """
+        after: String
+        id: ID
+        """
+        How to order the list.
+        """
+        orderBy: InsightsDashboardOrderBy = DASHBOARD_ID
+        """
+        Sort direction.
+        """
+        descending: Boolean = false
+    ): InsightsDashboardConnection
 
     """
     The total number of series on this insight.

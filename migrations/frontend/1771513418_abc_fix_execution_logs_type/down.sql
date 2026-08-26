@@ -7,7 +7,7 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'abc_executor_tasks'
           AND column_name = 'execution_logs'
           AND udt_name = '_json'

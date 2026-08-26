@@ -1408,6 +1408,25 @@ CREATE SEQUENCE batch_change_agent_messages_id_seq
 
 ALTER SEQUENCE batch_change_agent_messages_id_seq OWNED BY batch_change_agent_messages.id;
 
+CREATE TABLE batch_change_agent_secret_grants (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    agent_id integer,
+    secret_name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT batch_change_agent_secret_grants_secret_name_check CHECK ((secret_name <> ''::text))
+);
+
+CREATE SEQUENCE batch_change_agent_secret_grants_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_change_agent_secret_grants_id_seq OWNED BY batch_change_agent_secret_grants.id;
+
 CREATE TABLE batch_change_agent_spec_drafts (
     id bigint NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -1520,6 +1539,8 @@ CREATE TABLE batch_change_agent_turns (
     error jsonb,
     stats jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    thinking text,
+    thinking_signature text,
     CONSTRAINT batch_change_agent_turns_role_check CHECK ((role = ANY (ARRAY['system'::text, 'user'::text, 'assistant'::text, 'tool'::text]))),
     CONSTRAINT batch_change_agent_turns_sequence_check CHECK ((sequence > 0))
 );
@@ -2018,6 +2039,7 @@ CREATE TABLE changesets (
     commit_verification jsonb DEFAULT '{}'::jsonb NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     auto_merge_method text,
+    sync_skip_reason text,
     CONSTRAINT changesets_batch_change_ids_check CHECK ((jsonb_typeof(batch_change_ids) = 'object'::text)),
     CONSTRAINT changesets_external_id_check CHECK ((external_id <> ''::text)),
     CONSTRAINT changesets_external_service_type_not_blank CHECK ((external_service_type <> ''::text)),
@@ -2026,6 +2048,8 @@ CREATE TABLE changesets (
 );
 
 COMMENT ON COLUMN changesets.external_title IS 'Normalized property generated on save using Changeset.Title()';
+
+COMMENT ON COLUMN changesets.sync_skip_reason IS 'Why the changeset sync worker decided to skip syncing this changeset for a while (e.g. missing_credentials). While set, the scheduler enqueues sync jobs for it at low priority. Cleared on a successful sync or when a matching credential is added.';
 
 CREATE TABLE repo (
     id integer NOT NULL,
@@ -3094,6 +3118,26 @@ CREATE SEQUENCE diff_tour_entitlement_usage_id_seq
 
 ALTER SEQUENCE diff_tour_entitlement_usage_id_seq OWNED BY diff_tour_entitlement_usage.id;
 
+CREATE TABLE diff_tour_quota (
+    id integer NOT NULL,
+    user_id integer NOT NULL,
+    quota integer DEFAULT 0 NOT NULL,
+    quota_date date DEFAULT CURRENT_DATE,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+);
+
+CREATE SEQUENCE diff_tour_quota_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE diff_tour_quota_id_seq OWNED BY diff_tour_quota.id;
+
 CREATE TABLE diff_tours (
     id bigint NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -3687,78 +3731,6 @@ COMMENT ON CONSTRAINT required_bool_fields ON feature_flags IS 'Checks that bool
 
 COMMENT ON CONSTRAINT required_rollout_fields ON feature_flags IS 'Checks that rollout is set IFF flag_type = rollout';
 
-CREATE TABLE generic_agent_conversations (
-    id integer NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    user_id integer NOT NULL,
-    title text DEFAULT ''::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-CREATE SEQUENCE generic_agent_conversations_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE generic_agent_conversations_id_seq OWNED BY generic_agent_conversations.id;
-
-CREATE TABLE generic_agent_question_jobs (
-    id bigint NOT NULL,
-    question_id integer NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    state text DEFAULT 'queued'::text NOT NULL,
-    queued_at timestamp with time zone DEFAULT now() NOT NULL,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    process_after timestamp with time zone,
-    num_resets integer DEFAULT 0 NOT NULL,
-    num_failures integer DEFAULT 0 NOT NULL,
-    last_heartbeat_at timestamp with time zone,
-    execution_logs json[],
-    worker_hostname text DEFAULT ''::text NOT NULL,
-    failure_message text,
-    cancel boolean DEFAULT false NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-CREATE SEQUENCE generic_agent_question_jobs_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE generic_agent_question_jobs_id_seq OWNED BY generic_agent_question_jobs.id;
-
-CREATE TABLE generic_agent_questions (
-    id integer NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    conversation_id integer NOT NULL,
-    question text NOT NULL,
-    status text DEFAULT 'processing'::text NOT NULL,
-    answer text DEFAULT ''::text NOT NULL,
-    error text DEFAULT ''::text NOT NULL,
-    messages jsonb DEFAULT '[]'::jsonb NOT NULL,
-    stats jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    turns jsonb DEFAULT '[]'::jsonb NOT NULL
-);
-
-CREATE SEQUENCE generic_agent_questions_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE generic_agent_questions_id_seq OWNED BY generic_agent_questions.id;
-
 CREATE TABLE github_app_installs (
     id integer NOT NULL,
     app_id integer NOT NULL,
@@ -3831,12 +3803,17 @@ CREATE TABLE gitserver_repos (
     last_cleanup_attempt_at timestamp with time zone,
     failed_cleanup_attempts integer DEFAULT 0 NOT NULL,
     last_cleaned_at timestamp with time zone,
-    is_on_primary boolean DEFAULT true NOT NULL
+    is_on_primary boolean DEFAULT true NOT NULL,
+    default_branch_tip_commit_id text,
+    default_branch_tip_commit_date timestamp with time zone,
+    CONSTRAINT gitserver_repos_default_branch_tip_metadata_consistent CHECK ((((default_branch_tip_commit_id IS NULL) = (default_branch_tip_commit_date IS NULL)) AND ((default_branch_tip_commit_id IS NULL) OR (default_branch_tip_commit_id ~ '^[^[:space:]](.*[^[:space:]])?$'::text))))
 );
 
 COMMENT ON COLUMN gitserver_repos.corrupted_at IS 'Timestamp of when repo corruption was detected';
 
 COMMENT ON COLUMN gitserver_repos.corruption_logs IS 'Log output of repo corruptions that have been detected - encoded as json';
+
+COMMENT ON CONSTRAINT gitserver_repos_default_branch_tip_metadata_consistent ON gitserver_repos IS 'Requires the default branch tip commit ID and date to both be set or both be null and rejects empty or whitespace-padded commit IDs';
 
 CREATE TABLE gitserver_repos_sync_output (
     repo_id integer NOT NULL,
@@ -3908,7 +3885,8 @@ CREATE TABLE idp_clients (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
     description text,
-    registration_source client_registration_source DEFAULT 'manual'::client_registration_source NOT NULL
+    registration_source client_registration_source DEFAULT 'manual'::client_registration_source NOT NULL,
+    max_session_duration_seconds integer
 );
 
 CREATE SEQUENCE idp_clients_id_seq
@@ -5681,7 +5659,8 @@ CREATE VIEW reconciler_changesets WITH (security_invoker='true') AS
     c.detached_at,
     c.previous_failure_message,
     c.tenant_id,
-    c.auto_merge_method
+    c.auto_merge_method,
+    c.sync_skip_reason
    FROM (changesets c
      JOIN repo r ON ((r.id = c.repo_id)))
   WHERE ((r.deleted_at IS NULL) AND (EXISTS ( SELECT 1
@@ -6912,6 +6891,8 @@ ALTER TABLE ONLY batch_change_agent_jobs ALTER COLUMN id SET DEFAULT nextval('ba
 
 ALTER TABLE ONLY batch_change_agent_messages ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_messages_id_seq'::regclass);
 
+ALTER TABLE ONLY batch_change_agent_secret_grants ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_secret_grants_id_seq'::regclass);
+
 ALTER TABLE ONLY batch_change_agent_spec_drafts ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_spec_drafts_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_change_agent_thread_compactions ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_thread_compactions_id_seq'::regclass);
@@ -7024,6 +7005,8 @@ ALTER TABLE ONLY deepsearch_search_queue ALTER COLUMN id SET DEFAULT nextval('de
 
 ALTER TABLE ONLY diff_tour_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('diff_tour_entitlement_usage_id_seq'::regclass);
 
+ALTER TABLE ONLY diff_tour_quota ALTER COLUMN id SET DEFAULT nextval('diff_tour_quota_id_seq'::regclass);
+
 ALTER TABLE ONLY diff_tours ALTER COLUMN id SET DEFAULT nextval('diff_tours_id_seq'::regclass);
 
 ALTER TABLE ONLY entitlement_usage_history ALTER COLUMN id SET DEFAULT nextval('entitlement_usage_history_id_seq'::regclass);
@@ -7057,12 +7040,6 @@ ALTER TABLE ONLY explicit_permissions_bitbucket_projects_jobs ALTER COLUMN id SE
 ALTER TABLE ONLY external_services ALTER COLUMN id SET DEFAULT nextval('external_services_id_seq'::regclass);
 
 ALTER TABLE ONLY feature_flag_overrides ALTER COLUMN id SET DEFAULT nextval('feature_flag_overrides_id_seq'::regclass);
-
-ALTER TABLE ONLY generic_agent_conversations ALTER COLUMN id SET DEFAULT nextval('generic_agent_conversations_id_seq'::regclass);
-
-ALTER TABLE ONLY generic_agent_question_jobs ALTER COLUMN id SET DEFAULT nextval('generic_agent_question_jobs_id_seq'::regclass);
-
-ALTER TABLE ONLY generic_agent_questions ALTER COLUMN id SET DEFAULT nextval('generic_agent_questions_id_seq'::regclass);
 
 ALTER TABLE ONLY github_app_installs ALTER COLUMN id SET DEFAULT nextval('github_app_installs_id_seq'::regclass);
 
@@ -7301,6 +7278,9 @@ ALTER TABLE ONLY batch_change_agent_jobs
 
 ALTER TABLE ONLY batch_change_agent_messages
     ADD CONSTRAINT batch_change_agent_messages_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_change_agent_secret_grants
+    ADD CONSTRAINT batch_change_agent_secret_grants_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY batch_change_agent_spec_drafts
     ADD CONSTRAINT batch_change_agent_spec_drafts_pkey PRIMARY KEY (id);
@@ -7545,6 +7525,12 @@ ALTER TABLE ONLY diff_tour_entitlement_usage
 ALTER TABLE ONLY diff_tour_entitlement_usage
     ADD CONSTRAINT diff_tour_entitlement_usage_pkey UNIQUE (tenant_id, user_id, entitlement_id);
 
+ALTER TABLE ONLY diff_tour_quota
+    ADD CONSTRAINT diff_tour_quota_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY diff_tour_quota
+    ADD CONSTRAINT diff_tour_quota_user_id_key UNIQUE (user_id);
+
 ALTER TABLE ONLY diff_tours
     ADD CONSTRAINT diff_tours_pkey PRIMARY KEY (id);
 
@@ -7637,15 +7623,6 @@ ALTER TABLE ONLY feature_flag_overrides
 
 ALTER TABLE ONLY feature_flags
     ADD CONSTRAINT feature_flags_pkey PRIMARY KEY (flag_name, tenant_id);
-
-ALTER TABLE ONLY generic_agent_conversations
-    ADD CONSTRAINT generic_agent_conversations_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY generic_agent_question_jobs
-    ADD CONSTRAINT generic_agent_question_jobs_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY generic_agent_questions
-    ADD CONSTRAINT generic_agent_questions_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY github_app_installs
     ADD CONSTRAINT github_app_installs_pkey PRIMARY KEY (id);
@@ -8202,6 +8179,10 @@ CREATE INDEX batch_change_agent_messages_thread_id_idx ON batch_change_agent_mes
 
 CREATE UNIQUE INDEX batch_change_agent_messages_thread_sequence_idx ON batch_change_agent_messages USING btree (tenant_id, thread_id, sequence);
 
+CREATE UNIQUE INDEX batch_change_agent_secret_grants_agent_scope_idx ON batch_change_agent_secret_grants USING btree (tenant_id, user_id, agent_id, secret_name) WHERE (agent_id IS NOT NULL);
+
+CREATE UNIQUE INDEX batch_change_agent_secret_grants_user_scope_idx ON batch_change_agent_secret_grants USING btree (tenant_id, user_id, secret_name) WHERE (agent_id IS NULL);
+
 CREATE UNIQUE INDEX batch_change_agent_spec_drafts_agent_version_idx ON batch_change_agent_spec_drafts USING btree (tenant_id, agent_id, version);
 
 CREATE INDEX batch_change_agent_spec_drafts_materialized_idx ON batch_change_agent_spec_drafts USING btree (materialized_batch_spec_id, tenant_id);
@@ -8392,6 +8373,8 @@ CREATE INDEX diff_tour_entitlement_usage_entitlement_id_idx ON diff_tour_entitle
 
 CREATE INDEX diff_tour_entitlement_usage_user_id_idx ON diff_tour_entitlement_usage USING btree (user_id);
 
+CREATE INDEX diff_tour_quota_user_id_idx ON diff_tour_quota USING btree (user_id);
+
 CREATE INDEX diff_tours_dequeue_idx ON diff_tours USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
 CREATE INDEX entitlement_grants_user_id_idx ON entitlement_grants USING btree (user_id);
@@ -8445,14 +8428,6 @@ CREATE INDEX feature_flag_overrides_org_id ON feature_flag_overrides USING btree
 CREATE INDEX feature_flag_overrides_user_id ON feature_flag_overrides USING btree (namespace_user_id) WHERE (namespace_user_id IS NOT NULL);
 
 CREATE INDEX finished_at_insights_query_runner_jobs_idx ON insights_query_runner_jobs USING btree (finished_at);
-
-CREATE INDEX generic_agent_conversations_user_updated_at_idx ON generic_agent_conversations USING btree (tenant_id, user_id, updated_at DESC);
-
-CREATE INDEX generic_agent_question_jobs_dequeue_idx ON generic_agent_question_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
-
-CREATE INDEX generic_agent_question_jobs_question_id_idx ON generic_agent_question_jobs USING btree (tenant_id, question_id);
-
-CREATE INDEX generic_agent_questions_conversation_id_idx ON generic_agent_questions USING btree (tenant_id, conversation_id, id);
 
 CREATE INDEX github_app_installs_account_login ON github_app_installs USING btree (account_login);
 
@@ -8671,6 +8646,8 @@ CREATE UNIQUE INDEX registry_extension_releases_version ON registry_extension_re
 CREATE UNIQUE INDEX registry_extensions_publisher_name ON registry_extensions USING btree (COALESCE(publisher_user_id, 0), COALESCE(publisher_org_id, 0), name, tenant_id) WHERE (deleted_at IS NULL);
 
 CREATE UNIQUE INDEX registry_extensions_uuid ON registry_extensions USING btree (uuid);
+
+CREATE INDEX repo_active_name_lower_pattern_idx ON repo USING btree (name_lower text_pattern_ops) WHERE ((deleted_at IS NULL) AND (blocked IS NULL) AND (NOT fork) AND (NOT archived));
 
 CREATE INDEX repo_activity_graph_jobs_dequeue_idx ON repo_activity_graph_jobs USING btree (state, process_after);
 
@@ -9013,6 +8990,12 @@ ALTER TABLE ONLY batch_change_agent_jobs
 ALTER TABLE ONLY batch_change_agent_messages
     ADD CONSTRAINT batch_change_agent_messages_thread_id_fkey FOREIGN KEY (thread_id) REFERENCES batch_change_agent_threads(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY batch_change_agent_secret_grants
+    ADD CONSTRAINT batch_change_agent_secret_grants_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_secret_grants
+    ADD CONSTRAINT batch_change_agent_secret_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY batch_change_agent_spec_drafts
     ADD CONSTRAINT batch_change_agent_spec_drafts_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
 
@@ -9325,6 +9308,9 @@ ALTER TABLE ONLY diff_tour_entitlement_usage
 ALTER TABLE ONLY diff_tour_entitlement_usage
     ADD CONSTRAINT diff_tour_entitlement_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY diff_tour_quota
+    ADD CONSTRAINT diff_tour_quota_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY diff_tours
     ADD CONSTRAINT diff_tours_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
@@ -9414,15 +9400,6 @@ ALTER TABLE ONLY vulnerability_affected_symbols
 
 ALTER TABLE ONLY vulnerability_matches
     ADD CONSTRAINT fk_vulnerability_affected_packages FOREIGN KEY (vulnerability_affected_package_id) REFERENCES vulnerability_affected_packages(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY generic_agent_conversations
-    ADD CONSTRAINT generic_agent_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY generic_agent_question_jobs
-    ADD CONSTRAINT generic_agent_question_jobs_question_id_fkey FOREIGN KEY (question_id) REFERENCES generic_agent_questions(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY generic_agent_questions
-    ADD CONSTRAINT generic_agent_questions_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES generic_agent_conversations(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY github_app_installs
     ADD CONSTRAINT github_app_installs_app_id_fkey FOREIGN KEY (app_id) REFERENCES github_apps(id) ON DELETE CASCADE;
@@ -9797,6 +9774,8 @@ ALTER TABLE batch_change_agent_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_change_agent_messages ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE batch_change_agent_secret_grants ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE batch_change_agent_spec_drafts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_change_agent_thread_compactions ENABLE ROW LEVEL SECURITY;
@@ -9923,6 +9902,8 @@ ALTER TABLE diff_file_viewed_states ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE diff_tour_entitlement_usage ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE diff_tour_quota ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE diff_tours ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE entitlement_grants ENABLE ROW LEVEL SECURITY;
@@ -9964,12 +9945,6 @@ ALTER TABLE external_services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feature_flag_overrides ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE generic_agent_conversations ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE generic_agent_question_jobs ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE generic_agent_questions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE github_app_installs ENABLE ROW LEVEL SECURITY;
 
@@ -10209,6 +10184,8 @@ CREATE POLICY tenant_isolation_policy ON batch_change_agent_jobs USING ((( SELEC
 
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_messages USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON batch_change_agent_secret_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_spec_drafts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_thread_compactions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -10335,6 +10312,8 @@ CREATE POLICY tenant_isolation_policy ON diff_file_viewed_states USING ((tenant_
 
 CREATE POLICY tenant_isolation_policy ON diff_tour_entitlement_usage USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON diff_tour_quota USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON diff_tours USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON entitlement_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -10376,12 +10355,6 @@ CREATE POLICY tenant_isolation_policy ON external_services USING ((tenant_id = (
 CREATE POLICY tenant_isolation_policy ON feature_flag_overrides USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON feature_flags USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON generic_agent_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
-
-CREATE POLICY tenant_isolation_policy ON generic_agent_question_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
-
-CREATE POLICY tenant_isolation_policy ON generic_agent_questions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON github_app_installs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

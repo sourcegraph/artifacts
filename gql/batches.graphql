@@ -144,6 +144,28 @@ enum ChangesetCheckState {
 }
 
 """
+Whether a changeset can be merged cleanly into its base branch, as reported by
+the code host.
+"""
+enum ChangesetMergeableState {
+    """
+    The changeset can be merged cleanly into its base branch.
+    """
+    MERGEABLE
+    """
+    The changeset has merge conflicts with its base branch.
+    """
+    CONFLICTING
+    """
+    The mergeability of the changeset is not yet known. This is the case while
+    the code host is still computing mergeability (e.g. immediately after a
+    push), when the code host does not report mergeability, or when the
+    changeset's data hasn't been synced yet.
+    """
+    UNKNOWN
+}
+
+"""
 A label attached to a changeset on a code host.
 """
 type ChangesetLabel {
@@ -218,6 +240,19 @@ enum ChangesetState {
     The changeset has not been published, but code has been pushed to a branch on the code host. Note: this is NOT an *operation*, this is the state of code on the code host.
     """
     PUSHED_ONLY
+}
+
+"""
+The reason why the sync scheduler is currently skipping syncs of a changeset.
+While a reason is set, the changeset's sync jobs are retried at a lower
+priority and with backoff, so they don't starve healthy sync work.
+"""
+enum ChangesetSyncSkipReason {
+    """
+    No code host credential can authenticate syncs for this changeset. Adding
+    a batch changes credential for the code host resumes syncing.
+    """
+    MISSING_CREDENTIALS
 }
 
 """
@@ -560,6 +595,14 @@ type ExternalChangeset implements Node & Changeset {
     checkState: ChangesetCheckState
 
     """
+    Whether this changeset can be merged cleanly into its base branch, as reported by the code
+    host. Null until the changeset is published on the code host. UNKNOWN for code hosts that do
+    not report mergeability, while the code host is still computing it, or before the relevant
+    metadata has been synced.
+    """
+    mergeable: ChangesetMergeableState
+
+    """
     An error that has occurred when publishing or updating the changeset. This is only set when the changeset state is ERRORED and the viewer can administer this changeset.
     """
     error: String
@@ -568,6 +611,12 @@ type ExternalChangeset implements Node & Changeset {
     An error that has occured during the last sync of the changeset. Null, if was successful.
     """
     syncerError: String
+
+    """
+    Why the sync scheduler is currently skipping syncs of this changeset.
+    Null, if the changeset is synced normally.
+    """
+    syncSkipReason: ChangesetSyncSkipReason
 
     """
     The current changeset spec for this changeset. Use this to get access to the

@@ -105,7 +105,7 @@ FROM global_state;
 COMMIT AND CHAIN;
 
 ALTER TABLE webhooks
-    ALTER COLUMN uuid SET DEFAULT public.gen_random_uuid();
+    ALTER COLUMN uuid SET DEFAULT gen_random_uuid();
 
 COMMIT AND CHAIN;
 
