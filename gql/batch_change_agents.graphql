@@ -26,6 +26,13 @@ extend type User {
         Opaque pagination cursor.
         """
         after: String
+        """
+        Optional case-insensitive substring filter on the agent title, used to
+        search the viewer's own agents (for example, for @@-mention search in
+        the prompt editor). When set, first/after paginate over the filtered
+        set.
+        """
+        query: String
     ): BatchChangeAgentConnection!
 }
 
@@ -45,7 +52,9 @@ extend type Mutation {
     """
     Submits a new message to one thread of a batch change agent.
     """
-    submitBatchChangeAgentThreadMessage(input: SubmitBatchChangeAgentThreadMessageInput!): BatchChangeAgentMessage!
+    submitBatchChangeAgentThreadMessage(
+        input: SubmitBatchChangeAgentThreadMessageInput!
+    ): BatchChangeAgentThreadMessageReference!
 
     """
     Submits the user's response to an ask_user tool call and resumes the same
@@ -55,7 +64,9 @@ extend type Mutation {
     If the prompt is no longer active, the mutation returns a GraphQL error
     with extensions.code = BatchChangeAgentAskUserPromptInactive.
     """
-    submitBatchChangeAgentAskUserResponse(input: SubmitBatchChangeAgentAskUserResponseInput!): BatchChangeAgentMessage!
+    submitBatchChangeAgentAskUserResponse(
+        input: SubmitBatchChangeAgentAskUserResponseInput!
+    ): BatchChangeAgentThreadMessageReference!
 
     """
     Submits the user's decision for a pending tool-approval gate (e.g. on
@@ -64,12 +75,25 @@ extend type Mutation {
     gated tool call; after ALLOW, the model may issue a follow-up call that runs
     normally.
     """
-    submitBatchChangeAgentToolApproval(input: SubmitBatchChangeAgentToolApprovalInput!): BatchChangeAgentMessage!
+    submitBatchChangeAgentToolApproval(
+        input: SubmitBatchChangeAgentToolApprovalInput!
+    ): BatchChangeAgentThreadMessageReference!
 
     """
     Cancels one in-flight message in a batch change agent thread.
     """
-    cancelBatchChangeAgentThreadMessage(input: CancelBatchChangeAgentThreadMessageInput!): BatchChangeAgentMessage!
+    cancelBatchChangeAgentThreadMessage(
+        input: CancelBatchChangeAgentThreadMessageInput!
+    ): BatchChangeAgentThreadMessageReference!
+
+    """
+    Retries the latest message of a batch change agent thread after it failed
+    or was cancelled. The agent resumes from the turns it had already
+    persisted; no new user message is created.
+    """
+    retryBatchChangeAgentThreadMessage(
+        input: RetryBatchChangeAgentThreadMessageInput!
+    ): BatchChangeAgentThreadMessageReference!
 
     """
     Permanently deletes one batch change agent owned by the viewer, including
@@ -78,6 +102,13 @@ extend type Mutation {
     is removed.
     """
     deleteBatchChangeAgent(id: ID!): EmptyResponse
+
+    """
+    Clears the viewer's standing batch change agent approvals for an executor
+    secret while keeping the secret itself. Agents will ask for approval again
+    the next time they need it.
+    """
+    revokeBatchChangeAgentSecretAccess(executorSecret: ID!): EmptyResponse!
 
     """
     Updates the display title of one batch change agent owned by the viewer,
@@ -127,6 +158,13 @@ input CreateBatchChangeAgentInput {
     The initial user message submitted to the first thread of the new agent.
     """
     initialMessage: BatchChangeAgentMessageInput!
+
+    """
+    FOR INTERNAL EVALUATION USE ONLY.
+
+    Model override for the agent's first thread.
+    """
+    model: String
 }
 
 """
@@ -143,6 +181,13 @@ input CreateBatchChangeAgentThreadInput {
     empty.
     """
     title: String
+
+    """
+    FOR INTERNAL EVALUATION USE ONLY.
+
+    Model override for this thread.
+    """
+    model: String
 }
 
 """
@@ -174,7 +219,8 @@ input BatchChangeAgentMessageInput {
 
 """
 One structured content block in an input message. Any combination of text,
-image, file, diffComment, and workspaceReference may be set.
+image, file, diffComment, workspaceReference, and conversationReference may be
+set.
 """
 input BatchChangeAgentMessageContentBlockInput {
     """
@@ -207,6 +253,13 @@ input BatchChangeAgentMessageContentBlockInput {
     provided on its own or together with other block kinds.
     """
     workspaceReference: BatchChangeAgentWorkspaceReferenceBlockInput
+
+    """
+    A reference to another batch change agent or Deep Search conversation,
+    inserted via @@ mention in the prompt editor. May be provided on its own
+    or together with other block kinds.
+    """
+    conversationReference: BatchChangeAgentConversationReferenceBlockInput
 }
 
 """
@@ -354,6 +407,49 @@ input BatchChangeAgentWorkspaceReferenceBlockInput {
 }
 
 """
+Input for a conversation reference content block. Identifies another batch
+change agent conversation the user selected via @@ mention in the prompt
+editor.
+"""
+input BatchChangeAgentConversationReferenceBlockInput {
+    """
+    The title of the referenced conversation, snapshotted at mention time.
+    """
+    title: String!
+
+    """
+    The read token of the referenced conversation, used by the agent to
+    fetch its content.
+    """
+    readToken: String!
+
+    """
+    Which kind of conversation readToken addresses. The @@ mention list
+    surfaces both batch change agents and Deep Search conversations, and
+    their read tokens live in different stores.
+    """
+    kind: BatchChangeAgentConversationReferenceKind!
+}
+
+"""
+The kind of conversation a BatchChangeAgentConversationReferenceBlockInput
+or BatchChangeAgentConversationReferenceBlock addresses.
+"""
+enum BatchChangeAgentConversationReferenceKind {
+    """
+    Another batch change agent, addressed by its read token in the
+    batch_change_agents table.
+    """
+    AGENTIC_BATCH_CHANGE
+
+    """
+    A Deep Search conversation, addressed by its read token in the Deep
+    Search conversation store.
+    """
+    DEEP_SEARCH_CONVERSATION
+}
+
+"""
 Input for submitBatchChangeAgentThreadMessage.
 """
 input SubmitBatchChangeAgentThreadMessageInput {
@@ -491,6 +587,17 @@ input CancelBatchChangeAgentThreadMessageInput {
 }
 
 """
+Input for retryBatchChangeAgentThreadMessage.
+"""
+input RetryBatchChangeAgentThreadMessageInput {
+    """
+    The ID of the failed or cancelled message to retry. Must be the latest
+    message of its thread.
+    """
+    messageID: ID!
+}
+
+"""
 A list of batch change agents.
 """
 type BatchChangeAgentConnection {
@@ -599,6 +706,17 @@ type VisibleBatchChangeAgent implements Node & BatchChangeAgent {
     status: BatchChangeAgentStatus!
 
     """
+    The decision the agent is currently paused on, if any.
+    """
+    pendingDecision: BatchChangeAgentPendingDecision
+
+    """
+    When the agent last made progress (latest message activity; falls back
+    to creation time).
+    """
+    lastActivityAt: DateTime!
+
+    """
     The timestamp when the agent was created.
     """
     createdAt: DateTime!
@@ -705,243 +823,344 @@ type BatchChangeAgentThread implements Node {
     updatedAt: DateTime!
 
     """
-    The messages in this thread.
+    The execution state of this thread. A thread has at most one active run.
     """
-    messages(
-        """
-        Returns the first n messages from the list.
-        """
-        first: Int = 50
-        """
-        Opaque pagination cursor.
-        """
-        after: String
-    ): BatchChangeAgentMessageConnection!
+    state: BatchChangeAgentThreadState!
 
     """
-    Compactions recorded for this thread, ordered chronologically (oldest
-    cut first). Each compaction marks a point at which earlier turns were
-    summarised away from the LLM replay context so the agent loop could
-    continue without exceeding the model's context window. The UI uses these
-    to render persistent "earlier context summarised" markers between the
-    messages whose turns were summarised away. The raw conversation history
-    is unaffected.
+    The append-only chronological transcript for this thread. Entries retain
+    provider part ordering and include user input, model output, tools,
+    compactions, and terminal errors.
     """
-    compactions(
+    entries(
         """
-        Returns the first n compactions from the list.
+        Returns the first n transcript entries after the cursor.
         """
-        first: Int = 50
+        first: Int
         """
-        Opaque pagination cursor.
+        Returns the last n transcript entries before the cursor.
+        """
+        last: Int
+        """
+        Opaque cursor after which entries are returned.
         """
         after: String
-    ): BatchChangeAgentThreadCompactionConnection!
+        """
+        Opaque cursor before which entries are returned.
+        """
+        before: String
+    ): BatchChangeAgentThreadEntryConnection!
 }
 
 """
-A persisted compaction of a batch change agent thread's earlier turns into
-a single summary, used by the LLM replay path when the conversation grows
-past the configured trigger ratio of the model's context window.
+The execution state of a batch change agent thread.
 """
-type BatchChangeAgentThreadCompaction implements Node {
-    """
-    The Relay-spec global ID for the compaction.
-    """
-    id: ID!
-
-    """
-    The database ID of the compaction row.
-    """
-    databaseID: Int!
-
-    """
-    The highest batch_change_agent_turns.id covered by this compaction's
-    summary. Every turn with a larger id survives verbatim in the replay.
-    """
-    upToTurnID: Int!
-
-    """
-    The database ID of the BatchChangeAgentMessage that owns
-    upToTurnID. Useful for coarse, message-level divider placement
-    in conversation-style UIs.
-
-    Note that a compaction cut is not guaranteed to land on a message
-    boundary: when no question-aligned or minimum-tail cut is available
-    (e.g. a thread whose first message ended without an assistant
-    reply), the cut can fall in the middle of a message's turns. UIs
-    that want exact placement should compare upToTurnSequence to the
-    message's turn list.
-    """
-    upToMessageDatabaseID: Int!
-
-    """
-    The 1-based sequence number of upToTurnID within its owning
-    BatchChangeAgentMessage (matching BatchChangeAgentTurn.sequence).
-    UIs use this to tell boundary cuts (sequence == last turn of the
-    message) from mid-message cuts so they can either render a divider
-    between questions or an inline marker inside the step timeline at
-    the cut point.
-    """
-    upToTurnSequence: Int!
-
-    """
-    The compaction summary itself, structured with the agreed section
-    headings (GOAL_STATE, DECISIONS_MADE, WORK_COMPLETED, FAILED_APPROACHES,
-    UNRESOLVED, ARTIFACTS).
-    """
-    summary: String!
-
-    """
-    The cumulative LLMStats of every turn this compaction summarises,
-    accumulated across all preceding compactions.
-    """
-    stats: BatchChangeAgentLLMStats!
-
-    """
-    The LLMStats incurred by producing the summary itself.
-    """
-    summaryStats: BatchChangeAgentLLMStats!
-
-    """
-    The timestamp when the compaction was recorded.
-    """
-    createdAt: DateTime!
+enum BatchChangeAgentThreadState {
+    IDLE
+    PROCESSING
+    WAITING_FOR_USER
 }
 
 """
-A list of batch change agent thread compactions.
+A page of chronological batch change agent transcript entries.
 """
-type BatchChangeAgentThreadCompactionConnection {
+type BatchChangeAgentThreadEntryConnection {
     """
-    A list of compactions.
+    The transcript entries in this page.
     """
-    nodes: [BatchChangeAgentThreadCompaction!]!
-
+    nodes: [BatchChangeAgentThreadEntry!]!
     """
-    The total count of compactions in the connection.
+    The total number of transcript entries in the thread.
     """
     totalCount: Int!
-
     """
-    Pagination information.
+    Pagination information for this page.
     """
     pageInfo: ConnectionPageInfo!
 }
 
 """
-A list of batch change agent messages.
+One event in a batch change agent thread's chronological transcript.
 """
-type BatchChangeAgentMessageConnection {
+interface BatchChangeAgentThreadEntry {
     """
-    A list of messages.
-    """
-    nodes: [BatchChangeAgentMessage!]!
-
-    """
-    The total count of messages in the connection.
-    """
-    totalCount: Int!
-
-    """
-    Pagination information.
-    """
-    pageInfo: ConnectionPageInfo!
-}
-
-"""
-One message in a batch change agent thread.
-
-This intentionally mirrors the Deep Search question model fields that are
-currently needed by AgentThread-style clients.
-Deep Search fields that are not yet exposed here include sources,
-suggestedFollowups, and searchContext.
-"""
-type BatchChangeAgentMessage implements Node {
-    """
-    The unique ID for the message.
-    """
-    id: ID!
-
-    """
-    The database ID for the message.
-    """
-    databaseID: Int!
-
-    """
-    The sequence number of this message within the thread.
+    The entry's position in the thread transcript.
     """
     sequence: Int!
-
     """
-    The ordered structured content blocks composing the original user
-    message (for example, text blocks and image blocks).
+    Groups adjacent parts produced by one agent-loop turn.
     """
-    content: [BatchChangeAgentMessageContentBlock!]!
-
+    groupID: Int!
     """
-    The lifecycle status of the message.
-    """
-    status: BatchChangeAgentMessageStatus!
-
-    """
-    The inbox fact kind that woke the agent to create this message, or null for
-    a user-authored message. Drives the "Resumed automatically" notice.
-    """
-    wakeKind: BatchChangeAgentInboxFactKind
-
-    """
-    The final assistant answer for this message.
-    Null while processing or when no answer exists.
-    """
-    answer: String
-
-    """
-    The terminal error for this message, if any.
-    """
-    error: BatchChangeAgentError
-
-    """
-    Structured LLM execution stats for this message.
-    Null while processing or when no stats were recorded.
+    The cumulative model usage recorded for this entry.
     """
     stats: BatchChangeAgentLLMStats
-
     """
-    The timestamp when the message was created.
+    The timestamp when the entry was created.
     """
     createdAt: DateTime!
-
-    """
-    The timestamp when the message was last updated.
-    """
-    updatedAt: DateTime!
-
-    """
-    The turn-by-turn trace for this message.
-    """
-    turns: [BatchChangeAgentTurn!]!
 }
 
 """
-A single structured content block in a batch change agent message or turn.
+A message identity shared with the thread's event stream.
 """
-union BatchChangeAgentMessageContentBlock =
-    | BatchChangeAgentTextBlock
+type BatchChangeAgentThreadMessageReference {
+    """
+    The message's GraphQL ID.
+    """
+    id: ID!
+    """
+    The message's identifier in the thread event stream.
+    """
+    streamID: Int!
+}
+
+"""
+A user message in a batch change agent transcript.
+"""
+type BatchChangeAgentUserMessageThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The message represented by this transcript entry.
+    """
+    trigger: BatchChangeAgentThreadMessageReference!
+    """
+    The inbox event kind that woke the agent, if this is a wake message.
+    """
+    wakeKind: BatchChangeAgentInboxFactKind
+    """
+    The text supplied by the user or wake event.
+    """
+    text: String!
+    """
+    The attachments supplied with the message.
+    """
+    attachments: [BatchChangeAgentAttachment!]!
+}
+
+"""
+A model thinking block in a batch change agent transcript.
+"""
+type BatchChangeAgentThinkingThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The model's thinking text.
+    """
+    text: String!
+    """
+    The provider signature associated with the thinking block.
+    """
+    signature: String
+}
+
+"""
+Model-generated assistant text in a batch change agent transcript.
+"""
+type BatchChangeAgentAssistantTextThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The assistant text.
+    """
+    text: String!
+}
+
+"""
+A model-requested tool call in a batch change agent transcript.
+"""
+type BatchChangeAgentToolCallThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The provider-assigned tool call identifier.
+    """
+    id: String!
+    """
+    The name of the requested tool.
+    """
+    name: String!
+    """
+    The JSON-encoded arguments supplied to the tool.
+    """
+    arguments: String!
+    """
+    The provider tool call type.
+    """
+    type: String!
+    """
+    The pending approval request for this tool call, if any.
+    """
+    approvalRequest: BatchChangeAgentToolApprovalRequest
+}
+
+"""
+The result of a tool call in a batch change agent transcript.
+"""
+type BatchChangeAgentToolResultThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The identifier of the tool call that produced this result.
+    """
+    id: String!
+    """
+    Structured metadata returned by the tool.
+    """
+    metadata: JSONValue
+    """
+    The textual result returned by the tool.
+    """
+    content: String!
+    """
+    The tool error message, if the call failed.
+    """
+    error: String
+}
+
+"""
+A summary that replaces earlier entries when reconstructing model context.
+"""
+type BatchChangeAgentCompactionThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The model-generated summary of the compacted entries.
+    """
+    summary: String!
+    """
+    The cumulative model usage through the compaction cutoff.
+    """
+    cumulativeStats: BatchChangeAgentLLMStats!
+    """
+    The model usage consumed while generating the summary.
+    """
+    summaryStats: BatchChangeAgentLLMStats!
+}
+
+"""
+A terminal error in a batch change agent transcript.
+"""
+type BatchChangeAgentErrorThreadEntry implements BatchChangeAgentThreadEntry {
+    """
+    The entry's position in the thread transcript.
+    """
+    sequence: Int!
+    """
+    The agent-loop turn that produced this entry.
+    """
+    groupID: Int!
+    """
+    The cumulative model usage recorded for this entry.
+    """
+    stats: BatchChangeAgentLLMStats
+    """
+    The timestamp when the entry was created.
+    """
+    createdAt: DateTime!
+    """
+    The status associated with the terminal error.
+    """
+    status: String!
+    """
+    A description of the error.
+    """
+    message: String!
+}
+"""
+A non-text attachment to a user message.
+"""
+union BatchChangeAgentAttachment =
     | BatchChangeAgentImageBlock
     | BatchChangeAgentFileBlock
     | BatchChangeAgentDiffCommentBlock
     | BatchChangeAgentWorkspaceReferenceBlock
-
-"""
-A text content block.
-"""
-type BatchChangeAgentTextBlock {
-    """
-    The text content of the block.
-    """
-    text: String!
-}
+    | BatchChangeAgentConversationReferenceBlock
 
 """
 An image content block.
@@ -1064,70 +1283,25 @@ type BatchChangeAgentWorkspaceReferenceBlock {
 }
 
 """
-One turn in a batch change agent message.
+A reference to another batch change agent conversation. Identifies the agent
+the user @@ mentioned in the prompt editor when composing this message.
 """
-type BatchChangeAgentTurn implements Node {
+type BatchChangeAgentConversationReferenceBlock {
     """
-    The unique ID for the turn.
+    The title of the referenced agent conversation, snapshotted at mention
+    time.
     """
-    id: ID!
+    title: String!
 
     """
-    The sequence number of this turn within the message.
+    The read token of the referenced agent, used by the agent to fetch the
+    referenced conversation's content.
     """
-    sequence: Int!
-
-    """
-    The role for this turn.
-    """
-    role: BatchChangeAgentTurnRole!
-
-    """
-    Freeform text produced by the role (for example, assistant chain-of-thought
-    or assistant text output). This is distinct from content, which stores
-    structured typed blocks such as image references.
-    """
-    reasoning: String
-
-    """
-    Extended thinking produced by the model before its assistant text.
-    """
-    thinking: String
-
-    """
-    The ordered structured content blocks for this turn (for example, text
-    blocks and image blocks).
-    """
-    content: [BatchChangeAgentMessageContentBlock!]!
-
-    """
-    Structured tool calls emitted by this turn.
-    """
-    toolCalls: [BatchChangeAgentToolCall!]!
-
-    """
-    Structured tool results associated with this turn.
-    """
-    toolResults: [BatchChangeAgentToolResult!]!
-
-    """
-    The error payload for this turn, if any.
-    """
-    error: BatchChangeAgentError
-
-    """
-    Structured stats for this turn.
-    """
-    stats: BatchChangeAgentLLMStats
-
-    """
-    The timestamp when this turn was created.
-    """
-    createdAt: DateTime!
+    readToken: String!
 }
 
 """
-Statistics for LLM usage on a single message or turn.
+Statistics for LLM usage on a transcript entry.
 """
 type BatchChangeAgentLLMStats {
     """
@@ -1174,42 +1348,6 @@ type BatchChangeAgentLLMStats {
     Percentage of the model's context window consumed (0-100).
     """
     contextUsagePercent: Int!
-}
-
-"""
-A single model-emitted tool call.
-"""
-type BatchChangeAgentToolCall {
-    """
-    The unique ID of the tool call.
-    """
-    id: String!
-
-    """
-    The name of the tool to invoke.
-    """
-    name: String!
-
-    """
-    The JSON-encoded arguments passed to the tool.
-    """
-    arguments: String!
-
-    """
-    The kind of tool: "function" is a client-provided tool the agent executes,
-    "provider" is a provider-executed tool (e.g. web search) that the model
-    provider runs inline and that is surfaced for display only. Provider tools
-    never produce a tool result, so the client renders them as complete on
-    arrival rather than waiting for one.
-    """
-    type: String!
-
-    """
-    The human-approval gate for this tool call, if one was raised. Non-null only
-    for approval-gated tool calls (e.g. prepare_batch_spec) that matched a
-    server approval policy. While pending, the message is waiting on the user.
-    """
-    approvalRequest: BatchChangeAgentToolApprovalRequest
 }
 
 """
@@ -1281,111 +1419,6 @@ type BatchChangeAgentToolApprovalFinding {
 }
 
 """
-A single tool result associated with a tool call.
-"""
-type BatchChangeAgentToolResult {
-    """
-    The ID of the tool call this result is associated with.
-    """
-    id: String!
-
-    """
-    Free-form structured metadata about the tool result.
-    """
-    metadata: JSONValue
-
-    """
-    The textual content of the tool result.
-    """
-    content: String!
-
-    """
-    A textual error message if the tool failed, otherwise null.
-    """
-    error: String
-}
-
-"""
-An error payload used by message and turn records.
-"""
-type BatchChangeAgentError {
-    """
-    A short human-readable title for the error.
-    """
-    title: String!
-
-    """
-    The kind of error that occurred.
-    """
-    kind: BatchChangeAgentErrorKind!
-
-    """
-    A human-readable error message.
-    """
-    message: String!
-
-    """
-    Optional additional details about the error.
-    """
-    details: String
-}
-
-"""
-The kind of a BatchChangeAgentError.
-"""
-enum BatchChangeAgentErrorKind {
-    """
-    The model's token limit was exceeded.
-    """
-    TOKEN_LIMIT_EXCEEDED
-
-    """
-    The model response was truncated before completion.
-    """
-    RESPONSE_TRUNCATED
-
-    """
-    The operation was cancelled.
-    """
-    CANCELLED
-
-    """
-    A rate limit was exceeded.
-    """
-    RATE_LIMIT_EXCEEDED
-
-    """
-    An internal error occurred.
-    """
-    INTERNAL_ERROR
-}
-
-"""
-The lifecycle status of a batch change agent message.
-"""
-enum BatchChangeAgentMessageStatus {
-    """
-    The message is currently processing.
-    """
-    PROCESSING
-
-    """
-    The message finished successfully.
-    """
-    COMPLETED
-
-    """
-    The message was cancelled.
-    """
-    CANCELLED
-
-    """
-    The message failed.
-    """
-    FAILED
-}
-
-"""
 A batch change agent inbox fact kind: the type of event that can be recorded
 in a thread's inbox and wake the agent.
 """
@@ -1406,9 +1439,62 @@ enum BatchChangeAgentInboxFactKind {
     WORKSPACE_CHANGESET_HOOK_SUCCEEDED
 
     """
-    A BCA-owned changeset's CI check state transitioned into passed.
+    A BCA-owned changeset's check state transitioned into passed.
+    The product calls these "checks" to stay agnostic to the system producing
+    them; "CI" remains in this enum value only for backward compatibility.
     """
     CHANGESET_CI_PASSED
+
+    """
+    A BCA-owned changeset's check state transitioned into failed.
+    The product calls these "checks" to stay agnostic to the system producing
+    them; "CI" remains in this enum value only for backward compatibility.
+    """
+    CHANGESET_CI_FAILED
+}
+
+"""
+The kind of decision a batch change agent is paused on.
+"""
+enum BatchChangeAgentPendingDecisionKind {
+    """
+    The agent asked the user one or more questions via the ask_user tool.
+    Answer with submitBatchChangeAgentAskUserResponse.
+    """
+    QUESTION
+
+    """
+    The agent raised a human-approval gate for a tool call. Decide with
+    submitBatchChangeAgentToolApproval.
+    """
+    APPROVAL
+}
+
+"""
+A decision a batch change agent is durably paused on, waiting for a human.
+"""
+type BatchChangeAgentPendingDecision {
+    """
+    The kind of decision.
+    """
+    kind: BatchChangeAgentPendingDecisionKind!
+
+    """
+    The processing message paused on this decision. Its ID is the input for
+    answer/approval mutations.
+    """
+    message: BatchChangeAgentThreadMessageReference!
+
+    """
+    The ask_user tool call (QUESTION) or the gated tool call carrying
+    approvalRequest (APPROVAL).
+    """
+    toolCall: BatchChangeAgentToolCallThreadEntry!
+
+    """
+    When the agent started waiting on this decision.
+    """
+    waitingSince: DateTime!
 }
 
 """
@@ -1429,29 +1515,4 @@ enum BatchChangeAgentStatus {
     The agent is waiting for the user to answer a pending ask_user tool call.
     """
     WAITING_FOR_USER
-}
-
-"""
-The role for one batch change agent turn.
-"""
-enum BatchChangeAgentTurnRole {
-    """
-    A turn produced by the end user.
-    """
-    USER
-
-    """
-    A turn produced by the assistant model.
-    """
-    ASSISTANT
-
-    """
-    A turn carrying system instructions.
-    """
-    SYSTEM
-
-    """
-    A turn carrying a tool result back to the assistant.
-    """
-    TOOL
 }

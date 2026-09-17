@@ -1,0 +1,3 @@
+name: optimize insights background dequeue
+parents: [1788730182]
+createIndexConcurrently: true

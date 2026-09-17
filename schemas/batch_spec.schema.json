@@ -12,6 +12,7 @@
       "then": {
         "properties": {
           "steps": {
+            "maxItems": 25,
             "items": {
               "oneOf": [
                 { "required": ["run", "image"] },
@@ -447,7 +448,7 @@
       "properties": {
         "message": {
           "type": "string",
-          "description": "The Git commit message. If omitted, a per-event default message is used (e.g. \"Fix for CI failure on ${{ repository.branch }}\")."
+          "description": "The Git commit message. If omitted, a per-event default message is used (e.g. \"Fix for changeset check failure on ${{ repository.branch }}\")."
         },
         "author": {
           "$ref": "#/definitions/GitCommitAuthor"
@@ -463,6 +464,7 @@
       "properties": {
         "steps": {
           "type": "array",
+          "maxItems": 25,
           "description": "The sequence of steps to execute when the hook fires. Uses the version 3 step shape, with additional hook-only fields.",
           "items": {
             "$ref": "#/definitions/HookStep"
@@ -767,7 +769,7 @@
       "additionalProperties": false,
       "properties": {
         "onCIFailure": {
-          "description": "Action to run when the changeset's combined check state transitions into `failed` for a given head SHA. The check state is derived from the head commit's CI checks and does not require an open pull request, so this hook also fires for branch-only (pushed-only) changesets whenever the code host runs CI on the pushed branch.",
+          "description": "Action to run when the changeset's combined check state transitions into `failed` for a given head SHA. The product calls these 'checks' to stay agnostic to the system producing them; 'CI' remains in this field name only for backward compatibility. The check state is derived from the head commit's checks and does not require an open pull request, so this hook also fires for branch-only (pushed-only) changesets whenever the code host runs checks on the pushed branch.",
           "$ref": "#/definitions/ChangesetHookAction"
         },
         "onMergeConflict": {

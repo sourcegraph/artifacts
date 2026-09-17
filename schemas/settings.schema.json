@@ -492,14 +492,6 @@
         "pointer": true
       }
     },
-    "deepSearch.slackCta.disabled": {
-      "description": "Disable the Slack community call-to-action banner on the Deep Search page.",
-      "type": "boolean",
-      "default": false,
-      "!go": {
-        "pointer": true
-      }
-    },
     "deepSearch.useDefaultSearchContext": {
       "description": "EXPERIMENTAL: When enabled, new Deep Search conversations will be automatically scoped to your default search context (if one is configured). If a question is pre-filled (e.g. from a URL parameter or draft), the context is not applied.",
       "type": "boolean",

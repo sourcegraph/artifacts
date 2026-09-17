@@ -416,7 +416,6 @@ CREATE VIEW insights_jobs_backfill_in_progress WITH (security_invoker='true') AS
     jobs.backfill_id,
     isb.state AS backfill_state,
     isb.estimated_cost,
-    width_bucket(isb.estimated_cost, (0)::double precision, max((isb.estimated_cost + (1)::double precision)) OVER (), 4) AS cost_bucket,
     jobs.tenant_id
    FROM (insights_background_jobs jobs
      JOIN insight_series_backfill isb ON ((jobs.backfill_id = isb.id)))
@@ -758,6 +757,8 @@ CREATE INDEX dashboard_insight_view_dashboard_id_fk_idx ON dashboard_insight_vie
 
 CREATE INDEX dashboard_insight_view_insight_view_id_fk_idx ON dashboard_insight_view USING btree (insight_view_id);
 
+CREATE INDEX insight_series_backfill_processing_order_idx ON insight_series_backfill USING btree (estimated_cost, id) WHERE (state = 'processing'::text);
+
 CREATE INDEX insight_series_deleted_at_idx ON insight_series USING btree (deleted_at);
 
 CREATE UNIQUE INDEX insight_series_incomplete_points_unique_idx ON insight_series_incomplete_points USING btree (series_id, reason, "time", repo_id);
@@ -775,6 +776,10 @@ CREATE INDEX insight_view_grants_org_id_idx ON insight_view_grants USING btree (
 CREATE INDEX insight_view_grants_user_id_idx ON insight_view_grants USING btree (user_id);
 
 CREATE UNIQUE INDEX insight_view_unique_id_unique_idx ON insight_view USING btree (unique_id, tenant_id);
+
+CREATE INDEX insights_background_jobs_dequeue_order_idx ON insights_background_jobs USING btree (id) INCLUDE (backfill_id, process_after, finished_at) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX insights_data_retention_jobs_dequeue_order_idx ON insights_data_retention_jobs USING btree (queued_at, id) INCLUDE (state, process_after, finished_at) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
 CREATE INDEX insights_jobs_state_idx ON insights_background_jobs USING btree (state);
 

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS deepsearch_question_jobs_dequeue_filter_idx;

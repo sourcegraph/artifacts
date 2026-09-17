@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS tenant_isolation_policy ON batch_changes_published_changesets_entitlement_usage;
+DROP TABLE IF EXISTS batch_changes_published_changesets_entitlement_usage;

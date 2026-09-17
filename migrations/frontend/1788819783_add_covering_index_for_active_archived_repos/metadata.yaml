@@ -1,0 +1,3 @@
+name: add_covering_index_for_active_archived_repos
+parents: [1788600935, 1788742839]
+createIndexConcurrently: true

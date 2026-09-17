@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS batch_change_agent_wake_jobs_dequeue_order_idx;

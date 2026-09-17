@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS deepsearch_search_queue_dequeue_order_idx;

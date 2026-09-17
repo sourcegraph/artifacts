@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS changeset_sync_jobs_dequeue_active_order_idx;

@@ -195,6 +195,14 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "monorepos": {
+          "description": "EXPERIMENTAL: Repository names whose whole-tree unindexed searches may use searcher's shallow Git acquisition cache. If the cache cannot acquire a commit, searcher falls back to the existing gitserver archive path.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "examples": ["github.com/example/large-monorepo"]
+          }
+        },
         "commitGraphUpdates": {
           "description": "Customize strategy used for commit graph updates",
           "type": "object",
@@ -593,11 +601,6 @@
             }
           ]
         },
-        "insightsAlternateLoadingStrategy": {
-          "description": "Use an in-memory strategy of loading Code Insights. Should only be used for benchmarking on large instances, not for customer use currently.",
-          "type": "boolean",
-          "default": false
-        },
         "insightsBackfillerV2": {
           "deprecationMessage": "DEPRECATED: This setting has no effect",
           "description": "DEPRECATED: This setting has no effect",
@@ -620,15 +623,6 @@
           "type": "boolean",
           "group": "BatchChanges",
           "default": false
-        },
-        "batchChanges.enableAgentWebSearch": {
-          "description": "EXPERIMENTAL: Enables web search for Agentic Batch Changes. This grants web search to the outer batch change agent, and to inner coding agent steps.",
-          "type": "boolean",
-          "group": "BatchChanges",
-          "default": true,
-          "!go": {
-            "pointer": true
-          }
         },
         "batchChanges.enableForkNameSuffix": {
           "description": "When enabled, batch changes will append a sequence of characters to new fork names to avoid name collisions. The sequence is unique per batch change. This does not apply to existing batch changes.",
@@ -790,11 +784,17 @@
       "default": true
     },
     "batchChanges.agenticBatchChanges.enabled": {
-      "description": "Enables/disables Agentic Batch Changes. Disabled by default. When explicitly set to true, Agentic Batch Changes are enabled only if Batch Changes is licensed and the license includes AI Terms 2025. When unset or false, Agentic Batch Changes are disabled.",
+      "description": "Enables/disables Agentic Batch Changes. Enabled by default. Agentic Batch Changes are enabled only if Batch Changes is licensed and the license includes AI Terms 2025.",
       "type": "boolean",
       "!go": {
         "pointer": true
       },
+      "group": "BatchChanges",
+      "default": true
+    },
+    "batchChanges.disableAgentWebSearch": {
+      "description": "Disables web search for Agentic Batch Changes. This removes web search from the outer batch change agent and inner coding agent steps.",
+      "type": "boolean",
       "group": "BatchChanges",
       "default": false
     },
@@ -1123,13 +1123,13 @@
       "group": "External services"
     },
     "gitMaxConcurrentClones": {
-      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. Note: the global git update scheduler respects gitMaxConcurrentClones. Changes to this setting require restarting the worker instance (the worker pod in Kubernetes) before the global scheduler uses the new value. However, we allow each gitserver to run up to gitMaxConcurrentClones to allow for urgent fetches. Urgent fetches are used when a user is browsing a PR and we do not have the commit yet.",
+      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. Note: the global git update scheduler respects gitMaxConcurrentClones. We allow each gitserver to run up to gitMaxConcurrentClones to allow for urgent fetches. Urgent fetches are used when a user is browsing a PR and we do not have the commit yet.",
       "type": "integer",
       "default": 5,
       "group": "External services"
     },
     "gitMaxConcurrentCleanups": {
-      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. <= 0 means disabled.",
+      "description": "Maximum number of repository cleanup jobs that can run concurrently. Values less than or equal to 0 disable cleanup without interrupting jobs that are already running.",
       "type": "integer",
       "default": 5,
       "!go": {
@@ -1579,12 +1579,12 @@
       "default": 900
     },
     "permissions.syncUsersMaxConcurrency": {
-      "description": "The maximum number of user-centric permissions syncing jobs that can be spawned concurrently. Service restart is required to take effect for changes.",
+      "description": "The maximum number of user-centric permissions syncing jobs that can be spawned concurrently.",
       "type": "integer",
       "default": 5
     },
     "permissions.syncReposMaxConcurrency": {
-      "description": "The maximum number of repo-centric permissions syncing jobs that can be spawned concurrently. Service restart is required to take effect for changes.",
+      "description": "The maximum number of repo-centric permissions syncing jobs that can be spawned concurrently.",
       "type": "integer",
       "default": 5
     },
@@ -1794,7 +1794,7 @@
     "executors.batcheshelperImage": {
       "description": "The image to use for batch changes in executors when using native execution. Use this value to pull from a custom image registry.",
       "type": "string",
-      "default": "sourcegraph/batcheshelper"
+      "default": "us-docker.pkg.dev/sourcegraph-images/external/batcheshelper"
     },
     "executors.batcheshelperImageTag": {
       "description": "The tag to use for the batcheshelper image in executors when using native execution. Use this value to use a custom tag. Sourcegraph by default uses the best match, so use this setting only if you really need to overwrite it and make sure to keep it updated.",
@@ -1828,6 +1828,25 @@
                 "weight": {
                   "description": "The relative weight of this queue. Higher weights mean a higher chance of being picked at random.",
                   "type": "integer",
+                  "default": 4
+                }
+              }
+            },
+            "batchesHooks": {
+              "description": "The configuration for the batches-hooks queue.",
+              "type": "object",
+              "required": ["limit", "weight"],
+              "properties": {
+                "limit": {
+                  "description": "The maximum number of dequeues allowed within the expiration window.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 50
+                },
+                "weight": {
+                  "description": "The relative weight of this queue. Higher weights mean a higher chance of being picked at random.",
+                  "type": "integer",
+                  "minimum": 1,
                   "default": 4
                 }
               }
@@ -2178,7 +2197,7 @@
       "description": "Number of concurrent executions of a code insight query on a worker node",
       "type": "integer",
       "group": "CodeInsights",
-      "default": 1,
+      "default": 5,
       "examples": [10]
     },
     "insights.query.worker.rateLimit": {

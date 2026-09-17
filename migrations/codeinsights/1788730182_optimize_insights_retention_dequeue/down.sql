@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS insights_data_retention_jobs_dequeue_order_idx;

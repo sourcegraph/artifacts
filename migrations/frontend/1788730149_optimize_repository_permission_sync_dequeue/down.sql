@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS permission_sync_jobs_repo_dequeue_order_idx;

@@ -32,6 +32,28 @@
       "type": "string",
       "minLength": 1
     },
+    "rateLimit": {
+      "description": "Rate limit applied to Gerrit REST API requests, including repository and permissions syncing.",
+      "title": "GerritRateLimit",
+      "type": "object",
+      "required": ["enabled", "requestsPerHour"],
+      "properties": {
+        "enabled": {
+          "description": "Whether rate limiting is enabled.",
+          "type": "boolean",
+          "default": false
+        },
+        "requestsPerHour": {
+          "description": "Maximum average number of requests permitted per hour. Requests may burst up to 10 at once.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "default": {
+        "enabled": false,
+        "requestsPerHour": 0
+      }
+    },
     "projects": {
       "description": "An array of project strings specifying which Gerrit projects to mirror on Sourcegraph. If empty, all projects will be mirrored.",
       "type": "array",

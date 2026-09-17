@@ -171,6 +171,15 @@ type Mutation {
         repository: ID!
     ): EmptyResponse!
     """
+    Schedule a repository to be updated from its original source. The update runs asynchronously. Only authenticated users may perform this mutation.
+    """
+    refreshRepository(
+        """
+        The repository to update.
+        """
+        repository: ID!
+    ): EmptyResponse!
+    """
     Schedule the mirror repository to be optimized. Optimization
     occurs automatically, so this should not normally be needed.
 
@@ -2143,6 +2152,23 @@ type Query {
         first: Int
     ): ExternalServiceRepositoryConnection!
     """
+    Previews repositories matching a GitHub advanced repository query using an unsaved connection.
+    """
+    githubRepositoryQueryPreview(
+        """
+        The secret token value used to authenticate with GitHub.
+        """
+        token: String!
+        """
+        The URL of the GitHub instance.
+        """
+        url: String!
+        """
+        The GitHub advanced repository query to preview.
+        """
+        query: String!
+    ): GitHubRepositoryQueryPreview!
+    """
     List all repositories.
     """
     repositories(
@@ -2445,6 +2471,12 @@ type Query {
     Retrieve all organization feature flag overrides for the current user
     """
     organizationFeatureFlagOverrides: [FeatureFlagOverride!]!
+
+    """
+    Retrieve all feature flag overrides set directly on the current user
+    (not via any organization).
+    """
+    userFeatureFlagOverrides: [FeatureFlagOverride!]!
 
     """
     Retrieves the temporary settings for the current user.
@@ -2752,6 +2784,11 @@ type ExecutorSecret implements Node {
     is also defined in the global namespace, which this secret overwrites.
     """
     overwritesGlobalSecret: Boolean!
+    """
+    The number of the viewer's standing batch change agent approvals pinned to
+    this secret. This never includes another user's approvals.
+    """
+    batchChangeAgentSecretGrantCount: Int!
     """
     The namespace this secret belongs to. Null, if a global secret.
     Global secrets are available to every execution.
@@ -4228,6 +4265,20 @@ type ExternalServiceRepository {
     Example: For GitHub, this is the GitHub GraphQL API's node ID for the repository.
     """
     externalID: String!
+}
+
+"""
+A bounded preview of repositories matching a GitHub advanced repository query.
+"""
+type GitHubRepositoryQueryPreview {
+    """
+    The total number of repositories matching the query.
+    """
+    totalCount: Int!
+    """
+    A sample of repository names matching the query.
+    """
+    repositoryNames: [String!]!
 }
 """
 A list of repositories.
@@ -10210,6 +10261,16 @@ extend type Query {
     working.
     """
     areExecutorsConfigured: Boolean!
+
+    """
+    Whether an executor has ever declared the exact queue.
+    """
+    hasExecutorForQueue(queue: String!): Boolean!
+
+    """
+    Whether an active executor meets the minimum version.
+    """
+    hasExecutorVersionAtLeast(version: String!, minimumBuildDate: String!): Boolean!
 }
 
 """
@@ -10290,11 +10351,6 @@ type Executor implements Node {
     The version of Ignite used by the executor.
     """
     igniteVersion: String!
-
-    """
-    The version of src-cli used by the executor.
-    """
-    srcCliVersion: String!
 
     """
     The first time the executor sent a heartbeat to the Sourcegraph instance.

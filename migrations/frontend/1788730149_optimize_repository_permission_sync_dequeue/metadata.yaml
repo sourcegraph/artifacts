@@ -1,0 +1,3 @@
+name: optimize repository permission sync dequeue
+parents: [1788730146]
+createIndexConcurrently: true

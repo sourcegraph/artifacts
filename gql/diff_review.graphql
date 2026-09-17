@@ -7,6 +7,91 @@ extend type ChangedFile {
     viewerHasViewed: Boolean!
 }
 
+extend type RepositoryComparison {
+    """
+    EXPERIMENTAL: Threads anchored to this diff by the current user.
+    This field may change or be removed without warning.
+    """
+    anchoredThreads: [DiffAnchoredThread!]!
+}
+
+"""
+A thread associated with a location in a diff.
+"""
+union DiffAnchoredThread = DeepSearchDiffAnchoredThread
+
+"""
+A Deep Search conversation and the diff location that created it.
+"""
+type DeepSearchDiffAnchoredThread {
+    """
+    The identifier accepted by the Deep Search API.
+    """
+    conversationID: ID!
+    """
+    The immutable diff snapshot and selected line range.
+    """
+    anchor: DiffAnchor!
+    """
+    When the anchor mapping was created.
+    """
+    createdAt: DateTime!
+}
+
+"""
+An immutable file and line location in a repository comparison.
+"""
+type DiffAnchor {
+    """
+    The file path on the base side, when one exists.
+    """
+    oldPath: String
+    """
+    The file path on the head side, when one exists.
+    """
+    newPath: String
+    """
+    The resolved base commit at the time the question was asked.
+    """
+    baseOID: GitObjectID!
+    """
+    The resolved head commit at the time the question was asked.
+    """
+    headOID: GitObjectID!
+    """
+    The base-side blob at the time the question was asked.
+    """
+    srcOID: GitObjectID
+    """
+    The head-side blob at the time the question was asked.
+    """
+    dstOID: GitObjectID
+    """
+    The side containing the first selected line.
+    """
+    startSide: DiffAnchorSide!
+    """
+    The first selected line, inclusive.
+    """
+    startLine: Int!
+    """
+    The last selected line, inclusive.
+    """
+    endLine: Int!
+    """
+    The side containing the last selected line.
+    """
+    endSide: DiffAnchorSide!
+}
+
+"""
+The side of a diff containing an anchor.
+"""
+enum DiffAnchorSide {
+    BASE
+    HEAD
+}
+
 """
 Input for batched mark/unmark-viewed mutations. All files in a single call
 target the same (repository, base, head) comparison. The server does not

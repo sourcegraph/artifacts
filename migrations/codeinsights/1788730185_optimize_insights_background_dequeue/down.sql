@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS insights_background_jobs_dequeue_order_idx;

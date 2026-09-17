@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS insight_series_backfill_processing_order_idx;

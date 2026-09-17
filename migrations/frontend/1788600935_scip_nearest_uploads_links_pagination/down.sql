@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS scip_nearest_uploads_links_repository_ancestor_commit;

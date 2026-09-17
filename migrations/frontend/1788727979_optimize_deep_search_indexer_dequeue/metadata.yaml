@@ -1,0 +1,3 @@
+name: optimize deep search indexer dequeue
+parents: [1788726549]
+createIndexConcurrently: true

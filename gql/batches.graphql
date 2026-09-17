@@ -137,10 +137,35 @@ enum MergeMethod {
 The state of checks (e.g., for continuous integration) on a changeset.
 """
 enum ChangesetCheckState {
+    """
+    At least one check is still running or waiting to run, or the checks have not
+    been retrieved from the code host yet (e.g. the changeset was just published or
+    its head commit was just updated) and may still be on their way.
+    """
     PENDING
+    """
+    All checks completed successfully.
+    """
     PASSED
+    """
+    At least one check failed.
+    """
     FAILED
+    """
+    Check information could not be retrieved from the code host (e.g. GitHub check
+    suites are inaccessible when using a fine-grained access token).
+    """
     UNAVAILABLE
+    """
+    The code host was reached and confidently reported that no checks are configured
+    on this changeset.
+    """
+    NONE
+    """
+    The current state of the checks could not be determined (e.g. the changeset is
+    not published yet, or the code host reported a status we don't recognize).
+    """
+    UNKNOWN
 }
 
 """
@@ -156,6 +181,12 @@ enum ChangesetMergeableState {
     The changeset has merge conflicts with its base branch.
     """
     CONFLICTING
+    """
+    The changeset has no merge conflicts, but the code host will still reject
+    the merge because branch-protection requirements (for example, required
+    signed commits or required status checks) are not satisfied.
+    """
+    BLOCKED
     """
     The mergeability of the changeset is not yet known. This is the case while
     the code host is still computing mergeability (e.g. immediately after a
@@ -589,10 +620,12 @@ type ExternalChangeset implements Node & Changeset {
     diffStat: DiffStat
 
     """
-    The state of the checks (e.g., for continuous integration) on this changeset, or null if no
-    checks have been configured.
+    The state of the checks (e.g., for continuous integration) on this changeset. Always
+    set: NONE means the code host reported no checks, PENDING covers checks that have not
+    been retrieved yet, and UNKNOWN means the state could not be determined (e.g. the
+    changeset is not published yet).
     """
-    checkState: ChangesetCheckState
+    checkState: ChangesetCheckState!
 
     """
     Whether this changeset can be merged cleanly into its base branch, as reported by the code
@@ -627,33 +660,39 @@ type ExternalChangeset implements Node & Changeset {
     currentSpec: VisibleChangesetSpec
 
     """
-    The post-publish changeset hook runs (onCIFailure / onMergeConflict) for
+    The post-publish changeset hook events (onCIFailure / onMergeConflict) for
     this changeset, ordered most-recent-first.
 
     Always empty for imported changesets, which do not support changeset hooks.
     """
-    hookJobs(
+    hookEvents(
         """
         Optionally restrict the results to a single hook event.
         """
         hookType: ChangesetHookType
         """
-        Returns the first n most-recent hook jobs. Capped server-side.
+        Returns the first n most-recent hook events. Capped server-side.
         """
         first: Int = 50
         """
         Opaque pagination cursor.
         """
         after: String
-    ): ChangesetHookJobConnection!
+    ): ChangesetHookEventConnection!
+
+    """
+    The commits changeset hook runs pushed (or will push) to this changeset's
+    branch after the initial publish, oldest first.
+    """
+    followupCommits: [ChangesetFollowupCommit!]!
 }
 
 """
-A list of ChangesetHookJob nodes.
+A list of ChangesetHookEvent nodes.
 """
-type ChangesetHookJobConnection {
+type ChangesetHookEventConnection {
     """
-    The total number of hook jobs in the connection.
+    The total number of hook events in the connection.
     """
     totalCount: Int!
 
@@ -663,9 +702,9 @@ type ChangesetHookJobConnection {
     pageInfo: PageInfo!
 
     """
-    The hook jobs in the connection, ordered most-recent-first.
+    The hook events in the connection, ordered most-recent-first.
     """
-    nodes: [ChangesetHookJob!]!
+    nodes: [ChangesetHookEvent!]!
 }
 
 """
@@ -673,7 +712,9 @@ The changeset lifecycle event a changeset hook reacts to.
 """
 enum ChangesetHookType {
     """
-    The changeset's CI checks failed on the code host.
+    The changeset's checks failed on the code host.
+    The product calls these "checks" to stay agnostic to the system producing
+    them; "CI" remains in this enum value only for backward compatibility.
     """
     ON_CI_FAILURE
     """
@@ -683,79 +724,215 @@ enum ChangesetHookType {
 }
 
 """
-The execution state of a changeset hook job.
+The execution state of a changeset hook event.
 """
-enum ChangesetHookJobState {
+enum ChangesetHookEventState {
     """
-    The hook job is queued and waiting to be processed.
+    The hook event is queued and waiting to be processed.
     """
     QUEUED
     """
-    The hook job is currently being processed.
+    The hook event is currently being processed.
     """
     PROCESSING
     """
-    The hook job failed but may still be retried.
+    The hook event failed but may still be retried.
     """
     ERRORED
     """
-    The hook job failed and will not be retried.
+    The hook event failed and will not be retried.
     """
     FAILED
     """
-    The hook job was canceled before it could finish.
+    The hook event was canceled before it could finish.
     """
     CANCELED
     """
-    The hook job completed successfully.
+    The hook event completed successfully.
     """
     COMPLETED
+    """
+    The durable event was intentionally not executed.
+    """
+    SKIPPED
 }
 
 """
-A single run of a changeset hook against a changeset.
+Why a changeset hook event was not executed or its result was discarded.
 """
-type ChangesetHookJob implements Node {
+enum ChangesetHookSkipReason {
+    MAX_ATTEMPTS_EXHAUSTED
+    DEFINITION_CHANGED
+    DEFINITION_REMOVED
+    EXECUTION_CONTEXT_CHANGED
+    RESULT_STALE
+    BATCH_CHANGE_CLOSED
+    UNSUPPORTED_CHANGESET
+}
+
+"""
+One time a changeset hook fired for a changeset. The event is the durable
+record: whether it was processed, skipped, or counted against the attempt
+budget, and its outcome. The execution itself (executor logs, steps) is
+ephemeral and expires; see logsExpired.
+"""
+type ChangesetHookEvent implements Node {
     """
-    The unique ID of the hook job.
+    The unique ID of the hook event.
     """
     id: ID!
 
     """
-    The lifecycle event this hook job reacted to.
+    The lifecycle event this hook event reacted to.
     """
     hookType: ChangesetHookType!
 
     """
-    The current execution state of the hook job.
+    The current execution state of the hook event.
     """
-    state: ChangesetHookJobState!
+    state: ChangesetHookEventState!
 
     """
-    A message describing why the hook job failed, if it did.
+    A message describing why the hook event failed, if it did.
     """
     failureMessage: String
 
     """
-    The time the hook job was enqueued.
+    The time the hook event was enqueued.
     """
     queuedAt: DateTime!
 
     """
-    The time the hook job started executing, or null if it hasn't started.
+    The time the hook event started executing, or null if it hasn't started.
     """
     startedAt: DateTime
 
     """
-    The time the hook job finished executing, or null if it hasn't finished.
+    The time the hook event finished executing, or null if it hasn't finished.
     """
     finishedAt: DateTime
 
     """
-    The executor logs produced by this hook job's run. Empty until the hook
+    The executor logs produced by this hook event's run. Empty until the hook
     job's execution job has started producing logs.
     """
     executionLogs: [ExecutionLogEntry!]!
+
+    """
+    Whether the transient executor job and its logs have expired.
+    """
+    logsExpired: Boolean!
+    """
+    Why this event was skipped.
+    """
+    skipReason: ChangesetHookSkipReason
+    """
+    Number of observations represented by this durable event.
+    """
+    observationCount: Int!
+    """
+    Latest observation time, or creation time for ordinary events.
+    """
+    activityAt: DateTime!
+
+    """
+    The changeset head commit OID that triggered this hook event. Null on code
+    hosts whose changeset metadata does not expose head commit OIDs (e.g.
+    Bitbucket Server, Azure DevOps, Gerrit, Perforce).
+    """
+    triggerCommit: String
+
+    """
+    Whether this run counted against the hook's attempt budget. An attempt is
+    counted once an executor picks the run up (and while it is pending or
+    failed), so a run that executed and was then skipped at completion (e.g.
+    RESULT_STALE) still counts; events skipped before execution, such as
+    MAX_ATTEMPTS_EXHAUSTED markers, do not.
+    """
+    attemptCounted: Boolean!
+
+    """
+    Whether this run executed the hook definition (steps, mounted files) that
+    the batch change's current batch spec declares for this hook type. Attempt
+    budgets are scoped to a definition, so only runs where this is true and
+    attemptCounted is true consume the current budget.
+    """
+    definitionCurrent: Boolean!
+
+    """
+    The steps of the hook action that ran (or will run) for this job, in the
+    order they are declared in the batch spec's changesetHooks.<event>.steps,
+    with per-step status, output and diff derived from the execution logs.
+
+    Empty when the run was skipped before it executed (attemptCounted is
+    false), when its executor job and logs have expired (see logsExpired), and
+    when the batch spec's hook definition has changed since this run (see
+    definitionCurrent); executionLogs remain available in the latter case while
+    the job exists.
+    """
+    steps: [BatchSpecWorkspaceStep!]!
+}
+
+"""
+A commit that Batch Changes pushed (or will push) to a changeset's branch after
+the initial publish. Follow-up commits are produced by successful changeset
+hook runs (onCIFailure / onMergeConflict) and pushed by the reconciler.
+"""
+type ChangesetFollowupCommit {
+    """
+    The unique ID of the follow-up commit.
+    """
+    id: ID!
+
+    """
+    The commit message the follow-up commit was (or will be) created with.
+    """
+    commitMessage: String!
+
+    """
+    The author name the follow-up commit was (or will be) created with. Null
+    when the default author is used.
+    """
+    commitAuthorName: String
+
+    """
+    The author email the follow-up commit was (or will be) created with. Null
+    when the default author is used.
+    """
+    commitAuthorEmail: String
+
+    """
+    The diff stat of the follow-up commit's changes.
+    """
+    diffStat: DiffStat!
+
+    """
+    The SHA of the commit the reconciler pushed to the changeset's branch. Null
+    until the follow-up commit has been pushed.
+    """
+    pushedCommitSHA: String
+
+    """
+    The time the reconciler pushed this follow-up commit. Null until pushed.
+    """
+    pushedAt: DateTime
+
+    """
+    The time this follow-up commit was superseded, i.e. discarded before being
+    pushed because its patch no longer applied to the changeset's branch head.
+    Superseded commits are never pushed.
+    """
+    supersededAt: DateTime
+
+    """
+    Why this follow-up commit was superseded. Null unless supersededAt is set.
+    """
+    supersededReason: String
+
+    """
+    The time the follow-up commit was recorded.
+    """
+    createdAt: DateTime!
 }
 
 """
@@ -1264,6 +1441,11 @@ type VisibleChangesetSpec implements ChangesetSpec & Node {
     type: ChangesetSpecType!
 
     """
+    The URL for downloading this changeset spec's diff.
+    """
+    diffURL: String!
+
+    """
     The description of the changeset.
     """
     description: ChangesetDescription!
@@ -1417,11 +1599,12 @@ type GitCommitDescription {
 
     """
     The commit diff (in unified diff format).
-
     The filenames must not be prefixed (e.g., with 'a/' and 'b/'). Tip: use 'git diff --no-prefix'
     to omit the prefix.
+    This field will be removed in October 2026. Use VisibleChangesetSpec.diffURL instead.
     """
     diff: String!
+        @deprecated(reason: "Use the changeset spec diff HTTP endpoint. This field will be removed in October 2026.")
 }
 
 """
@@ -2682,6 +2865,15 @@ enum BatchSpecWorkspacesOrderBy {
     order (first in ascending).
     """
     FINISHED_AT
+    """
+    Order by the total size of the produced diff (added + deleted lines, summed
+    over the workspace's changeset specs — the same total the `diffStat` field
+    exposes). Workspaces without a diff (not yet executed, skipped, or no
+    changesets) sort last in ascending order. Workspaces in repositories the
+    viewer cannot access sort as if they had no diff, so their position does
+    not reveal the size of a diff the viewer cannot see.
+    """
+    DIFF_SIZE
 }
 
 """
@@ -2858,6 +3050,26 @@ enum BatchSpecWorkspaceState {
 }
 
 """
+Which run supplies the result currently shown for a workspace. This is an
+explicit result-source contract rather than a client inference from nullable
+fields; hidden workspaces expose it even though they do not expose previousRun.
+"""
+enum BatchSpecWorkspaceResultState {
+    """
+    The current workspace has produced a result, including an empty result.
+    """
+    CURRENT
+    """
+    The most recent prior run supplies the result until this workspace runs.
+    """
+    PREVIOUS
+    """
+    Neither the current workspace nor a prior run has produced a result.
+    """
+    NONE
+}
+
+"""
 The common interface for a batch spec workspace. Depending on access to the repository,
 either a HiddenBatchSpecWorkspace or a VisibleBatchSpecWorkspace will be serving this
 interface.
@@ -2941,6 +3153,12 @@ interface BatchSpecWorkspace {
     The current state the workspace is in.
     """
     state: BatchSpecWorkspaceState!
+
+    """
+    Which run supplies the result currently shown for this workspace. Hidden
+    workspaces expose this state without exposing the prior workspace itself.
+    """
+    resultState: BatchSpecWorkspaceResultState!
 
     """
     The rank of this execution in the queue of the user. The value of this field is null if the
@@ -3101,6 +3319,12 @@ type VisibleBatchSpecWorkspace implements BatchSpecWorkspace & Node {
     state: BatchSpecWorkspaceState!
 
     """
+    Which run supplies the result currently shown for this workspace. When this
+    is PREVIOUS, previousRun contains the run supplying the result.
+    """
+    resultState: BatchSpecWorkspaceResultState!
+
+    """
     Populated, when the execution is finished. This is where you get the combined
     diffs.
     """
@@ -3114,11 +3338,11 @@ type VisibleBatchSpecWorkspace implements BatchSpecWorkspace & Node {
     but before the new workspace has been re-executed.
 
     It is a full workspace resolver, so every field resolves from that prior run.
-    Only populated when this workspace has not produced its own results yet (no
-    changeset specs, not skipped, no finished execution job), so it never
-    overlaps with this workspace's own data; null when there is no qualifying
-    prior run or the batch spec is not linked to a batch change. Callers should
-    not recurse into its own previousRun.
+    Only populated when this workspace has not produced its own result and its
+    latest run is not failed or canceled, so it never overlaps with this
+    workspace's own data; null when there is no qualifying prior run or the
+    batch spec is not linked to a batch change. Callers should not recurse into
+    its own previousRun.
     """
     previousRun: BatchSpecWorkspace
 
@@ -3246,6 +3470,12 @@ type HiddenBatchSpecWorkspace implements BatchSpecWorkspace & Node {
     state: BatchSpecWorkspaceState!
 
     """
+    Which run supplies the result currently shown for this workspace. Hidden
+    workspaces expose the source state without exposing the prior workspace.
+    """
+    resultState: BatchSpecWorkspaceResultState!
+
+    """
     The rank of this execution in the queue of the user. The value of this field is null if the
     execution has started.
     """
@@ -3356,6 +3586,11 @@ type BatchSpecWorkspaceStep {
     exitCode: Int
 
     """
+    The failure reported while executing or processing this step. Null if the step did not report a failure.
+    """
+    failureMessage: String
+
+    """
     The environment variables passed to this step.
     """
     environment: [BatchSpecWorkspaceEnvironmentVariable!]!
@@ -3435,6 +3670,57 @@ enum BatchChangeState {
 }
 
 """
+Why a changeset action of a batch change is currently refused.
+"""
+enum ChangesetActionBlockedReason {
+    """
+    The subscription's quota does not cover the batch change's next merged changeset.
+    """
+    QUOTA_EXHAUSTED
+    """
+    The agent owner has used up their per-user entitlement of published
+    changesets for the current window. See ChangesetActionBlock.until.
+    """
+    PUBLISH_ENTITLEMENT_EXHAUSTED
+    """
+    The agent owner's published-changesets entitlement has a zero limit:
+    publishing is not permitted and nothing resets.
+    """
+    PUBLISH_NOT_PERMITTED
+}
+
+"""
+Why one changeset action of a batch change is currently refused.
+"""
+type ChangesetActionBlock {
+    """
+    Why the action is refused.
+    """
+    reason: ChangesetActionBlockedReason!
+    """
+    When the block lifts on its own. Set only for
+    PUBLISH_ENTITLEMENT_EXHAUSTED, whose window resets; null otherwise.
+    """
+    until: DateTime
+}
+
+"""
+Changeset actions of a batch change that are currently refused. Each field is
+null when the action is allowed.
+"""
+type BatchChangeBlockedActions {
+    """
+    Publishing changesets, including as drafts. Merging is never refused: the
+    changeset is already on the code host.
+    """
+    changesetPublish: ChangesetActionBlock
+    """
+    Pushing changesets to the code host as branches only.
+    """
+    changesetPush: ChangesetActionBlock
+}
+
+"""
 A batch change is a set of related changes to apply to code across one or more repositories.
 """
 type BatchChange implements Node {
@@ -3478,6 +3764,12 @@ type BatchChange implements Node {
     Whether the current user can edit or delete this batch change.
     """
     viewerCanAdminister: Boolean!
+
+    """
+    Changeset actions that are currently refused for this batch change, and why.
+    Nothing is ever refused for classic batch changes.
+    """
+    blockedActions: BatchChangeBlockedActions!
 
     """
     The URL to this batch change.
@@ -3619,6 +3911,12 @@ type BatchChange implements Node {
         Filter by createdAt value.
         """
         createdAfter: DateTime
+        """
+        Only return bulk operations that included the given changeset. A bulk
+        operation is included when at least one of its changeset jobs targeted
+        this changeset.
+        """
+        changeset: ID
     ): BulkOperationConnection!
 
     """
@@ -4148,6 +4446,28 @@ type AttachedChangesetConnection {
 }
 
 """
+How an attached changeset relates to its workspace's current result.
+"""
+enum AttachedChangesetSyncState {
+    """
+    The changeset reflects the workspace's current result.
+    """
+    CURRENT
+    """
+    The workspace must run before the changeset can be synchronized.
+    """
+    NEEDS_RUN
+    """
+    The current workspace result must be applied to the changeset.
+    """
+    NEEDS_APPLY
+    """
+    The current workspace result no longer contains this changeset.
+    """
+    NEEDS_REMOVAL
+}
+
+"""
 A changeset attached to a workspace of a batch spec.
 """
 type AttachedChangeset implements Node {
@@ -4167,11 +4487,9 @@ type AttachedChangeset implements Node {
     changeset: Changeset!
 
     """
-    True when the changeset's spec is not the workspace's current spec,
-    e.g. because the batch spec was re-prepared after the changeset was
-    published.
+    How the changeset relates to the workspace's current result.
     """
-    stale: Boolean!
+    syncState: AttachedChangesetSyncState!
 }
 
 """
@@ -4404,6 +4722,17 @@ type BatchChangesCodeHost {
     If true, the code host has webhooks configured.
     """
     hasWebhooks: Boolean!
+
+    """
+    The configured auth providers that can be used to connect a Batch Changes
+    credential for this code host via OAuth. Only sign-in enabled providers whose
+    service matches this code host are included. A GitHub auth provider backed by
+    a GitHub App is only included when that GitHub App is registered in Sourcegraph
+    as a Batch Changes credential app (kind USER_CREDENTIAL or SITE_CREDENTIAL),
+    since GitHub ignores requested OAuth scopes for GitHub Apps and the token's
+    permissions come from the app instead.
+    """
+    oauthProviders: [AuthProvider!]!
 }
 
 """

@@ -1,0 +1,3 @@
+name: optimize external service sync dequeue
+parents: [1788730150]
+createIndexConcurrently: true

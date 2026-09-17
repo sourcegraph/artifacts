@@ -526,6 +526,11 @@ extend type Query {
         range: RangeInput!
 
         """
+        RE2 patterns matching file paths to exclude from the results.
+        """
+        excludeFilePatterns: [String!]
+
+        """
         When specified, indicates that this request should be paginated and
         the first N results (relative to the cursor) should be returned. i.e.
         how many results to return per page.

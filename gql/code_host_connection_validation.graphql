@@ -1,0 +1,45 @@
+"""
+An external service configuration to validate without saving it.
+"""
+input ValidateExternalServiceConfigInput {
+    """
+    The kind of external service.
+    """
+    kind: ExternalServiceKind!
+
+    """
+    The JSON configuration of the external service.
+    """
+    config: String!
+}
+
+"""
+The result of validating an external service configuration.
+"""
+type ExternalServiceValidationResult {
+    """
+    Errors that prevent the configuration from being saved.
+    """
+    errors: [String!]!
+
+    """
+    Non-blocking warnings about the configuration.
+    """
+    warnings: [String!]!
+}
+
+extend type Mutation {
+    """
+    Validates an external service configuration without saving it.
+
+    Only users with permission to write external services may perform this mutation.
+    """
+    validateExternalServiceConfig(input: ValidateExternalServiceConfigInput!): ExternalServiceValidationResult!
+
+    """
+    Checks whether an external service configuration can connect without saving it.
+
+    Only users with permission to write external services may perform this mutation.
+    """
+    validateExternalServiceConnection(input: ValidateExternalServiceConfigInput!): ExternalServiceValidationResult!
+}
