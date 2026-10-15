@@ -1,0 +1,1 @@
+-- Intentionally a no-op: the up migration only deletes stale notifications.

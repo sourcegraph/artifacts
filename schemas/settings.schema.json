@@ -22,10 +22,27 @@
       "additionalProperties": false,
       "properties": {
         "guidance": {
-          "description": "Additional guidance and skills loaded into Batch Change Agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.\nNOTE: This is purely for the coordinator, inner loop agents such as codex do not load this in.",
+          "description": "Additional guidance and skills loaded into Batch Change Agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.\nNOTE: This is purely for the coordinator; inner-loop coding agents do not load this.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentGuidanceEntry"
+          },
+          "default": []
+        }
+      }
+    },
+    "dictation": {
+      "title": "SettingsDictation",
+      "description": "Dictation preferences. Values from site, organization, and user settings are combined.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "customVocabulary": {
+          "description": "Words and short phrases that the transcription model should recognize. Entries accumulate across the settings cascade in site, organization, then user order.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
           },
           "default": []
         }
@@ -79,6 +96,12 @@
           "!go": {
             "pointer": true
           }
+        },
+        "changesetsReviewPage": {
+          "description": "Shows the changesets review page. Only takes effect when the change-requests-page feature flag is enabled and the user is a site admin.",
+          "type": "boolean",
+          "default": false,
+          "doNotSuggest": true
         },
         "goCodeCheckerTemplates": {
           "description": "Shows a panel with code insights templates for go code checker results.",
@@ -153,7 +176,7 @@
           }
         },
         "batchChangeAgentsGuidance": {
-          "description": "EXPERIMENTAL: Additional guidance and skills loaded into Batch Change Agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.\nNOTE: This is purely for the coordinator, inner loop agents such as codex do not load this in.",
+          "description": "EXPERIMENTAL: Additional guidance and skills loaded into Batch Change Agent runs. Guidance entries are applied in settings priority order: site/admin settings, then organization settings in stable order, then user settings. Duplicate skill names are resolved by keeping the last loaded skill, so later entries override earlier entries.\nNOTE: This is purely for the coordinator; inner-loop coding agents do not load this.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentGuidanceEntry"

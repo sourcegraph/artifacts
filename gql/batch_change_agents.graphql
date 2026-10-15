@@ -9,6 +9,69 @@ extend type Query {
     authenticated owner; returns null otherwise.
     """
     batchChangeAgentByID(id: Int!): BatchChangeAgent
+
+    """
+    Batch change agents the viewer can discover across all owners (GLOBAL
+    agents plus the viewer's own LINK_ONLY ones), with the same filter and
+    sort arguments as User.batchChangeAgents.
+    Each node resolves to VisibleBatchChangeAgent, including its readToken, so
+    any viewer with Batch Changes read permission can open any listed agent.
+
+    Gated by the experimentalFeatures.batchChanges.agenticBatchChanges.sharing
+    site setting; unless it is "global" the connection is empty and totalCount
+    is 0.
+    """
+    batchChangeAgents(
+        """
+        Returns the first n agents from the list.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+        """
+        Optional case-insensitive substring filter on the agent title. When
+        set, first/after paginate over the filtered set.
+        """
+        query: String
+        """
+        Optional filter restricting results to agents whose derived status is
+        one of these values.
+        """
+        status: [BatchChangeAgentStatus!]
+        """
+        Optional filter restricting results to agents owned by this user.
+        Omitted or null lists agents of every owner.
+        """
+        owner: ID
+        """
+        Ordering of the returned agents. Defaults to CREATED_DESC when omitted
+        or null; see User.batchChangeAgents.sort for why there is no schema
+        default value.
+        """
+        sort: BatchChangeAgentsSortOrder
+    ): BatchChangeAgentConnection!
+
+    """
+    Users who own at least one agent listed by batchChangeAgents, ordered by
+    username, for the owner filter of the global agent list. Gated like
+    batchChangeAgents: empty unless the
+    experimentalFeatures.batchChanges.agenticBatchChanges.sharing site setting
+    is "global".
+    """
+    batchChangeAgentOwners(
+        """
+        Optional case-insensitive substring filter on username or display name.
+        """
+        query: String
+        """
+        Returns at most this many owners; omitted or null means 10 (maximum
+        100). No schema default value: graphql-go cannot apply one to the
+        nullable argument.
+        """
+        first: Int
+    ): [User!]!
 }
 
 extend type User {
@@ -33,6 +96,21 @@ extend type User {
         set.
         """
         query: String
+        """
+        Optional filter restricting results to agents whose derived status is
+        one of these values.
+        """
+        status: [BatchChangeAgentStatus!]
+        """
+        Ordering of the returned agents. Defaults to CREATED_DESC (most
+        recently created first) when omitted or null — not declared as a
+        schema default value, because a caller whose query binds this
+        argument to a variable that resolves to null (the variable is
+        declared but left out of `variables`, which is common and spec-legal)
+        would bypass a schema-level default entirely; only an argument that's
+        syntactically absent from the query document gets that default.
+        """
+        sort: BatchChangeAgentsSortOrder
     ): BatchChangeAgentConnection!
 }
 
@@ -122,6 +200,241 @@ extend type Mutation {
     carrying the new readToken.
     """
     rotateBatchChangeAgentReadToken(input: RotateBatchChangeAgentReadTokenInput!): BatchChangeAgent!
+
+    """
+    Sets who can find an agent owned by the viewer. GLOBAL is only accepted
+    while the site sharing setting is "global". Returns the updated agent.
+    """
+    updateBatchChangeAgentVisibility(input: UpdateBatchChangeAgentVisibilityInput!): BatchChangeAgent!
+
+    """
+    Queues workspaces in an agent's current materialized batch spec: the
+    workspaces matching the filter, plus the included ones, minus the excluded
+    ones. At least one of filter and includedWorkspaceIDs must be set. The
+    request ID makes transport retries idempotent. The action is recorded
+    in the agent's inbox; it does not wake the agent.
+    Returns a GraphQL error with one of these extension codes:
+    BatchChangeAgentWorkspaceActionRefused when the server definitively refuses
+    the action without a durable write,
+    BatchChangeAgentWorkspaceActionStaleBatchSpec when expectedBatchSpecID is
+    no longer current, BatchChangeAgentWorkspaceActionNoBatchSpec when the
+    agent has no materialized batch spec, and
+    BatchChangeAgentWorkspaceActionRequestIDReused when requestID was already
+    used with different input.
+    """
+    runBatchChangeAgentWorkspaces(input: RunBatchChangeAgentWorkspacesInput!): RunBatchChangeAgentWorkspacesPayload!
+
+    """
+    Applies and publishes selected workspace output in one idempotent action.
+    The action is recorded in the agent's inbox; it does not wake the agent.
+    The request ID should be retained when retrying an uncertain response.
+    Returns a GraphQL error with one of these extension codes:
+    BatchChangeAgentWorkspaceActionRefused when the server definitively refuses
+    the action without a durable write,
+    BatchChangeAgentWorkspaceActionStaleBatchSpec when expectedBatchSpecID is
+    no longer current, BatchChangeAgentWorkspaceActionNoBatchSpec when the agent
+    has no materialized batch spec, and
+    BatchChangeAgentWorkspaceActionRequestIDReused when requestID was already
+    used with different input. Publication limits and quota refuse the action
+    without a durable write with the batches publish-gate codes
+    (ErrBatchChangeAgentPublish*, ErrBatchChangeAgentQuota*).
+    """
+    publishBatchChangeAgentWorkspaces(
+        input: PublishBatchChangeAgentWorkspacesInput!
+    ): PublishBatchChangeAgentWorkspacesPayload!
+}
+
+"""
+Input for directly publishing selected Agentic Batch Changes workspaces.
+"""
+input PublishBatchChangeAgentWorkspacesInput {
+    """
+    The agent whose current materialized batch spec should be published.
+    """
+    agentID: ID!
+
+    """
+    The batch spec visible when the user initiated the action.
+    """
+    expectedBatchSpecID: ID!
+
+    """
+    Selected workspaces belonging to expectedBatchSpecID.
+    """
+    includedWorkspaceIDs: [ID!]!
+
+    """
+    Whether to publish ready or draft changesets, or push branches only.
+    """
+    mode: BatchChangeAgentPublicationMode!
+
+    """
+    A client-generated UUID retained when retrying an uncertain request.
+    Replaying it with identical input returns the original result, including
+    per-workspace rejections such as PUBLICATION_PENDING. A new user-initiated
+    attempt must use a new UUID.
+    """
+    requestID: String!
+}
+
+"""
+How a direct Publish opens selected workspaces on the code host.
+"""
+enum BatchChangeAgentPublicationMode {
+    """
+    Open changesets ready for review.
+    """
+    READY
+    """
+    Open draft changesets. The request is refused before anything is published
+    when a selected workspace's code host type does not support draft changesets.
+    """
+    DRAFT
+    """
+    Push branches without opening changesets. The request is refused before
+    anything is pushed when a selected workspace's code host type does not support
+    pushing a branch.
+    """
+    BRANCH
+}
+
+"""
+The selected workspaces whose publication was queued or skipped.
+"""
+type PublishBatchChangeAgentWorkspacesPayload {
+    """
+    Workspace IDs accepted because publication jobs were queued or Apply updated
+    their changesets.
+    """
+    queuedWorkspaceIDs: [ID!]!
+
+    """
+    Selected workspaces with a rejection, grouped by reason. A workspace rejected as
+    PUBLICATION_PENDING can also be in queuedWorkspaceIDs.
+    """
+    rejected: [BatchChangeAgentWorkspaceRejectionGroup!]!
+}
+
+"""
+Input for directly running selected Agentic Batch Changes workspaces.
+"""
+input RunBatchChangeAgentWorkspacesInput {
+    """
+    The agent whose current materialized batch spec should run.
+    """
+    agentID: ID!
+
+    """
+    The batch spec visible when the user initiated the action.
+    """
+    expectedBatchSpecID: ID!
+
+    """
+    Every workspace of expectedBatchSpecID that the workspace list shows for
+    this filter, resolved when the action runs. An empty filter matches every
+    workspace.
+    """
+    filter: BatchChangeAgentWorkspaceFilterInput
+
+    """
+    Workspaces of expectedBatchSpecID to run in addition to the filter's
+    matches.
+    """
+    includedWorkspaceIDs: [ID!]
+
+    """
+    Workspaces not to run, even when they match the filter or are included.
+    """
+    excludedWorkspaceIDs: [ID!]
+
+    """
+    A client-generated UUID retained when retrying an uncertain request.
+    Replaying it with identical input returns the original result, including
+    per-workspace rejections such as RETRY_FAILED. A new user-initiated
+    attempt must use a new UUID.
+    """
+    requestID: String!
+}
+
+"""
+The filter arguments of BatchSpecWorkspaceResolution.workspaces.
+"""
+input BatchChangeAgentWorkspaceFilterInput {
+    """
+    The search argument of BatchSpecWorkspaceResolution.workspaces.
+    """
+    search: String
+
+    """
+    The state argument of BatchSpecWorkspaceResolution.workspaces.
+    """
+    state: BatchSpecWorkspaceState
+}
+
+"""
+The result of directly running selected workspaces.
+"""
+type RunBatchChangeAgentWorkspacesPayload {
+    """
+    Workspace IDs that were queued for execution.
+    """
+    queuedWorkspaceIDs: [ID!]!
+
+    """
+    Selected workspaces that could not be queued, grouped by reason. Every
+    selected workspace is in queuedWorkspaceIDs or in exactly one group.
+    """
+    rejected: [BatchChangeAgentWorkspaceRejectionGroup!]!
+}
+
+"""
+Selected workspaces rejected for the same reason.
+"""
+type BatchChangeAgentWorkspaceRejectionGroup {
+    """
+    A stable machine-readable rejection reason.
+    """
+    code: BatchChangeAgentWorkspaceActionRejectionCode!
+
+    """
+    The workspaces rejected for this reason.
+    """
+    workspaceIDs: [ID!]!
+}
+
+"""
+Reasons a selected workspace may not be queued.
+"""
+enum BatchChangeAgentWorkspaceActionRejectionCode {
+    WORKSPACE_NOT_FOUND
+    CACHED_RESULT
+    SKIPPED
+    IGNORED
+    UNSUPPORTED
+    ALREADY_HAS_EXECUTION
+    NO_LONGER_EXECUTABLE
+    RETRY_FAILED
+    REPO_EXCLUDED
+    """
+    The selected changeset is already published.
+    """
+    ALREADY_PUBLISHED
+    """
+    The selected changeset was already pushed as a branch.
+    """
+    ALREADY_PUSHED
+    """
+    The selected workspace has no changeset changes to publish.
+    """
+    NO_CHANGES
+    """
+    A publication of a selected changeset is still pending: a queued job or an
+    unfinished reconcile. That changeset gets no second job; Apply still applies
+    any newer results, which the pending publication publishes. The workspace's
+    other changesets are queued as usual; when one is, the workspace is also in
+    queuedWorkspaceIDs and the inbox record.
+    """
+    PUBLICATION_PENDING
 }
 
 """
@@ -132,6 +445,34 @@ input RotateBatchChangeAgentReadTokenInput {
     The ID of the agent whose read token is being regenerated.
     """
     id: ID!
+}
+
+"""
+Who can find a batch change agent.
+"""
+enum BatchChangeAgentVisibility {
+    """
+    Reachable only by the owner and through the share link.
+    """
+    LINK_ONLY
+    """
+    Listed for every user with access to Agentic Batch Changes.
+    """
+    GLOBAL
+}
+
+"""
+Input for updateBatchChangeAgentVisibility.
+"""
+input UpdateBatchChangeAgentVisibilityInput {
+    """
+    The ID of the agent.
+    """
+    id: ID!
+    """
+    Who can find the agent.
+    """
+    visibility: BatchChangeAgentVisibility!
 }
 
 """
@@ -685,6 +1026,12 @@ type VisibleBatchChangeAgent implements Node & BatchChangeAgent {
     id: ID!
 
     """
+    The database ID for the agent. Clients attach it to telemetry events so
+    they can be joined to the agent's server-side events.
+    """
+    databaseID: Int!
+
+    """
     The user who owns this agent.
     """
     owner: User!
@@ -699,6 +1046,12 @@ type VisibleBatchChangeAgent implements Node & BatchChangeAgent {
     snapshots and shared read endpoints consumed by AgentThread-style clients.
     """
     readToken: String!
+
+    """
+    Who can find this agent: the owner's choice clamped to the site sharing
+    setting.
+    """
+    visibility: BatchChangeAgentVisibility!
 
     """
     The activity status of the agent.
@@ -831,6 +1184,10 @@ type BatchChangeAgentThread implements Node {
     The append-only chronological transcript for this thread. Entries retain
     provider part ordering and include user input, model output, tools,
     compactions, and terminal errors.
+
+    Cursors identify a position in the transcript and are independent of the
+    kinds filter. A cursor obtained from a filtered connection can be passed
+    to an unfiltered one to fetch the entries surrounding that entry.
     """
     entries(
         """
@@ -849,7 +1206,47 @@ type BatchChangeAgentThread implements Node {
         Opaque cursor before which entries are returned.
         """
         before: String
+        """
+        Only return entries of these kinds. When omitted, entries of all kinds
+        are returned.
+        """
+        kinds: [BatchChangeAgentThreadEntryKind!]
     ): BatchChangeAgentThreadEntryConnection!
+}
+
+"""
+The kind of a batch change agent thread entry. Each kind corresponds to one
+implementation of BatchChangeAgentThreadEntry.
+"""
+enum BatchChangeAgentThreadEntryKind {
+    """
+    A BatchChangeAgentUserMessageThreadEntry.
+    """
+    USER_MESSAGE
+    """
+    A BatchChangeAgentThinkingThreadEntry.
+    """
+    THINKING
+    """
+    A BatchChangeAgentAssistantTextThreadEntry.
+    """
+    ASSISTANT_TEXT
+    """
+    A BatchChangeAgentToolCallThreadEntry.
+    """
+    TOOL_CALL
+    """
+    A BatchChangeAgentToolResultThreadEntry.
+    """
+    TOOL_RESULT
+    """
+    A BatchChangeAgentCompactionThreadEntry.
+    """
+    COMPACTION
+    """
+    A BatchChangeAgentErrorThreadEntry.
+    """
+    ERROR
 }
 
 """
@@ -870,13 +1267,34 @@ type BatchChangeAgentThreadEntryConnection {
     """
     nodes: [BatchChangeAgentThreadEntry!]!
     """
-    The total number of transcript entries in the thread.
+    The transcript entries in this page, each with its cursor.
+    """
+    edges: [BatchChangeAgentThreadEntryEdge!]!
+    """
+    The total number of transcript entries in the thread that match the
+    kinds filter.
     """
     totalCount: Int!
     """
     Pagination information for this page.
     """
     pageInfo: ConnectionPageInfo!
+}
+
+"""
+A batch change agent transcript entry and its position in the transcript.
+"""
+type BatchChangeAgentThreadEntryEdge {
+    """
+    Opaque cursor for this entry's position in the transcript. Pass it as
+    `after` or `before` to fetch the entries following or preceding this
+    entry, with any kinds filter.
+    """
+    cursor: String!
+    """
+    The transcript entry.
+    """
+    node: BatchChangeAgentThreadEntry!
 }
 
 """
@@ -1439,6 +1857,11 @@ enum BatchChangeAgentInboxFactKind {
     WORKSPACE_CHANGESET_HOOK_SUCCEEDED
 
     """
+    A BCA-owned changeset hook did not run because its attempt budget was exhausted.
+    """
+    WORKSPACE_CHANGESET_HOOK_ATTEMPTS_EXHAUSTED
+
+    """
     A BCA-owned changeset's check state transitioned into passed.
     The product calls these "checks" to stay agnostic to the system producing
     them; "CI" remains in this enum value only for backward compatibility.
@@ -1451,6 +1874,11 @@ enum BatchChangeAgentInboxFactKind {
     them; "CI" remains in this enum value only for backward compatibility.
     """
     CHANGESET_CI_FAILED
+
+    """
+    A direct UI publication job or its reconcile failed.
+    """
+    CHANGESET_PUBLICATION_FAILED
 }
 
 """
@@ -1515,4 +1943,24 @@ enum BatchChangeAgentStatus {
     The agent is waiting for the user to answer a pending ask_user tool call.
     """
     WAITING_FOR_USER
+}
+
+"""
+Ordering options for User.batchChangeAgents.
+"""
+enum BatchChangeAgentsSortOrder {
+    """
+    Agents waiting on the user first, then most recently updated.
+    """
+    ATTENTION
+
+    """
+    Most recently created first.
+    """
+    CREATED_DESC
+
+    """
+    Alphabetical by title.
+    """
+    TITLE_ASC
 }

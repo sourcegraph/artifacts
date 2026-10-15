@@ -1,0 +1,2 @@
+ALTER TABLE gitserver_repos
+DROP COLUMN IF EXISTS consecutive_external_connectivity_errors;

@@ -14,7 +14,9 @@ extend type Mutation {
         type: EntitlementType!
 
         """
-        The limit value for this entitlement.
+        The limit value for this entitlement: -1 for unlimited, 0 to block the
+        feature, or a positive allowance per window. Other negative values are
+        invalid.
         """
         limit: BigInt!
 
@@ -44,7 +46,9 @@ extend type Mutation {
         name: String!
 
         """
-        The limit value for this entitlement.
+        The limit value for this entitlement: -1 for unlimited, 0 to block the
+        feature, or a positive allowance per window. Other negative values are
+        invalid.
         """
         limit: BigInt!
 
@@ -183,7 +187,8 @@ type Entitlement implements Node {
     type: EntitlementType!
 
     """
-    The limit value for this entitlement.
+    The limit value for this entitlement: -1 for unlimited, 0 to block the
+    feature, or a positive allowance per window.
     """
     limit: BigInt!
 
@@ -281,11 +286,13 @@ EntitlementGrantUsage represents the current usage state for an entitlement gran
 """
 type EntitlementGrantUsage {
     """
-    The limit value for this entitlement.
+    The limit value for this entitlement: -1 for unlimited, 0 to block the
+    feature, or a positive allowance per window.
     """
     limit: BigInt!
     """
-    The amount consumed in the current window.
+    The amount consumed in the current window. Always 0 for unlimited
+    entitlements, as their usage is not counted.
     """
     consumed: BigInt!
     """

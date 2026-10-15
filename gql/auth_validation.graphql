@@ -2,7 +2,7 @@ extend type Query {
     """
     Fetches the result of an authentication provider validation.
     Results are one-time fetch only - calling twice returns null.
-    Only site admins can access this.
+    Requires the ADVANCED_CONFIG#WRITE permission.
     """
     authProviderValidationResult(validationID: String!): AuthProviderValidationResult
 }

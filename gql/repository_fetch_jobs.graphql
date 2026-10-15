@@ -1,0 +1,259 @@
+"""
+The state of a repository fetch job.
+"""
+enum RepositoryFetchJobState {
+    """
+    The job is waiting to start.
+    """
+    QUEUED
+    """
+    The job is running.
+    """
+    PROCESSING
+    """
+    The worker encountered an error and may retry the job.
+    """
+    ERRORED
+    """
+    The job completed successfully.
+    """
+    SUCCEEDED
+    """
+    The job failed.
+    """
+    FAILED
+    """
+    The job was canceled.
+    """
+    CANCELED
+}
+
+"""
+The event that scheduled a repository fetch job.
+"""
+enum RepositoryFetchJobReason {
+    """
+    A background schedule requested the fetch.
+    """
+    SCHEDULE
+    """
+    A code-host webhook requested the fetch.
+    """
+    WEBHOOK
+    """
+    An API call requested the fetch.
+    """
+    API
+    """
+    A repository page view requested the fetch.
+    """
+    PAGE_VIEW
+    """
+    Repository discovery requested the fetch.
+    """
+    REPOSITORY_DISCOVERY
+    """
+    Repository corruption recovery requested the fetch.
+    """
+    CORRUPTION
+    """
+    Revision resolution requested the fetch.
+    """
+    ENSURE_REVISION
+    """
+    The stored reason is not recognized by this Sourcegraph version.
+    """
+    UNKNOWN
+}
+
+"""
+The Git operation performed by a repository fetch job.
+"""
+enum RepositoryFetchJobOperation {
+    """
+    The job fetched an existing clone.
+    """
+    FETCH
+    """
+    The job created a clone.
+    """
+    CLONE
+    """
+    The job replaced an existing clone.
+    """
+    RECLONE
+}
+
+"""
+The reason Sourcegraph did not calculate commit discovery duration.
+"""
+enum RepositoryFetchJobDiscoveryRejectionReason {
+    """
+    The fetch failed.
+    """
+    FETCH_FAILED
+    """
+    The fetch was not a background fetch.
+    """
+    NOT_BACKGROUND_FETCH
+    """
+    The operation was a clone or reclone.
+    """
+    CLONE_OR_RECLONE
+    """
+    The current default-branch tip was unavailable.
+    """
+    CURRENT_DEFAULT_BRANCH_TIP_MISSING
+    """
+    The previous default-branch tip was unavailable.
+    """
+    PREVIOUS_DEFAULT_BRANCH_TIP_MISSING
+    """
+    No refs changed.
+    """
+    NO_REF_CHANGE
+    """
+    The default-branch tip did not change.
+    """
+    DEFAULT_BRANCH_UNCHANGED
+    """
+    The discovered commit was not after the previous fetch.
+    """
+    COMMIT_NOT_AFTER_PREVIOUS_FETCH
+    """
+    The discovered commit date was not after the previous tip.
+    """
+    COMMIT_DATE_NOT_AFTER_PREVIOUS_TIP
+    """
+    The discovered commit date was not before the fetch.
+    """
+    COMMIT_DATE_NOT_BEFORE_FETCH
+}
+
+"""
+A live or completed repository fetch job.
+"""
+type RepositoryFetchJob {
+    """
+    The opaque identifier for this fetch job.
+    """
+    id: ID!
+    """
+    The opaque identifier of the queued job this fetch job ran as, if it was
+    queued. Unlike id, it stays the same when a queued job finishes and moves
+    to the fetch history.
+    """
+    queueJobID: ID
+    """
+    The repository fetched by the job.
+    """
+    repository: Repository!
+    """
+    The current or final state of the job.
+    """
+    state: RepositoryFetchJobState!
+    """
+    The event that scheduled the job.
+    """
+    reason: RepositoryFetchJobReason!
+    """
+    The Git operation performed by the job.
+    """
+    operation: RepositoryFetchJobOperation!
+    """
+    When the job entered the queue.
+    """
+    queuedAt: DateTime
+    """
+    When the job started.
+    """
+    startedAt: DateTime
+    """
+    When the job finished.
+    """
+    finishedAt: DateTime
+    """
+    The elapsed job duration in milliseconds.
+    """
+    durationMs: BigInt
+    """
+    Whether the fetch changed any refs.
+    """
+    refsChanged: Boolean
+    """
+    The default-branch tip after the fetch.
+    """
+    defaultBranchTip: String
+    """
+    The final failure message.
+    """
+    failureMessage: String
+    """
+    The commit discovery duration in milliseconds.
+    """
+    commitDiscoveryDurationMs: BigInt
+    """
+    Why Sourcegraph did not calculate commit discovery duration.
+    """
+    commitDiscoveryRejectionReason: RepositoryFetchJobDiscoveryRejectionReason
+}
+
+"""
+A cursor-paginated list of repository fetch jobs.
+"""
+type RepositoryFetchJobConnection {
+    """
+    The fetch jobs in this page.
+    """
+    nodes: [RepositoryFetchJob!]!
+    """
+    Pagination information for this page.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+extend type Query {
+    """
+    Repository fetch jobs, newest first. Requires REPO_MANAGEMENT#READ or
+    REPO_MANAGEMENT#WRITE permission, or site-administrator access.
+    Results are limited to repositories the user can access.
+    """
+    repositoryFetchJobs(
+        """
+        Returns the first n fetch jobs.
+        """
+        first: Int
+        """
+        Returns fetch jobs after this cursor.
+        """
+        after: String
+        """
+        Returns the last n fetch jobs.
+        """
+        last: Int
+        """
+        Returns fetch jobs before this cursor.
+        """
+        before: String
+        """
+        Limits results to this repository.
+        """
+        repoID: ID
+        """
+        Filters repository names with a case-insensitive substring match.
+        """
+        query: String
+        """
+        Filters by job state.
+        """
+        state: RepositoryFetchJobState
+        """
+        Filters by scheduling reason.
+        """
+        reason: RepositoryFetchJobReason
+        """
+        Filters by Git operation.
+        """
+        operation: RepositoryFetchJobOperation
+    ): RepositoryFetchJobConnection!
+}

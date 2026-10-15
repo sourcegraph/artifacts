@@ -89,7 +89,8 @@ CREATE TYPE github_app_kind AS ENUM (
     'REPO_SYNC',
     'USER_CREDENTIAL',
     'SITE_CREDENTIAL',
-    'AGENTS_REVIEW'
+    'AGENTS_REVIEW',
+    'REVIEW'
 );
 
 CREATE TYPE lsif_uploads_transition_columns AS (
@@ -317,6 +318,21 @@ CREATE FUNCTION delete_user_repo_permissions_on_user_soft_delete() RETURNS trigg
   END
 $$;
 
+CREATE FUNCTION enqueue_change_request_analysis() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.base_sha IS NOT DISTINCT FROM NEW.base_sha AND OLD.head_sha IS NOT DISTINCT FROM NEW.head_sha THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+    INSERT INTO change_request_analysis_jobs (tenant_id, change_request_id, base_oid, head_oid)
+    VALUES (NEW.tenant_id, NEW.id, NEW.base_sha, NEW.head_sha);
+    RETURN NEW;
+END;
+$$;
+
 CREATE FUNCTION extract_topics_from_metadata(external_service_type text, metadata jsonb) RETURNS text[]
     LANGUAGE plpgsql IMMUTABLE
     AS $_$
@@ -334,6 +350,32 @@ EXCEPTION WHEN others THEN
     RETURN '{}'::text[];
 END;
 $_$;
+
+CREATE FUNCTION func_codeintel_destination_deleted_uploads() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        INSERT INTO codeintel_destination_write_jobs (tenant_id, upload_id, op, queued_at, process_after)
+        SELECT o.tenant_id, o.id, 'delete', NOW(), '-infinity' FROM old o ORDER BY o.id
+        ON CONFLICT ON CONSTRAINT codeintel_destination_write_jobs_tenant_id_upload_id_key DO UPDATE SET
+            op = 'delete', state = 'queued', num_failures = 0, num_resets = 0, failure_message = NULL,
+            queued_at = EXCLUDED.queued_at, started_at = NULL, finished_at = NULL, process_after = EXCLUDED.process_after;
+        RETURN NULL;
+    END;
+$$;
+
+CREATE FUNCTION func_codeintel_destination_retired_upload() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        INSERT INTO codeintel_destination_write_jobs (tenant_id, upload_id, op, queued_at, process_after)
+        VALUES (NEW.tenant_id, NEW.id, 'delete', NOW(), '-infinity')
+        ON CONFLICT ON CONSTRAINT codeintel_destination_write_jobs_tenant_id_upload_id_key DO UPDATE SET
+            op = 'delete', state = 'queued', num_failures = 0, num_resets = 0, failure_message = NULL,
+            queued_at = EXCLUDED.queued_at, started_at = NULL, finished_at = NULL, process_after = EXCLUDED.process_after;
+        RETURN NULL;
+    END;
+$$;
 
 CREATE FUNCTION func_configuration_policies_delete() RETURNS trigger
     LANGUAGE plpgsql
@@ -1306,6 +1348,26 @@ CREATE SEQUENCE auth_provider_wizard_drafts_id_seq
 
 ALTER SEQUENCE auth_provider_wizard_drafts_id_seq OWNED BY auth_provider_wizard_drafts.id;
 
+CREATE TABLE batch_change_agent_action_receipts (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    agent_id integer NOT NULL,
+    request_id uuid NOT NULL,
+    action_kind text NOT NULL,
+    request_payload jsonb NOT NULL,
+    result_payload jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE batch_change_agent_action_receipts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_change_agent_action_receipts_id_seq OWNED BY batch_change_agent_action_receipts.id;
+
 CREATE TABLE batch_change_agent_deepsearch_conversation_mappings (
     id integer NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -1590,12 +1652,15 @@ CREATE TABLE batch_change_agents (
     read_token uuid DEFAULT gen_random_uuid() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    deleted_at timestamp with time zone
+    deleted_at timestamp with time zone,
+    visibility text
 );
 
 COMMENT ON COLUMN batch_change_agents.rand_id IS 'Stable, non-enumerable public identifier used to derive externally-visible names (e.g. the materialized batch change name).';
 
 COMMENT ON COLUMN batch_change_agents.read_token IS 'Rotatable token granting read-only downstream access (e.g. SSE stream snapshots and shared read endpoints).';
+
+COMMENT ON COLUMN batch_change_agents.visibility IS 'Owner-chosen visibility (link-only or global), clamped by the instance sharing setting. NULL follows the instance setting.';
 
 CREATE SEQUENCE batch_change_agents_id_seq
     AS integer
@@ -1840,7 +1905,9 @@ CREATE TABLE batch_spec_workspace_execution_jobs (
     user_id integer NOT NULL,
     version integer DEFAULT 1 NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    changeset_hook_job_id bigint
+    changeset_hook_job_id bigint,
+    initiated_by text,
+    CONSTRAINT batch_spec_workspace_execution_jobs_initiated_by_check CHECK ((initiated_by = ANY (ARRAY['user'::text, 'agent'::text])))
 );
 
 COMMENT ON COLUMN batch_spec_workspace_execution_jobs.changeset_hook_job_id IS 'Deprecated read-compatible column retained for mixed-version rollouts; new non-null values are rejected. Drop after Sourcegraph 8.0.';
@@ -1896,7 +1963,8 @@ CREATE VIEW batch_spec_workspace_execution_jobs_with_rank WITH (security_invoker
     q.place_in_global_queue,
     q.place_in_user_queue,
     j.tenant_id,
-    j.changeset_hook_job_id
+    j.changeset_hook_job_id,
+    j.initiated_by
    FROM (batch_spec_workspace_execution_jobs j
      LEFT JOIN batch_spec_workspace_execution_queue q ON ((j.id = q.id)));
 
@@ -2058,6 +2126,7 @@ CREATE TABLE changesets (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     auto_merge_method text,
     sync_skip_reason text,
+    publish_entitlement_window_started_at timestamp with time zone,
     CONSTRAINT changesets_batch_change_ids_check CHECK ((jsonb_typeof(batch_change_ids) = 'object'::text)),
     CONSTRAINT changesets_external_id_check CHECK ((external_id <> ''::text)),
     CONSTRAINT changesets_external_service_type_not_blank CHECK ((external_service_type <> ''::text)),
@@ -2068,6 +2137,8 @@ CREATE TABLE changesets (
 COMMENT ON COLUMN changesets.external_title IS 'Normalized property generated on save using Changeset.Title()';
 
 COMMENT ON COLUMN changesets.sync_skip_reason IS 'Why the changeset sync worker decided to skip syncing this changeset for a while (e.g. missing_credentials). While set, the scheduler enqueues sync jobs for it at low priority. Cleared on a successful sync or when a matching credential is added.';
+
+COMMENT ON COLUMN changesets.publish_entitlement_window_started_at IS 'Start of the published-changesets entitlement window in which one unit was reserved for sending this changeset of an agent-managed batch change to the code host for the first time. NULL when no unit is held. Cleared when the reconciler fails the changeset for good; the unit is released if the changeset never reached the code host.';
 
 CREATE TABLE repo (
     id integer NOT NULL,
@@ -2129,6 +2200,117 @@ CREATE SEQUENCE cached_available_indexers_id_seq
     CACHE 1;
 
 ALTER SEQUENCE cached_available_indexers_id_seq OWNED BY cached_available_indexers.id;
+
+CREATE TABLE change_request_analysis_jobs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    base_oid text NOT NULL,
+    head_oid text NOT NULL,
+    diff_base_oid text,
+    skipped boolean DEFAULT false NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE change_request_analysis_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_analysis_jobs_id_seq OWNED BY change_request_analysis_jobs.id;
+
+CREATE TABLE change_request_file_groupings (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    diff_base_oid text NOT NULL,
+    head_oid text NOT NULL,
+    files jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE change_request_team_members (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    github_app_installation_id integer NOT NULL,
+    team_slug text NOT NULL,
+    member_id text NOT NULL,
+    synced_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE change_request_team_members_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_team_members_id_seq OWNED BY change_request_team_members.id;
+
+CREATE TABLE change_requests (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    external_service_type text NOT NULL,
+    code_host_url text NOT NULL,
+    external_repository_id text NOT NULL,
+    repository_name text NOT NULL,
+    code_host_id text NOT NULL,
+    number bigint NOT NULL,
+    title text NOT NULL,
+    body text NOT NULL,
+    external_url text NOT NULL,
+    state text NOT NULL,
+    draft boolean NOT NULL,
+    author text NOT NULL,
+    assignees text[] DEFAULT '{}'::text[] NOT NULL,
+    requested_reviewers text[] DEFAULT '{}'::text[] NOT NULL,
+    requested_teams text[] DEFAULT '{}'::text[] NOT NULL,
+    labels text[] DEFAULT '{}'::text[] NOT NULL,
+    head_ref text NOT NULL,
+    head_sha text NOT NULL,
+    base_ref text NOT NULL,
+    base_sha text NOT NULL,
+    external_created_at timestamp with time zone NOT NULL,
+    external_updated_at timestamp with time zone NOT NULL,
+    closed_at timestamp with time zone,
+    merged_at timestamp with time zone,
+    synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    external_data jsonb NOT NULL,
+    author_external_id text,
+    author_email text,
+    author_normalized text GENERATED ALWAYS AS (lower(author)) STORED,
+    requested_reviewer_data jsonb GENERATED ALWAYS AS ((external_data -> 'requested_reviewers'::text)) STORED,
+    stack_id text,
+    stack_position integer,
+    CONSTRAINT change_requests_stack_check CHECK ((((stack_id IS NULL) = (stack_position IS NULL)) AND ((stack_position IS NULL) OR (stack_position > 0))))
+);
+
+COMMENT ON COLUMN change_requests.author_external_id IS 'Author account ID on its code host, populated by the provider sync adapter.';
+
+COMMENT ON COLUMN change_requests.author_email IS 'Lowercase author email reported by the code host, populated by the provider sync adapter.';
+
+COMMENT ON COLUMN change_requests.requested_reviewer_data IS 'Requested reviewer identities from the GitHub snapshot, stored separately to avoid reading the full external_data payload when filtering.';
+
+CREATE SEQUENCE change_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_requests_id_seq OWNED BY change_requests.id;
 
 CREATE TABLE changeset_events (
     id bigint NOT NULL,
@@ -2299,8 +2481,12 @@ CREATE TABLE changeset_jobs (
     queued_at timestamp with time zone DEFAULT now(),
     cancel boolean DEFAULT false NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    CONSTRAINT changeset_jobs_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text))
+    publication_outcome_state text,
+    CONSTRAINT changeset_jobs_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT changeset_jobs_publication_outcome_state_check CHECK ((publication_outcome_state = ANY (ARRAY['pending'::text, 'reconciling'::text, 'done'::text])))
 );
+
+COMMENT ON COLUMN changeset_jobs.publication_outcome_state IS 'Set on direct UI publication jobs: pending until the job hands its changeset to the reconciler, reconciling while that reconcile is unfinished, done once its outcome is recorded or a newer spec takes the changeset away. NULL for other jobs.';
 
 CREATE SEQUENCE changeset_jobs_id_seq
     START WITH 1
@@ -2748,6 +2934,122 @@ CREATE VIEW codeintel_configuration_policies_repository_pattern_lookup WITH (sec
  SELECT policy_id,
     repo_id
    FROM lsif_configuration_policies_repository_pattern_lookup;
+
+CREATE TABLE codeintel_destination_backfill_jobs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    upload_id integer NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    round integer DEFAULT 0 NOT NULL
+);
+
+COMMENT ON TABLE codeintel_destination_backfill_jobs IS 'Completed uploads the backfill planner selected to be written into the new code intelligence store. Jobs are kept once done, so every upload is planned once; the table is dropped once backfilling is over.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_jobs.upload_id IS 'The upload whose bundle to produce from the codeintel tables.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_jobs.state IS 'dbworker job state. Uploads that were already written are planned as completed.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_jobs.round IS 'The backfill round that planned the job. Producers drop what they cached of the tenant when a new round starts.';
+
+CREATE SEQUENCE codeintel_destination_backfill_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE codeintel_destination_backfill_jobs_id_seq OWNED BY codeintel_destination_backfill_jobs.id;
+
+CREATE TABLE codeintel_destination_backfill_rounds (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    round integer DEFAULT 0 NOT NULL,
+    state text DEFAULT 'idle'::text NOT NULL,
+    reset_round integer,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT codeintel_destination_backfill_rounds_state_check CHECK ((state = ANY (ARRAY['idle'::text, 'starting'::text, 'active'::text])))
+);
+
+COMMENT ON TABLE codeintel_destination_backfill_rounds IS 'The backfill round of each tenant. Dropped with codeintel_destination_backfill_jobs once backfilling is over.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_rounds.round IS 'The current or last backfill round.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_rounds.state IS 'idle: no round runs, and the destination writer retires uploads. starting: a round waits for the write queue to empty. active: the round runs, and the destination writer retires no uploads.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_rounds.reset_round IS 'A round whose backfill work the destination writer could not ingest; the planner drops its work and starts the next round.';
+
+CREATE SEQUENCE codeintel_destination_backfill_rounds_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE codeintel_destination_backfill_rounds_id_seq OWNED BY codeintel_destination_backfill_rounds.id;
+
+CREATE TABLE codeintel_destination_write_jobs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    upload_id integer NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    num_resets integer DEFAULT 0 NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone DEFAULT now() NOT NULL,
+    op text DEFAULT 'ingest'::text NOT NULL,
+    backfill_round integer
+);
+
+COMMENT ON TABLE codeintel_destination_write_jobs IS 'Uploads the destination writer must write into or delete from the new code intelligence store. A job is deleted once it is done.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.id IS 'Unique queue job identifier.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.tenant_id IS 'Tenant that owns the upload and queue job.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.upload_id IS 'The upload whose bundle to write.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.state IS 'Job state: queued, processing, or errored.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.num_failures IS 'Number of failed processing attempts.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.num_resets IS 'Number of processing attempts that were interrupted.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.failure_message IS 'Most recent processing failure.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.queued_at IS 'Time the upload was last enqueued.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.started_at IS 'Time the most recent processing attempt began.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.finished_at IS 'Time the job errored.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.process_after IS 'Earliest time the job may be dequeued: when it was queued, or after the backoff of a failed attempt.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.op IS 'What the destination writer does with the upload: ingest writes its bundle, delete detaches it. A job always holds the latest intent for its upload.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.backfill_round IS 'The backfill round that produced the ingested bundle, or NULL for a bundle of the upload hook. A bundle of the backfill may omit documents it wrote in other bundles of its round.';
+
+CREATE SEQUENCE codeintel_destination_write_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE codeintel_destination_write_jobs_id_seq OWNED BY codeintel_destination_write_jobs.id;
 
 CREATE TABLE codeintel_inference_scripts (
     insert_timestamp timestamp with time zone DEFAULT now() NOT NULL,
@@ -3751,7 +4053,8 @@ CREATE TABLE external_service_sync_jobs (
     repos_modified integer DEFAULT 0 NOT NULL,
     repos_unmodified integer DEFAULT 0 NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    repos_wanted_to_delete integer DEFAULT 0 NOT NULL
+    repos_wanted_to_delete integer DEFAULT 0 NOT NULL,
+    repos_by_method jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 COMMENT ON COLUMN external_service_sync_jobs.repos_synced IS 'The number of repos synced during this sync job.';
@@ -3765,6 +4068,8 @@ COMMENT ON COLUMN external_service_sync_jobs.repos_deleted IS 'The number of rep
 COMMENT ON COLUMN external_service_sync_jobs.repos_modified IS 'The number of existing repos whose metadata has changed during this sync job.';
 
 COMMENT ON COLUMN external_service_sync_jobs.repos_unmodified IS 'The number of existing repos whose metadata did not change during this sync job.';
+
+COMMENT ON COLUMN external_service_sync_jobs.repos_by_method IS 'Per-method repository counters: a list of {option, value, errors, added, modified, unmodified} objects, one per code host connection config option (e.g. "orgs") and value (e.g. the org name) that listed repositories.';
 
 CREATE TABLE external_services (
     id bigint NOT NULL,
@@ -3894,7 +4199,9 @@ CREATE TABLE github_apps (
     domain text DEFAULT 'repos'::text NOT NULL,
     kind github_app_kind DEFAULT 'REPO_SYNC'::github_app_kind NOT NULL,
     creator_id bigint DEFAULT 0 NOT NULL,
-    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    permissions jsonb,
+    CONSTRAINT github_apps_permissions_is_object CHECK (((permissions IS NULL) OR (jsonb_typeof(permissions) = 'object'::text)))
 );
 
 CREATE SEQUENCE github_apps_id_seq
@@ -3927,6 +4234,7 @@ CREATE TABLE gitserver_repos (
     is_on_primary boolean DEFAULT true NOT NULL,
     default_branch_tip_commit_id text,
     default_branch_tip_commit_date timestamp with time zone,
+    consecutive_external_connectivity_errors integer DEFAULT 0 NOT NULL,
     CONSTRAINT gitserver_repos_default_branch_tip_metadata_consistent CHECK ((((default_branch_tip_commit_id IS NULL) = (default_branch_tip_commit_date IS NULL)) AND ((default_branch_tip_commit_id IS NULL) OR (default_branch_tip_commit_id ~ '^[^[:space:]](.*[^[:space:]])?$'::text))))
 );
 
@@ -4257,6 +4565,63 @@ CREATE SEQUENCE idp_user_consents_id_seq
     CACHE 1;
 
 ALTER SEQUENCE idp_user_consents_id_seq OWNED BY idp_user_consents.id;
+
+CREATE TABLE inference_model_routes (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    model_ref text NOT NULL,
+    provider_id bigint NOT NULL,
+    route_type text NOT NULL,
+    upstream_model text
+);
+
+CREATE SEQUENCE inference_model_routes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE inference_model_routes_id_seq OWNED BY inference_model_routes.id;
+
+CREATE TABLE inference_providers (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    name text NOT NULL,
+    kind text NOT NULL,
+    automatic_coverage boolean DEFAULT false NOT NULL,
+    config bytea NOT NULL,
+    encryption_key_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE inference_providers_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE inference_providers_id_seq OWNED BY inference_providers.id;
+
+CREATE TABLE inference_routing_configuration (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    fallback_mode text DEFAULT 'sourcegraph'::text NOT NULL,
+    fallback_models jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE inference_routing_configuration_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE inference_routing_configuration_id_seq OWNED BY inference_routing_configuration.id;
 
 CREATE TABLE insights_query_runner_jobs (
     id integer NOT NULL,
@@ -5146,7 +5511,8 @@ CREATE TABLE notifications (
     occurrence_count integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    user_id integer
+    user_id integer,
+    kind text DEFAULT ''::text NOT NULL
 );
 
 COMMENT ON TABLE notifications IS 'Persisted admin and user notifications with deduplication and dismiss/reoccur lifecycle.';
@@ -5781,7 +6147,8 @@ CREATE VIEW reconciler_changesets WITH (security_invoker='true') AS
     c.previous_failure_message,
     c.tenant_id,
     c.auto_merge_method,
-    c.sync_skip_reason
+    c.sync_skip_reason,
+    c.publish_entitlement_window_started_at
    FROM (changesets c
      JOIN repo r ON ((r.id = c.repo_id)))
   WHERE ((r.deleted_at IS NULL) AND (EXISTS ( SELECT 1
@@ -6068,7 +6435,8 @@ CREATE TABLE repo_update_jobs (
     repository_id integer NOT NULL,
     priority integer DEFAULT 1 NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    is_reclone boolean DEFAULT false NOT NULL
+    is_reclone boolean DEFAULT false NOT NULL,
+    reason text DEFAULT 'UNKNOWN'::text NOT NULL
 );
 
 CREATE SEQUENCE repo_update_jobs_id_seq
@@ -6079,6 +6447,67 @@ CREATE SEQUENCE repo_update_jobs_id_seq
     CACHE 1;
 
 ALTER SEQUENCE repo_update_jobs_id_seq OWNED BY repo_update_jobs.id;
+
+CREATE TABLE repository_fetch_history (
+    id bigint NOT NULL,
+    repository_id integer NOT NULL,
+    repo_update_job_id bigint,
+    reason text NOT NULL,
+    operation text NOT NULL,
+    started_at timestamp with time zone NOT NULL,
+    finished_at timestamp with time zone NOT NULL,
+    success boolean NOT NULL,
+    failure_message text,
+    refs_changed boolean,
+    default_branch_tip text,
+    commit_discovery_duration_ms bigint,
+    commit_discovery_rejection_reason text,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    CONSTRAINT repository_fetch_history_one_discovery_result CHECK (((commit_discovery_duration_ms IS NULL) <> (commit_discovery_rejection_reason IS NULL))),
+    CONSTRAINT repository_fetch_history_valid_discovery_duration CHECK (((commit_discovery_duration_ms IS NULL) OR (commit_discovery_duration_ms >= 0))),
+    CONSTRAINT repository_fetch_history_valid_failure_message CHECK (((success AND (failure_message IS NULL)) OR ((NOT success) AND (failure_message IS NOT NULL)))),
+    CONSTRAINT repository_fetch_history_valid_times CHECK ((finished_at >= started_at))
+);
+
+CREATE SEQUENCE repository_fetch_history_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE repository_fetch_history_id_seq OWNED BY repository_fetch_history.id;
+
+CREATE TABLE review_repository_sync_jobs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    github_app_id integer NOT NULL,
+    github_installation_id bigint NOT NULL,
+    external_repository_id bigint NOT NULL,
+    repository_name text NOT NULL,
+    pull_request_number bigint NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE review_repository_sync_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE review_repository_sync_jobs_id_seq OWNED BY review_repository_sync_jobs.id;
 
 CREATE TABLE role_permissions (
     role_id integer NOT NULL,
@@ -6745,6 +7174,7 @@ CREATE TABLE user_external_accounts (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     kind text DEFAULT 'AUTH'::text NOT NULL,
     refresh_failure_at timestamp with time zone,
+    scopes text[],
     CONSTRAINT user_external_accounts_kind_not_empty CHECK ((btrim(kind) <> ''::text)),
     CONSTRAINT user_external_accounts_kind_valid CHECK ((kind = ANY (ARRAY['AUTH'::text, 'BATCH_CHANGES'::text])))
 );
@@ -6752,6 +7182,8 @@ CREATE TABLE user_external_accounts (
 COMMENT ON COLUMN user_external_accounts.kind IS 'Purpose of this external account: AUTH (authentication), BATCH_CHANGES (batch changes credentials), etc.';
 
 COMMENT ON COLUMN user_external_accounts.refresh_failure_at IS 'Timestamp of the first OAuth refresh failure observed against the current refresh_token. Set on the first failure and reset to NULL whenever auth_data is rewritten (successful refresh or browser re-auth). Used together with a minimum-interval check to ride out provider eventual-consistency lags before clearing a refresh_token.';
+
+COMMENT ON COLUMN user_external_accounts.scopes IS 'Provider-granted OAuth scopes, independent of token refresh. NULL means unknown; an empty array means a known empty OAuth scope set. GitHub App permissions are not OAuth scopes.';
 
 CREATE SEQUENCE user_external_accounts_id_seq
     START WITH 1
@@ -7002,6 +7434,8 @@ ALTER TABLE ONLY assigned_teams ALTER COLUMN id SET DEFAULT nextval('assigned_te
 
 ALTER TABLE ONLY auth_provider_wizard_drafts ALTER COLUMN id SET DEFAULT nextval('auth_provider_wizard_drafts_id_seq'::regclass);
 
+ALTER TABLE ONLY batch_change_agent_action_receipts ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_action_receipts_id_seq'::regclass);
+
 ALTER TABLE ONLY batch_change_agent_deepsearch_conversation_mappings ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_deepsearch_conversation_mappings_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_change_agent_inbox_cursors ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_inbox_cursors_id_seq'::regclass);
@@ -7054,6 +7488,12 @@ ALTER TABLE ONLY batch_specs ALTER COLUMN id SET DEFAULT nextval('batch_specs_id
 
 ALTER TABLE ONLY cached_available_indexers ALTER COLUMN id SET DEFAULT nextval('cached_available_indexers_id_seq'::regclass);
 
+ALTER TABLE ONLY change_request_analysis_jobs ALTER COLUMN id SET DEFAULT nextval('change_request_analysis_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_team_members ALTER COLUMN id SET DEFAULT nextval('change_request_team_members_id_seq'::regclass);
+
+ALTER TABLE ONLY change_requests ALTER COLUMN id SET DEFAULT nextval('change_requests_id_seq'::regclass);
+
 ALTER TABLE ONLY changeset_events ALTER COLUMN id SET DEFAULT nextval('changeset_events_id_seq'::regclass);
 
 ALTER TABLE ONLY changeset_followup_commits ALTER COLUMN id SET DEFAULT nextval('changeset_followup_commits_id_seq'::regclass);
@@ -7093,6 +7533,12 @@ ALTER TABLE ONLY code_hosts ALTER COLUMN id SET DEFAULT nextval('code_hosts_id_s
 ALTER TABLE ONLY codeintel_autoindex_queue ALTER COLUMN id SET DEFAULT nextval('codeintel_autoindex_queue_id_seq'::regclass);
 
 ALTER TABLE ONLY codeintel_autoindexing_exceptions ALTER COLUMN id SET DEFAULT nextval('codeintel_autoindexing_exceptions_id_seq'::regclass);
+
+ALTER TABLE ONLY codeintel_destination_backfill_jobs ALTER COLUMN id SET DEFAULT nextval('codeintel_destination_backfill_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY codeintel_destination_backfill_rounds ALTER COLUMN id SET DEFAULT nextval('codeintel_destination_backfill_rounds_id_seq'::regclass);
+
+ALTER TABLE ONLY codeintel_destination_write_jobs ALTER COLUMN id SET DEFAULT nextval('codeintel_destination_write_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY codeintel_inference_scripts ALTER COLUMN id SET DEFAULT nextval('codeintel_inference_scripts_id_seq'::regclass);
 
@@ -7198,6 +7644,12 @@ ALTER TABLE ONLY idp_tokens ALTER COLUMN id SET DEFAULT nextval('idp_tokens_id_s
 
 ALTER TABLE ONLY idp_user_consents ALTER COLUMN id SET DEFAULT nextval('idp_user_consents_id_seq'::regclass);
 
+ALTER TABLE ONLY inference_model_routes ALTER COLUMN id SET DEFAULT nextval('inference_model_routes_id_seq'::regclass);
+
+ALTER TABLE ONLY inference_providers ALTER COLUMN id SET DEFAULT nextval('inference_providers_id_seq'::regclass);
+
+ALTER TABLE ONLY inference_routing_configuration ALTER COLUMN id SET DEFAULT nextval('inference_routing_configuration_id_seq'::regclass);
+
 ALTER TABLE ONLY insights_query_runner_jobs ALTER COLUMN id SET DEFAULT nextval('insights_query_runner_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY insights_query_runner_jobs_dependencies ALTER COLUMN id SET DEFAULT nextval('insights_query_runner_jobs_dependencies_id_seq'::regclass);
@@ -7283,6 +7735,10 @@ ALTER TABLE ONLY repo_paths ALTER COLUMN id SET DEFAULT nextval('repo_paths_id_s
 ALTER TABLE ONLY repo_statistics ALTER COLUMN id SET DEFAULT nextval('repo_statistics_id_seq'::regclass);
 
 ALTER TABLE ONLY repo_update_jobs ALTER COLUMN id SET DEFAULT nextval('repo_update_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY repository_fetch_history ALTER COLUMN id SET DEFAULT nextval('repository_fetch_history_id_seq'::regclass);
+
+ALTER TABLE ONLY review_repository_sync_jobs ALTER COLUMN id SET DEFAULT nextval('review_repository_sync_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY roles ALTER COLUMN id SET DEFAULT nextval('roles_id_seq'::regclass);
 
@@ -7384,6 +7840,12 @@ ALTER TABLE ONLY assigned_teams
 
 ALTER TABLE ONLY auth_provider_wizard_drafts
     ADD CONSTRAINT auth_provider_wizard_drafts_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_change_agent_action_receipts
+    ADD CONSTRAINT batch_change_agent_action_receipts_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_change_agent_action_receipts
+    ADD CONSTRAINT batch_change_agent_action_receipts_request_key UNIQUE (tenant_id, agent_id, request_id);
 
 ALTER TABLE ONLY batch_change_agent_deepsearch_conversation_mappings
     ADD CONSTRAINT batch_change_agent_deepsearch_conversation_mappings_pkey PRIMARY KEY (id);
@@ -7499,6 +7961,24 @@ ALTER TABLE ONLY cached_available_indexers
 ALTER TABLE ONLY cached_available_indexers
     ADD CONSTRAINT cached_available_indexers_repository_id UNIQUE (repository_id);
 
+ALTER TABLE ONLY change_request_analysis_jobs
+    ADD CONSTRAINT change_request_analysis_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_file_groupings
+    ADD CONSTRAINT change_request_file_groupings_pkey PRIMARY KEY (tenant_id, change_request_id, diff_base_oid, head_oid);
+
+ALTER TABLE ONLY change_request_team_members
+    ADD CONSTRAINT change_request_team_members_key UNIQUE (tenant_id, github_app_installation_id, team_slug, member_id);
+
+ALTER TABLE ONLY change_request_team_members
+    ADD CONSTRAINT change_request_team_members_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_requests
+    ADD CONSTRAINT change_requests_key UNIQUE (tenant_id, external_service_type, code_host_url, external_repository_id, number);
+
+ALTER TABLE ONLY change_requests
+    ADD CONSTRAINT change_requests_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY changeset_events
     ADD CONSTRAINT changeset_events_changeset_id_kind_key_unique UNIQUE (changeset_id, kind, key);
 
@@ -7579,6 +8059,24 @@ ALTER TABLE ONLY codeintel_autoindexing_exceptions
 
 ALTER TABLE ONLY codeintel_commit_dates
     ADD CONSTRAINT codeintel_commit_dates_pkey PRIMARY KEY (repository_id, commit_bytea);
+
+ALTER TABLE ONLY codeintel_destination_backfill_jobs
+    ADD CONSTRAINT codeintel_destination_backfill_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY codeintel_destination_backfill_jobs
+    ADD CONSTRAINT codeintel_destination_backfill_jobs_tenant_id_upload_id_key UNIQUE (tenant_id, upload_id);
+
+ALTER TABLE ONLY codeintel_destination_backfill_rounds
+    ADD CONSTRAINT codeintel_destination_backfill_rounds_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY codeintel_destination_backfill_rounds
+    ADD CONSTRAINT codeintel_destination_backfill_rounds_tenant_id_key UNIQUE (tenant_id);
+
+ALTER TABLE ONLY codeintel_destination_write_jobs
+    ADD CONSTRAINT codeintel_destination_write_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY codeintel_destination_write_jobs
+    ADD CONSTRAINT codeintel_destination_write_jobs_tenant_id_upload_id_key UNIQUE (tenant_id, upload_id);
 
 ALTER TABLE ONLY codeintel_inference_scripts
     ADD CONSTRAINT codeintel_inference_scripts_pkey PRIMARY KEY (id);
@@ -7874,6 +8372,21 @@ ALTER TABLE ONLY idp_tokens
 ALTER TABLE ONLY idp_user_consents
     ADD CONSTRAINT idp_user_consents_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY inference_model_routes
+    ADD CONSTRAINT inference_model_routes_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY inference_providers
+    ADD CONSTRAINT inference_providers_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY inference_providers
+    ADD CONSTRAINT inference_providers_unique_name UNIQUE (tenant_id, name);
+
+ALTER TABLE ONLY inference_routing_configuration
+    ADD CONSTRAINT inference_routing_configuration_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY inference_routing_configuration
+    ADD CONSTRAINT inference_routing_configuration_unique_tenant UNIQUE (tenant_id);
+
 ALTER TABLE ONLY insights_query_runner_jobs_dependencies
     ADD CONSTRAINT insights_query_runner_jobs_dependencies_pkey PRIMARY KEY (id);
 
@@ -8086,6 +8599,12 @@ ALTER TABLE ONLY repo_statistics
 
 ALTER TABLE ONLY repo_update_jobs
     ADD CONSTRAINT repo_update_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY repository_fetch_history
+    ADD CONSTRAINT repository_fetch_history_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY review_repository_sync_jobs
+    ADD CONSTRAINT review_repository_sync_jobs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY role_permissions
     ADD CONSTRAINT role_permissions_pkey PRIMARY KEY (permission_id, role_id);
@@ -8418,6 +8937,30 @@ CREATE INDEX bitbucket_project_permissions_dequeue_order_idx ON explicit_permiss
 
 CREATE INDEX cached_available_indexers_num_events ON cached_available_indexers USING btree (num_events DESC) WHERE ((available_indexers)::text <> '{}'::text);
 
+CREATE INDEX change_request_analysis_jobs_dequeue_idx ON change_request_analysis_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX change_request_analysis_jobs_history_idx ON change_request_analysis_jobs USING btree (tenant_id, change_request_id, id DESC);
+
+CREATE INDEX change_request_analysis_jobs_snapshot_idx ON change_request_analysis_jobs USING btree (tenant_id, change_request_id, base_oid, head_oid, id DESC);
+
+CREATE INDEX change_requests_author_email_idx ON change_requests USING btree (tenant_id, external_service_type, author_email);
+
+CREATE INDEX change_requests_author_external_id_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, author_external_id);
+
+CREATE INDEX change_requests_author_login_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, author_normalized);
+
+CREATE INDEX change_requests_created_at_idx ON change_requests USING btree (tenant_id, external_created_at, id);
+
+CREATE INDEX change_requests_head_sha_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, external_repository_id, head_sha);
+
+CREATE INDEX change_requests_requested_reviewers_idx ON change_requests USING gin (requested_reviewers);
+
+CREATE INDEX change_requests_requested_teams_idx ON change_requests USING gin (requested_teams);
+
+CREATE INDEX change_requests_stack_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, external_repository_id, stack_id) WHERE (stack_id IS NOT NULL);
+
+CREATE INDEX change_requests_state_created_at_idx ON change_requests USING btree (tenant_id, state, external_created_at, id);
+
 CREATE UNIQUE INDEX changeset_followup_commits_changeset_id_ordinal ON changeset_followup_commits USING btree (tenant_id, changeset_id, ordinal);
 
 CREATE INDEX changeset_followup_commits_unpushed ON changeset_followup_commits USING btree (tenant_id, changeset_id, ordinal) WHERE ((pushed_commit_sha IS NULL) AND (superseded_at IS NULL));
@@ -8447,6 +8990,8 @@ CREATE INDEX changeset_hook_jobs_dequeue_order_idx ON changeset_hook_jobs USING 
 CREATE INDEX changeset_jobs_bulk_group_idx ON changeset_jobs USING btree (bulk_group);
 
 CREATE INDEX changeset_jobs_dequeue_order_idx ON changeset_jobs USING btree (((state = 'errored'::text)), updated_at DESC, id) INCLUDE (process_after, finished_at) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE UNIQUE INDEX changeset_jobs_reconciling_publication_outcome ON changeset_jobs USING btree (tenant_id, changeset_id) WHERE (publication_outcome_state = 'reconciling'::text);
 
 CREATE INDEX changeset_jobs_state_idx ON changeset_jobs USING btree (state);
 
@@ -8507,6 +9052,10 @@ CREATE INDEX cm_trigger_jobs_state_idx ON cm_trigger_jobs USING btree (state);
 CREATE INDEX cm_webhooks_monitor ON cm_webhooks USING btree (monitor);
 
 CREATE UNIQUE INDEX codeintel_autoindex_queue_repository_id_commit ON codeintel_autoindex_queue USING btree (repository_id, rev);
+
+CREATE INDEX codeintel_destination_backfill_jobs_dequeue ON codeintel_destination_backfill_jobs USING btree (state, process_after, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX codeintel_destination_write_jobs_dequeue ON codeintel_destination_write_jobs USING btree (tenant_id, process_after, id) WHERE (state = 'queued'::text);
 
 CREATE UNIQUE INDEX codeintel_langugage_support_requests_user_id_language ON codeintel_langugage_support_requests USING btree (user_id, language_id, tenant_id);
 
@@ -8604,6 +9153,8 @@ CREATE INDEX exhaustive_search_repo_jobs_state ON exhaustive_search_repo_jobs US
 
 CREATE INDEX exhaustive_search_repo_revision_jobs_dequeue_order_idx ON exhaustive_search_repo_revision_jobs USING btree (((state = 'errored'::text)), updated_at DESC, id) INCLUDE (process_after, finished_at) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
+CREATE INDEX exhaustive_search_repo_revision_jobs_search_repo_job_id ON exhaustive_search_repo_revision_jobs USING btree (search_repo_job_id);
+
 CREATE INDEX exhaustive_search_repo_revision_jobs_state ON exhaustive_search_repo_revision_jobs USING btree (state);
 
 CREATE INDEX explicit_permissions_bitbucket_projects_jobs_project_key_extern ON explicit_permissions_bitbucket_projects_jobs USING btree (project_key, external_service_id, state);
@@ -8635,6 +9186,8 @@ CREATE INDEX gitserver_repo_size_bytes ON gitserver_repos USING btree (repo_size
 CREATE INDEX gitserver_repos_cloned_status_idx ON gitserver_repos USING btree (repo_id) WHERE (clone_status = 'cloned'::text);
 
 CREATE INDEX gitserver_repos_cloning_status_idx ON gitserver_repos USING btree (repo_id) WHERE (clone_status = 'cloning'::text);
+
+CREATE INDEX gitserver_repos_external_connectivity_errors_idx ON gitserver_repos USING btree (tenant_id, repo_id) WHERE (consecutive_external_connectivity_errors >= 3);
 
 CREATE INDEX gitserver_repos_last_changed_idx ON gitserver_repos USING btree (last_changed, repo_id);
 
@@ -8703,6 +9256,14 @@ CREATE INDEX idx_repo_topics ON repo USING gin (topics);
 CREATE INDEX idx_repo_update_jobs_repository_id ON repo_update_jobs USING btree (tenant_id, repository_id);
 
 CREATE INDEX idx_user_id_created_at ON cody_audit_log USING btree (user_id, created_at);
+
+CREATE INDEX inference_model_routes_provider_id_idx ON inference_model_routes USING btree (provider_id);
+
+CREATE UNIQUE INDEX inference_model_routes_unique_exclusion ON inference_model_routes USING btree (tenant_id, provider_id, model_ref) WHERE (route_type = 'exclusion'::text);
+
+CREATE UNIQUE INDEX inference_model_routes_unique_explicit_model ON inference_model_routes USING btree (tenant_id, model_ref) WHERE (route_type = 'explicit'::text);
+
+CREATE UNIQUE INDEX inference_providers_unique_automatic_coverage_kind ON inference_providers USING btree (tenant_id, kind) WHERE automatic_coverage;
 
 CREATE INDEX insights_query_runner_jobs_cost_idx ON insights_query_runner_jobs USING btree (cost);
 
@@ -8787,6 +9348,8 @@ CREATE INDEX notebooks_namespace_user_id_idx ON notebooks USING btree (namespace
 CREATE INDEX notebooks_title_trgm_idx ON notebooks USING gin (title gin_trgm_ops);
 
 CREATE INDEX notifications_tenant_active_idx ON notifications USING btree (tenant_id) WHERE (dismissed_at IS NULL);
+
+CREATE INDEX notifications_tenant_kind_idx ON notifications USING btree (tenant_id, kind) WHERE (kind <> ''::text);
 
 CREATE INDEX notifications_tenant_severity_idx ON notifications USING btree (tenant_id, severity);
 
@@ -8938,6 +9501,18 @@ CREATE INDEX repo_update_jobs_repository_id ON repo_update_jobs USING btree (rep
 
 CREATE INDEX repo_uri_idx ON repo USING btree (uri);
 
+CREATE UNIQUE INDEX repository_fetch_history_repo_update_job_id ON repository_fetch_history USING btree (tenant_id, repo_update_job_id) WHERE (repo_update_job_id IS NOT NULL);
+
+CREATE INDEX repository_fetch_history_repository_id ON repository_fetch_history USING btree (tenant_id, repository_id, started_at DESC, id DESC);
+
+CREATE INDEX repository_fetch_history_started_at ON repository_fetch_history USING btree (tenant_id, started_at DESC, id DESC);
+
+CREATE INDEX review_repository_sync_jobs_dequeue_idx ON review_repository_sync_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX review_repository_sync_jobs_history_idx ON review_repository_sync_jobs USING btree (tenant_id, github_app_id, external_repository_id, pull_request_number, started_at DESC);
+
+CREATE UNIQUE INDEX review_repository_sync_jobs_pending_idx ON review_repository_sync_jobs USING btree (tenant_id, github_app_id, external_repository_id, pull_request_number) WHERE ((state = 'queued'::text) AND (num_resets = 0));
+
 CREATE INDEX scip_nearest_uploads_links_repository_ancestor_commit ON scip_nearest_uploads_links USING btree (repository_id, ancestor_commit_bytea, commit_bytea) INCLUDE (tenant_id);
 
 CREATE INDEX scip_nearest_uploads_links_repository_id_ancestor_commit_bytea ON scip_nearest_uploads_links USING btree (repository_id, ancestor_commit_bytea);
@@ -9074,6 +9649,8 @@ CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_insert AFTER INSERT 
 
 CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_update AFTER UPDATE ON batch_spec_workspace_execution_jobs REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert();
 
+CREATE TRIGGER change_request_analysis_enqueue AFTER INSERT OR UPDATE OF base_sha, head_sha ON change_requests FOR EACH ROW EXECUTE FUNCTION enqueue_change_request_analysis();
+
 CREATE TRIGGER changeset_specs_set_diff_sha256 BEFORE INSERT OR UPDATE OF diff ON changeset_specs FOR EACH ROW EXECUTE FUNCTION set_changeset_spec_diff_sha256();
 
 CREATE TRIGGER changesets_update_computed_state BEFORE INSERT OR UPDATE ON changesets FOR EACH ROW EXECUTE FUNCTION changesets_computed_state_ensure();
@@ -9105,6 +9682,10 @@ CREATE TRIGGER trig_recalc_repo_statistics_on_repo_delete AFTER DELETE ON repo R
 CREATE TRIGGER trig_recalc_repo_statistics_on_repo_insert AFTER INSERT ON repo REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION recalc_repo_statistics_on_repo_insert();
 
 CREATE TRIGGER trig_recalc_repo_statistics_on_repo_update AFTER UPDATE ON repo REFERENCING OLD TABLE AS oldtab NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION recalc_repo_statistics_on_repo_update();
+
+CREATE TRIGGER trigger_codeintel_destination_deleted_uploads AFTER DELETE ON scip_uploads REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_codeintel_destination_deleted_uploads();
+
+CREATE TRIGGER trigger_codeintel_destination_retired_upload AFTER UPDATE OF state ON scip_uploads FOR EACH ROW WHEN (((new.state = ANY (ARRAY['deleting'::text, 'deleted'::text, 'failed'::text, 'superseded'::text, 'canceled'::text])) AND (old.state <> ALL (ARRAY['deleting'::text, 'deleted'::text, 'failed'::text, 'superseded'::text, 'canceled'::text])))) EXECUTE FUNCTION func_codeintel_destination_retired_upload();
 
 CREATE TRIGGER trigger_configuration_policies_delete AFTER DELETE ON lsif_configuration_policies REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_configuration_policies_delete();
 
@@ -9186,6 +9767,9 @@ ALTER TABLE ONLY assigned_teams
 
 ALTER TABLE ONLY auth_provider_wizard_drafts
     ADD CONSTRAINT auth_provider_wizard_drafts_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_action_receipts
+    ADD CONSTRAINT batch_change_agent_action_receipts_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY batch_change_agent_deepsearch_conversation_mappings
     ADD CONSTRAINT batch_change_agent_deepsearch_c_deepsearch_conversation_id_fkey FOREIGN KEY (deepsearch_conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
@@ -9339,6 +9923,15 @@ ALTER TABLE ONLY batch_specs
 
 ALTER TABLE ONLY batch_specs
     ADD CONSTRAINT batch_specs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY change_request_analysis_jobs
+    ADD CONSTRAINT change_request_analysis_jobs_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_file_groupings
+    ADD CONSTRAINT change_request_file_groupings_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_team_members
+    ADD CONSTRAINT change_request_team_members_github_app_installation_id_fkey FOREIGN KEY (github_app_installation_id) REFERENCES github_app_installs(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY changeset_events
     ADD CONSTRAINT changeset_events_changeset_id_fkey FOREIGN KEY (changeset_id) REFERENCES changesets(id) ON DELETE CASCADE DEFERRABLE;
@@ -9673,6 +10266,9 @@ ALTER TABLE ONLY gitserver_repos
 ALTER TABLE ONLY gitserver_repos_sync_output
     ADD CONSTRAINT gitserver_repos_sync_output_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY inference_model_routes
+    ADD CONSTRAINT inference_model_routes_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES inference_providers(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY insights_query_runner_jobs_dependencies
     ADD CONSTRAINT insights_query_runner_jobs_dependencies_fk_job_id FOREIGN KEY (job_id) REFERENCES insights_query_runner_jobs(id) ON DELETE CASCADE;
 
@@ -9865,6 +10461,15 @@ ALTER TABLE ONLY repo_paths
 ALTER TABLE ONLY repo_update_jobs
     ADD CONSTRAINT repo_update_jobs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY repository_fetch_history
+    ADD CONSTRAINT repository_fetch_history_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY repository_fetch_history
+    ADD CONSTRAINT repository_fetch_history_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
+
+ALTER TABLE ONLY review_repository_sync_jobs
+    ADD CONSTRAINT review_repository_sync_jobs_github_app_id_fkey FOREIGN KEY (github_app_id) REFERENCES github_apps(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY role_permissions
     ADD CONSTRAINT role_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE DEFERRABLE;
 
@@ -10024,6 +10629,8 @@ ALTER TABLE assigned_teams ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE auth_provider_wizard_drafts ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE batch_change_agent_action_receipts ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE batch_change_agent_deepsearch_conversation_mappings ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_change_agent_inbox_cursors ENABLE ROW LEVEL SECURITY;
@@ -10078,6 +10685,14 @@ ALTER TABLE batch_specs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE cached_available_indexers ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE change_request_analysis_jobs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_file_groupings ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_team_members ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_requests ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE changeset_events ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE changeset_followup_commits ENABLE ROW LEVEL SECURITY;
@@ -10121,6 +10736,12 @@ ALTER TABLE codeintel_autoindex_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE codeintel_autoindexing_exceptions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE codeintel_commit_dates ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE codeintel_destination_backfill_jobs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE codeintel_destination_backfill_rounds ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE codeintel_destination_write_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE codeintel_inference_scripts ENABLE ROW LEVEL SECURITY;
 
@@ -10248,6 +10869,12 @@ ALTER TABLE idp_tokens ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE idp_user_consents ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE inference_model_routes ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE inference_providers ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE inference_routing_configuration ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE insights_query_runner_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE insights_query_runner_jobs_dependencies ENABLE ROW LEVEL SECURITY;
@@ -10362,6 +10989,10 @@ ALTER TABLE repo_statistics ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_update_jobs ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE repository_fetch_history ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE review_repository_sync_jobs ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
@@ -10442,6 +11073,8 @@ CREATE POLICY tenant_isolation_policy ON assigned_teams USING ((tenant_id = ( SE
 
 CREATE POLICY tenant_isolation_policy ON auth_provider_wizard_drafts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON batch_change_agent_action_receipts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_deepsearch_conversation_mappings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_inbox_cursors USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -10496,6 +11129,14 @@ CREATE POLICY tenant_isolation_policy ON batch_specs USING ((tenant_id = ( SELEC
 
 CREATE POLICY tenant_isolation_policy ON cached_available_indexers USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON change_request_analysis_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON change_request_file_groupings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_team_members USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON changeset_events USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON changeset_followup_commits USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -10539,6 +11180,12 @@ CREATE POLICY tenant_isolation_policy ON codeintel_autoindex_queue USING ((tenan
 CREATE POLICY tenant_isolation_policy ON codeintel_autoindexing_exceptions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON codeintel_commit_dates USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_destination_backfill_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_destination_backfill_rounds USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON codeintel_destination_write_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON codeintel_inference_scripts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -10666,6 +11313,12 @@ CREATE POLICY tenant_isolation_policy ON idp_tokens USING ((tenant_id = ( SELECT
 
 CREATE POLICY tenant_isolation_policy ON idp_user_consents USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON inference_model_routes USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON inference_providers USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON inference_routing_configuration USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON insights_query_runner_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON insights_query_runner_jobs_dependencies USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -10779,6 +11432,10 @@ CREATE POLICY tenant_isolation_policy ON repo_paths USING ((tenant_id = ( SELECT
 CREATE POLICY tenant_isolation_policy ON repo_statistics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON repo_update_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON repository_fetch_history USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON review_repository_sync_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON role_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

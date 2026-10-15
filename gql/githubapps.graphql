@@ -65,6 +65,10 @@ enum GitHubAppDomain {
     GitHub Apps that are configured for code review agents.
     """
     AGENTS_REVIEW
+    """
+    GitHub Apps that receive pull request and review activity for Review.
+    """
+    REVIEW
 }
 
 """
@@ -91,6 +95,10 @@ enum GitHubAppKind {
     GitHub Apps that are configured for code review agents.
     """
     AGENTS_REVIEW
+    """
+    GitHub Apps that receive pull request and review activity for Review.
+    """
+    REVIEW
 }
 
 """
@@ -220,6 +228,14 @@ type GitHubApp implements Node {
     """
     installations: [Installation!]!
     """
+    The first page of repositories available to one installation of this App.
+    """
+    installationRepositories(installationID: Int!): [GitHubAppRepository!]!
+    """
+    An exact repository available to one installation of this App.
+    """
+    installationRepository(installationID: Int!, repository: String!): GitHubAppRepository!
+    """
     Fetches the webhook associated with this GitHub App.
     """
     webhook: Webhook
@@ -227,6 +243,16 @@ type GitHubApp implements Node {
     Missing permissions required for groups caching. Empty if all required permissions are granted.
     """
     missingRequiredPermissions: [String!]!
+}
+
+"""
+A repository available to a GitHub App installation.
+"""
+type GitHubAppRepository {
+    """
+    The repository name in owner/name format.
+    """
+    name: String!
 }
 
 """

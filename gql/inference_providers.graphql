@@ -1,0 +1,978 @@
+extend type Query {
+    """
+    Inference provider and model-routing configuration.
+    """
+    inference: InferenceConfiguration!
+}
+
+"""
+Inference provider and model-routing configuration.
+"""
+type InferenceConfiguration {
+    """
+    The configured inference providers.
+    """
+    providers(first: Int, after: String, last: Int, before: String): InferenceProviderConnection!
+    """
+    Models available for inference provider and fallback configuration, including
+    product usage and effective routes. A model's capabilities describe intrinsic
+    behavior; product usage classes describe the requirements of operations that
+    request it. This includes persisted references that
+    are no longer present in the catalog.
+    """
+    models: [InferenceModel!]!
+    """
+    The model classes available to product operations.
+    """
+    modelClasses: [InferenceModelClassDefinition!]!
+    """
+    The fallback policy for models without a configured route.
+    """
+    routing: InferenceRoutingConfiguration!
+}
+
+"""
+A paginated connection of configured inference providers.
+"""
+type InferenceProviderConnection implements Connection {
+    """
+    The configured inference providers.
+    """
+    nodes: [InferenceProvider!]!
+    """
+    The total number of configured inference providers.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+extend type Mutation {
+    """
+    Creates an inference provider.
+    """
+    createInferenceProvider(input: InferenceProviderInput!): InferenceProvider!
+    """
+    Updates an inference provider.
+    """
+    updateInferenceProvider(id: ID!, input: InferenceProviderInput!): InferenceProvider!
+    """
+    Deletes an inference provider.
+    """
+    deleteInferenceProvider(id: ID!): EmptyResponse!
+    """
+    Validates an inference provider's configuration and model routes.
+    """
+    validateInferenceProvider(existingProviderID: ID, input: InferenceProviderInput!): EmptyResponse!
+    """
+    Updates the inference routing fallback policy.
+    """
+    updateInferenceRoutingConfiguration(input: InferenceRoutingConfigurationInput!): InferenceRoutingConfiguration!
+}
+
+"""
+The behavior applied when no provider route matches a model.
+"""
+enum InferenceFallbackMode {
+    BLOCK
+    SOURCEGRAPH
+    MODEL_CLASS
+}
+
+"""
+A class of model requirements declared by product inference operations.
+"""
+enum InferenceModelClass {
+    MINIMAL
+    LOW
+    MEDIUM
+    HIGH
+    MAX
+    TRANSCRIPTION
+}
+
+"""
+An inference provider implementation.
+"""
+enum InferenceProviderKind {
+    ANTHROPIC
+    ANTHROPIC_COMPATIBLE
+    OPENAI
+    OPENAI_COMPATIBLE
+    GOOGLE
+}
+
+"""
+An authentication method accepted when configuring an inference provider.
+"""
+enum InferenceProviderAuthenticationKind {
+    API_KEY
+    BEARER
+    CUSTOM_HEADERS
+    AWS
+    AZURE_IDENTITY
+    GOOGLE_SERVICE_ACCOUNT
+    GOOGLE_ADC
+}
+
+"""
+A provider API dialect used to encode an inference request.
+"""
+enum InferenceProtocol {
+    ANTHROPIC_MESSAGES
+    GOOGLE
+    OPENAI_CHAT
+    OPENAI_RESPONSES
+    OPENAI_AUDIO_TRANSCRIPTIONS
+}
+
+"""
+The availability state of a catalog model.
+"""
+enum InferenceModelLifecycle {
+    ACTIVE
+    UPCOMING
+    RETIRED
+}
+
+"""
+Inference behavior supported or required by a model.
+"""
+enum InferenceModelCapability {
+    IMAGE_INPUT
+    TOOL_CALLING
+    REASONING
+}
+
+"""
+How a model relates to current product usage and the model catalog.
+"""
+enum InferenceModelStatus {
+    ACTIVE
+    UNUSED
+    UNKNOWN
+}
+
+"""
+The configuration responsible for an effective model route.
+"""
+enum InferenceRouteSource {
+    EXACT
+    POLICY
+    SOURCEGRAPH
+    MODEL_CLASS
+    BLOCKED
+}
+
+"""
+The reasoning expenditure requested by a product operation.
+"""
+enum InferenceReasoningEffort {
+    NONE
+    MINIMAL
+    LOW
+    MEDIUM
+    HIGH
+    XHIGH
+}
+
+"""
+How a product operation requests that reasoning output be returned.
+"""
+enum InferenceThinkingDisplay {
+    SUMMARIZED
+    OMITTED
+}
+
+"""
+The fallback policy for models without a configured route.
+"""
+type InferenceRoutingConfiguration {
+    """
+    The behavior to apply when no provider route matches a model.
+    """
+    fallbackMode: InferenceFallbackMode!
+    """
+    The replacement model configured for each model class.
+    """
+    fallbackModels: [InferenceFallbackModel!]!
+}
+
+"""
+A replacement model configured for a model class.
+"""
+type InferenceFallbackModel {
+    """
+    The model class to replace.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The canonical reference of the replacement model.
+    """
+    modelRef: String!
+    """
+    When this replacement model was last reviewed.
+    """
+    lastReviewedAt: DateTime!
+}
+
+"""
+Input for updating the inference routing fallback policy.
+"""
+input InferenceRoutingConfigurationInput {
+    """
+    The behavior to apply when no provider route matches a model.
+    """
+    fallbackMode: InferenceFallbackMode!
+    """
+    The replacement models to configure by model class.
+    """
+    fallbackModels: [InferenceFallbackModelInput!]!
+}
+
+"""
+Input for a replacement model configured for a model class.
+"""
+input InferenceFallbackModelInput {
+    """
+    The model class to replace.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The canonical reference of the replacement model.
+    """
+    modelRef: String!
+}
+
+"""
+A configured inference provider.
+"""
+interface InferenceProvider implements Node {
+    """
+    The provider's unique identifier.
+    """
+    id: ID!
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The provider's API base URL, following the vendor SDK convention:
+    the origin for Anthropic APIs (https://api.anthropic.com) and the
+    versioned base for OpenAI APIs (https://api.openai.com/v1). Request paths
+    such as /v1/messages or /chat/completions are appended per protocol.
+    """
+    endpoint: String!
+    """
+    The provider's authentication configuration.
+    """
+    authentication: InferenceProviderAuthentication!
+    """
+    Model routes configured explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRoute!]!
+    """
+    Whether this provider automatically covers compatible models from its publisher.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+A provider using Anthropic's hosted API.
+"""
+type AnthropicInferenceProvider implements Node & InferenceProvider {
+    """
+    The provider's unique identifier.
+    """
+    id: ID!
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The provider's API base URL, following the vendor SDK convention:
+    the origin for Anthropic APIs (https://api.anthropic.com) and the
+    versioned base for OpenAI APIs (https://api.openai.com/v1). Request paths
+    such as /v1/messages or /chat/completions are appended per protocol.
+    """
+    endpoint: String!
+    """
+    The provider's authentication configuration.
+    """
+    authentication: InferenceProviderAuthentication!
+    """
+    Model routes configured explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRoute!]!
+    """
+    Whether this provider automatically covers compatible models from its publisher.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+A provider implementing an Anthropic-compatible API.
+"""
+type AnthropicCompatibleInferenceProvider implements Node & InferenceProvider {
+    """
+    The provider's unique identifier.
+    """
+    id: ID!
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The provider's API base URL, following the vendor SDK convention:
+    the origin for Anthropic APIs (https://api.anthropic.com) and the
+    versioned base for OpenAI APIs (https://api.openai.com/v1). Request paths
+    such as /v1/messages or /chat/completions are appended per protocol.
+    """
+    endpoint: String!
+    """
+    The provider's authentication configuration.
+    """
+    authentication: InferenceProviderAuthentication!
+    """
+    Model routes configured explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRoute!]!
+    """
+    Whether this provider automatically covers compatible models from its publisher.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+A provider using OpenAI's hosted API.
+"""
+type OpenAIInferenceProvider implements Node & InferenceProvider {
+    """
+    The provider's unique identifier.
+    """
+    id: ID!
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The provider's API base URL, following the vendor SDK convention:
+    the origin for Anthropic APIs (https://api.anthropic.com) and the
+    versioned base for OpenAI APIs (https://api.openai.com/v1). Request paths
+    such as /v1/messages or /chat/completions are appended per protocol.
+    """
+    endpoint: String!
+    """
+    The provider's authentication configuration.
+    """
+    authentication: InferenceProviderAuthentication!
+    """
+    Model routes configured explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRoute!]!
+    """
+    Whether this provider automatically covers compatible models from its publisher.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+A provider implementing an OpenAI-compatible API.
+"""
+type OpenAICompatibleInferenceProvider implements Node & InferenceProvider {
+    """
+    The provider's unique identifier.
+    """
+    id: ID!
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The provider's API base URL, following the vendor SDK convention:
+    the origin for Anthropic APIs (https://api.anthropic.com) and the
+    versioned base for OpenAI APIs (https://api.openai.com/v1). Request paths
+    such as /v1/messages or /chat/completions are appended per protocol.
+    """
+    endpoint: String!
+    """
+    The provider's authentication configuration.
+    """
+    authentication: InferenceProviderAuthentication!
+    """
+    Model routes configured explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRoute!]!
+    """
+    Whether this provider automatically covers compatible models from its publisher.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+A provider serving models from the customer's Google Cloud project through
+Gemini Enterprise Agent Platform. It currently serves Gemini models only.
+Models must be explicitly selected and available in the configured location;
+automatic coverage is not supported.
+"""
+type GoogleInferenceProvider implements Node & InferenceProvider {
+    """
+    The provider's unique identifier.
+    """
+    id: ID!
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The customer's Google Cloud project ID.
+    """
+    projectID: String!
+    """
+    The Google Cloud location serving the models: global, a multi-region
+    such as us or eu, or a region such as us-central1.
+    """
+    location: String!
+    """
+    The project and location base URL derived from projectID and location,
+    such as https://aiplatform.googleapis.com/v1/projects/PROJECT/locations/global.
+    """
+    endpoint: String!
+    """
+    The provider's authentication configuration.
+    """
+    authentication: InferenceProviderAuthentication!
+    """
+    Model routes configured explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRoute!]!
+    """
+    Always false; Google provider models require explicit selection.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+The authentication configuration of an inference provider.
+"""
+union InferenceProviderAuthentication =
+    | InferenceProviderAPIKeyAuthentication
+    | InferenceProviderBearerAuthentication
+    | InferenceProviderCustomHeadersAuthentication
+    | InferenceProviderAWSAuthentication
+    | InferenceProviderAzureIdentityAuthentication
+    | InferenceProviderGoogleServiceAccountAuthentication
+    | InferenceProviderGoogleADCAuthentication
+
+"""
+API-key authentication.
+"""
+type InferenceProviderAPIKeyAuthentication {
+    """
+    Whether an API key is configured.
+    """
+    configured: Boolean!
+}
+
+"""
+Bearer-token authentication.
+"""
+type InferenceProviderBearerAuthentication {
+    """
+    Whether a bearer token is configured.
+    """
+    configured: Boolean!
+}
+
+"""
+Authentication using custom HTTP headers.
+"""
+type InferenceProviderCustomHeadersAuthentication {
+    """
+    The names of the configured headers. Header values are never returned.
+    """
+    headerNames: [String!]!
+}
+
+"""
+AWS request-signing authentication.
+"""
+type InferenceProviderAWSAuthentication {
+    """
+    The AWS region used to sign requests.
+    """
+    region: String!
+    """
+    Whether static AWS access credentials are configured.
+    """
+    staticCredentialsConfigured: Boolean!
+    """
+    Whether an AWS session token is configured.
+    """
+    sessionTokenConfigured: Boolean!
+}
+
+"""
+Azure managed-identity authentication.
+"""
+type InferenceProviderAzureIdentityAuthentication {
+    """
+    Whether Azure managed identity is configured.
+    """
+    configured: Boolean!
+}
+
+"""
+Google service account key authentication. Requests authenticate as the customer's own service account.
+"""
+type InferenceProviderGoogleServiceAccountAuthentication {
+    """
+    Whether a service account key is configured.
+    """
+    configured: Boolean!
+}
+
+"""
+Google application default credentials authentication. Requests authenticate as the instance's own
+Google Cloud identity (workload identity). Not available on Sourcegraph Cloud.
+"""
+type InferenceProviderGoogleADCAuthentication {
+    """
+    Whether application default credentials are configured.
+    """
+    configured: Boolean!
+}
+
+"""
+An explicit route from a canonical model to a provider model.
+"""
+type InferenceProviderExplicitModelRoute {
+    """
+    The canonical product model reference.
+    """
+    modelRef: String!
+    """
+    The model name accepted by the provider.
+    """
+    upstreamModelName: String!
+}
+
+"""
+A model available to inference configuration, or a persisted model reference
+that is no longer present in the catalog.
+"""
+type InferenceModel {
+    """
+    The canonical model reference.
+    """
+    modelRef: String!
+    """
+    The model display name, or the canonical reference for an unknown model.
+    """
+    displayName: String!
+    """
+    The model publisher, or null for an unknown model.
+    """
+    publisher: String
+    """
+    The model inference protocol, or null for an unknown model.
+    """
+    protocol: InferenceProtocol
+    """
+    The model lifecycle state, or null for an unknown model.
+    """
+    lifecycle: InferenceModelLifecycle
+    """
+    Capabilities supported by this model.
+    """
+    capabilities: [InferenceModelCapability!]!
+    """
+    Whether this model's publisher may be configured through automatic coverage.
+    """
+    supportsAutomaticCoverage: Boolean!
+    """
+    Whether this model may be selected as a model-class fallback.
+    """
+    supportsModelClassFallback: Boolean!
+    """
+    The model classes this model cannot be selected as a fallback for, and why.
+    Empty for an unknown model.
+    """
+    modelClassIncompatibilities: [InferenceModelClassIncompatibility!]!
+    """
+    Provider kinds that can serve this model through an exact route.
+    """
+    supportedProviderKinds: [InferenceProviderKind!]!
+    """
+    ACTIVE when directly used, UNUSED when cataloged but not directly used, or UNKNOWN when removed from the catalog.
+    """
+    status: InferenceModelStatus!
+    """
+    How product operations use this model, or null when it is not requested by a product operation.
+    """
+    productUsage: InferenceModelProductUsage
+    """
+    The provider currently routing this model, if any.
+    """
+    provider: InferenceProvider
+}
+
+"""
+Why a model cannot be selected as the fallback for a model class.
+"""
+interface InferenceModelClassIncompatibility {
+    """
+    The model class the model cannot serve.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The validation error that saving the model as the class fallback would return.
+    """
+    reason: String!
+}
+
+"""
+The model performs a different inference operation than the model class.
+"""
+type InferenceModelOperationIncompatibility implements InferenceModelClassIncompatibility {
+    """
+    The model class the model cannot serve.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The validation error that saving the model as the class fallback would return.
+    """
+    reason: String!
+}
+
+"""
+The model lacks capabilities that usages in the model class require.
+"""
+type InferenceModelCapabilityIncompatibility implements InferenceModelClassIncompatibility {
+    """
+    The model class the model cannot serve.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The validation error that saving the model as the class fallback would return.
+    """
+    reason: String!
+    """
+    Capabilities the model class requires that the model lacks.
+    """
+    missingCapabilities: [InferenceModelCapability!]!
+}
+
+"""
+The model rejects sampling parameters that a usage in the model class sets.
+"""
+type InferenceModelSamplingParametersIncompatibility implements InferenceModelClassIncompatibility {
+    """
+    The model class the model cannot serve.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The validation error that saving the model as the class fallback would return.
+    """
+    reason: String!
+}
+
+"""
+The model's context window or output limit cannot fit a usage in the model class.
+"""
+type InferenceModelTokenLimitsIncompatibility implements InferenceModelClassIncompatibility {
+    """
+    The model class the model cannot serve.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The validation error that saving the model as the class fallback would return.
+    """
+    reason: String!
+}
+
+"""
+A model's usage by product operations.
+"""
+type InferenceModelProductUsage {
+    """
+    The model classes in which product operations use this model.
+    """
+    classes: [InferenceModelClassUsage!]!
+}
+
+"""
+A model's product usage and effective route within one model class.
+"""
+type InferenceModelClassUsage {
+    """
+    The model class in which the model is used.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The product operations that request this model.
+    """
+    usages: [String!]!
+    """
+    The effective route for this model class.
+    """
+    effectiveRoute: InferenceModelEffectiveRoute!
+}
+
+"""
+The effective route for a model requested by product operations.
+"""
+type InferenceModelEffectiveRoute {
+    """
+    The source of the effective route.
+    """
+    source: InferenceRouteSource!
+    """
+    The model selected by the effective route, if any.
+    """
+    model: InferenceModel
+    """
+    The provider selected by the effective route, if any.
+    """
+    provider: InferenceProvider
+    """
+    The source of the provider route for the resolved model, if any.
+    """
+    providerRouteSource: InferenceRouteSource
+}
+
+"""
+A class of product inference model requirements.
+"""
+type InferenceModelClassDefinition {
+    """
+    The model class.
+    """
+    modelClass: InferenceModelClass!
+    """
+    The model class display name.
+    """
+    displayName: String!
+    """
+    Guidance for selecting a suitable model for the class.
+    """
+    description: String!
+    """
+    The combined capabilities required by product operations using this class.
+    """
+    requiredCapabilities: [InferenceModelCapability!]!
+    """
+    The generation and token-capacity requirements declared by each product usage in this class.
+    """
+    usageRequirements: [InferenceModelUsageRequirement!]!
+    """
+    The category containing this model class.
+    """
+    category: InferenceModelClassCategory!
+}
+
+"""
+The capabilities, token capacities, and generation settings declared by one product usage.
+"""
+type InferenceModelUsageRequirement {
+    """
+    The stable product usage identifier.
+    """
+    id: String!
+    """
+    The product usage display name.
+    """
+    displayName: String!
+    """
+    The expected input-token workload, or null for an opaque request with no modeled budget.
+    """
+    inputTokenBudget: Int
+    """
+    The requested maximum output tokens, or null for an opaque request with no modeled limit.
+    """
+    maxOutputTokens: Int
+    """
+    The explicit temperature, or null when the usage requests the provider default.
+    """
+    temperature: Float
+    """
+    The explicit top-p value, or null when the usage requests the provider default.
+    """
+    topP: Float
+    """
+    The explicit reasoning effort, or null when the usage requests the provider default.
+    """
+    reasoningEffort: InferenceReasoningEffort
+    """
+    The explicit thinking-summary behavior, or null when the usage does not request one.
+    """
+    thinkingDisplay: InferenceThinkingDisplay
+    """
+    The capabilities required by this product usage.
+    """
+    requiredCapabilities: [InferenceModelCapability!]!
+}
+
+"""
+A category of related product inference model classes.
+"""
+type InferenceModelClassCategory {
+    """
+    The stable category identifier.
+    """
+    id: String!
+    """
+    The category display name.
+    """
+    displayName: String!
+    """
+    Guidance for configuring the model classes in this category.
+    """
+    configurationHelp: String!
+}
+
+"""
+Input for creating or updating an inference provider.
+"""
+input InferenceProviderInput {
+    """
+    The provider's display name.
+    """
+    name: String!
+    """
+    The provider implementation kind.
+    """
+    kind: InferenceProviderKind!
+    """
+    The provider's API base URL, following the vendor SDK convention:
+    the origin for Anthropic APIs (https://api.anthropic.com) and the
+    versioned base for OpenAI APIs (https://api.openai.com/v1). Request paths
+    such as /v1/messages or /chat/completions are appended per protocol.
+    Ignored for GOOGLE, which derives its endpoint from googleProjectID and
+    googleLocation.
+    """
+    endpoint: String!
+    """
+    The customer's Google Cloud project ID. Required for GOOGLE and ignored
+    otherwise.
+    """
+    googleProjectID: String
+    """
+    The Google Cloud location serving the models: global, a multi-region such
+    as us or eu, or a region such as us-central1. Required for GOOGLE and
+    ignored otherwise.
+    """
+    googleLocation: String
+    """
+    The provider authentication configuration.
+    """
+    auth: InferenceProviderAuthInput!
+    """
+    Custom authentication headers.
+    """
+    headers: [InferenceProviderHeaderInput!]
+    """
+    Model routes to configure explicitly on this provider.
+    """
+    explicitModelRoutes: [InferenceProviderExplicitModelRouteInput!]!
+    """
+    Whether this provider automatically covers compatible models from its publisher.
+    """
+    automaticCoverage: Boolean!
+    """
+    Canonical model references excluded from automatic coverage.
+    """
+    excludedModelRefs: [String!]!
+}
+
+"""
+Authentication configuration for an inference provider.
+"""
+input InferenceProviderAuthInput {
+    """
+    The authentication method.
+    """
+    kind: InferenceProviderAuthenticationKind!
+    """
+    An API key, or an empty value to preserve the existing key.
+    """
+    apiKey: String
+    """
+    A bearer token, or an empty value to preserve the existing token.
+    """
+    bearerToken: String
+    """
+    The AWS region used for signed requests.
+    """
+    awsRegion: String
+    """
+    An AWS access key ID, or an empty value to preserve the existing value.
+    """
+    awsAccessKeyID: String
+    """
+    An AWS secret access key, or an empty value to preserve the existing value.
+    """
+    awsSecretAccessKey: String
+    """
+    An AWS session token, or an empty value to preserve the existing value.
+    """
+    awsSessionToken: String
+    """
+    A Google service account key as JSON, or an empty value to preserve the existing value.
+    """
+    googleCredentialsJSON: String
+}
+
+"""
+A custom authentication header for an inference provider.
+"""
+input InferenceProviderHeaderInput {
+    """
+    The HTTP header name.
+    """
+    name: String!
+    """
+    The HTTP header value, or an empty value to preserve the existing value.
+    """
+    value: String!
+}
+
+"""
+Input for an explicit provider model route.
+"""
+input InferenceProviderExplicitModelRouteInput {
+    """
+    The canonical product model reference.
+    """
+    modelRef: String!
+    """
+    The model name accepted by the provider.
+    """
+    upstreamModelName: String!
+}

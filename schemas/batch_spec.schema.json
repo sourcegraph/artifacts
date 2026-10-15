@@ -164,11 +164,13 @@
       "type": "object",
       "description": "An out-of-the-box coding agent step that runs the given prompt inside the step's top-level image. One option for the image is the Sourcegraph-managed `batches-coding-agent-base`. Mutually exclusive with run. Only supported in version 3 batch specs.",
       "additionalProperties": false,
-      "required": ["type", "prompt"],
+      "required": ["prompt"],
       "properties": {
         "type": {
           "type": "string",
-          "description": "The coding agent to use.",
+          "description": "DEPRECATED: coding agent selection is no longer supported. This field is ignored and retained only so existing batch specs continue to validate.",
+          "deprecationMessage": "DEPRECATED: This field is ignored. Remove it from the codingAgent step.",
+          "deprecated": true,
           "enum": ["codex", "claude-code"]
         },
         "mode": {
@@ -207,7 +209,7 @@
       "properties": {
         "run": {
           "type": "string",
-          "description": "The shell command to run in the container. It can also be a multi-line shell script. The working directory is the root directory of the repository checkout."
+          "description": "The shell command to run in the container. It can also be a multi-line shell script. The working directory is the workspace directory (the repository root when no workspace subdirectory is configured). steps.path is the repository-relative workspace path; steps.repository_root is the path back to the repository root from the initial working directory (for example, '.' or '../..')."
         },
         "container": {
           "type": "string",
@@ -306,12 +308,12 @@
     "HookStep": {
       "title": "HookStep",
       "type": "object",
-      "description": "A command to run (as part of a sequence) inside a changeset hook action. Uses the version 3 step shape.",
+      "description": "A command to run as part of a changeset hook action. Uses the version 3 step shape.",
       "additionalProperties": false,
       "properties": {
         "run": {
           "type": "string",
-          "description": "The shell command to run in the container. It can also be a multi-line shell script. The working directory is the root directory of the repository checkout."
+          "description": "The shell command to run in the container. It can also be a multi-line shell script. Hooks run in the workspace that produced the changeset's current spec. steps.path is its repository-relative path; steps.repository_root is the path back to the repository root from the initial working directory (for example, '.' or '../..')."
         },
         "image": {
           "type": "string",
@@ -476,7 +478,7 @@
         },
         "maxAttempts": {
           "type": "integer",
-          "description": "The maximum number of times this hook will fire for a single changeset while a given changeset spec is applied. Each new commit that re-triggers the hook counts as one attempt (on code hosts that expose a commit OID); once this limit is reached the hook stops firing until a new changeset spec is applied, which grants a fresh attempt budget. Defaults to 1. Must be between 1 and 5.",
+          "description": "The maximum number of attempts for this hook on a single changeset with a given hook definition. Pending executions reserve an attempt; failures consume an attempt even if execution has not started. Once exhausted, raise maxAttempts or revise the hook definition to allow more attempts. Applying a new changeset spec alone does not reset the budget. Defaults to 1. Must be between 1 and 5.",
           "minimum": 1,
           "maximum": 5,
           "default": 1,
@@ -697,7 +699,7 @@
     },
     "changesetTemplate": {
       "type": "object",
-      "description": "A template describing how to create (and update) changesets with the file changes produced by the command steps. Template expressions may use repository.name, repository.branch, batch_change.name, steps.path, steps.modified_files, and outputs.<name>.",
+      "description": "A template describing how to create (and update) changesets with the file changes produced by the command steps. Template expressions may use repository.name, repository.branch, batch_change.name, batch_change.branch_suffix, steps.path, steps.repository_root, steps.modified_files, and outputs.<name>. batch_change.branch_suffix is a stable 12-character URL-safe hash of batch_change.name intended for compact, unique branch names.",
       "additionalProperties": false,
       "required": ["title", "branch", "commit"],
       "properties": {
@@ -711,7 +713,7 @@
         },
         "branch": {
           "type": "string",
-          "description": "The name of the Git branch to create or update on each repository with the changes. If one repository resolves to multiple workspaces, include steps.path or another workspace-distinguishing template value so the changesets do not target the same branch."
+          "description": "The name of the Git branch to create or update on each repository with the changes. Use batch_change.branch_suffix to append a stable, compact identifier. If one repository resolves to multiple workspaces, include steps.path or another workspace-distinguishing template value so the changesets do not target the same branch."
         },
         "fork": {
           "type": "boolean",

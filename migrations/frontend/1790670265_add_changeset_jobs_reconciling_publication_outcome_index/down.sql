@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS changeset_jobs_reconciling_publication_outcome;

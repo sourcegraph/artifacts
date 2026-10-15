@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS gitserver_repos_external_connectivity_errors_idx;

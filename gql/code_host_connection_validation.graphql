@@ -28,6 +28,50 @@ type ExternalServiceValidationResult {
     warnings: [String!]!
 }
 
+"""
+A bounded sample of repositories matching a Bitbucket Server repository query.
+"""
+type BitbucketServerRepositoryQueryPreview {
+    """
+    A sample of repository names matching the query.
+    """
+    repositoryNames: [String!]!
+    """
+    Whether more repositories matched than are present in the sample.
+    """
+    hasMore: Boolean!
+}
+
+extend type Query {
+    """
+    Lists the Bitbucket Cloud workspaces accessible with an unsaved connection configuration.
+
+    Only users with permission to write external services may perform this query.
+    """
+    bitbucketCloudWorkspaces(config: String!): [String!]!
+
+    """
+    Searches repositories in a Bitbucket Cloud workspace using an unsaved connection configuration.
+    Results are limited to the first 20 matches.
+
+    Only users with permission to write external services may perform this query.
+    """
+    bitbucketCloudRepositories(config: String!, workspace: String!, query: String!): [String!]!
+
+    """
+    Searches repositories using an unsaved Bitbucket Server connection configuration.
+    Results are bounded.
+    Only users with permission to write external services may perform this query.
+    """
+    bitbucketServerRepositories(config: String!, query: String!): [String!]!
+
+    """
+    Previews one Bitbucket Server repository query using an unsaved connection configuration.
+    Only users with permission to write external services may perform this query.
+    """
+    bitbucketServerRepositoryQueryPreview(config: String!, query: String!): BitbucketServerRepositoryQueryPreview!
+}
+
 extend type Mutation {
     """
     Validates an external service configuration without saving it.
@@ -42,4 +86,10 @@ extend type Mutation {
     Only users with permission to write external services may perform this mutation.
     """
     validateExternalServiceConnection(input: ValidateExternalServiceConfigInput!): ExternalServiceValidationResult!
+
+    """
+    Checks whether a GitLab connection token can sync permissions by username.
+    Only users with permission to write external services may perform this mutation.
+    """
+    validateGitLabUsernamePermissionToken(input: ValidateExternalServiceConfigInput!): Boolean!
 }

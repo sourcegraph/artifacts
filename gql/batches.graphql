@@ -287,6 +287,28 @@ enum ChangesetSyncSkipReason {
 }
 
 """
+A stable, user-actionable classification of a changeset reconciliation failure.
+"""
+enum ChangesetFailureReason {
+    """
+    The publish credential can access the repository but cannot push to it.
+    """
+    MISSING_WRITE_PERMISSION
+    """
+    The configured publish credential was rejected by the code host.
+    """
+    CREDENTIAL_REJECTED
+    """
+    The repository does not exist or the publish credential cannot access it.
+    """
+    REPOSITORY_INACCESSIBLE
+    """
+    GitHub rejected the push because it would expose a private email address.
+    """
+    EMAIL_PRIVACY_RESTRICTION
+}
+
+"""
 A changeset on a codehost.
 """
 interface Changeset {
@@ -639,6 +661,12 @@ type ExternalChangeset implements Node & Changeset {
     An error that has occurred when publishing or updating the changeset. This is only set when the changeset state is ERRORED and the viewer can administer this changeset.
     """
     error: String
+
+    """
+    A stable, user-actionable classification of the current publishing or update error.
+    Null when the failure is not classified.
+    """
+    failureReason: ChangesetFailureReason
 
     """
     An error that has occured during the last sync of the changeset. Null, if was successful.
@@ -2351,6 +2379,15 @@ extend type Mutation {
     Hard-deletes a given credential.
     """
     deleteBatchChangesCredential(batchChangesCredential: ID!): EmptyResponse!
+
+    """
+    Generate an SSH commit signing key for an existing personal GitHub or GitLab
+    credential, preserving its API token and OAuth connection. Only the credential
+    owner or a site admin may do this. Returns the existing key if already generated.
+    Add the returned commitSigningPublicKey to your code host as a signing key.
+    This does not rewrite commits that have already been published.
+    """
+    createBatchChangesCredentialSigningKey(batchChangesCredential: ID!): BatchChangesCredential!
 
     """
     Detach archived changesets from a batch change.
@@ -4606,6 +4643,16 @@ extend type User {
         """
         after: String
     ): BatchChangesCodeHostConnection!
+
+    """
+    Changeset actions that would be refused for a new batch change agent of
+    this user, and why. Each field is null when the action is allowed. The
+    new-agent page reads this to disable the prompt up front, because
+    createBatchChangeAgent refuses the first message for the same reasons.
+
+    Only the user themselves and site admins may read this field.
+    """
+    batchChangeAgentBlockedActions: BatchChangeBlockedActions!
 }
 
 extend type Repository {

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS exhaustive_search_repo_revision_jobs_search_repo_job_id;

@@ -34,11 +34,13 @@
       "default": "pat"
     },
     "token.oauth.refresh": {
-      "description": "The OAuth refresh token",
+      "description": "DEPRECATED: This setting has no effect. The OAuth refresh token",
+      "deprecationMessage": "DEPRECATED: This setting has no effect. The OAuth refresh token",
       "type": "string"
     },
     "token.oauth.expiry": {
-      "description": "The OAuth token expiry (Unix timestamp in seconds)",
+      "description": "DEPRECATED: This setting has no effect. The OAuth token expiry (Unix timestamp in seconds)",
+      "deprecationMessage": "DEPRECATED: This setting has no effect. The OAuth token expiry (Unix timestamp in seconds)",
       "type": "integer"
     },
     "rateLimit": {
@@ -49,19 +51,13 @@
       "properties": {
         "enabled": {
           "description": "true if rate limiting is enabled.",
-          "type": "boolean",
-          "default": true
+          "type": "boolean"
         },
         "requestsPerHour": {
           "description": "Requests per hour permitted. This is an average, calculated per second. Internally the burst limit is set to 100, which implies that for a requests per hour limit as low as 1, users will continue to be able to send a maximum of 100 requests immediately, provided that the complexity cost of each request is 1.",
           "type": "number",
-          "default": 36000,
           "minimum": 0
         }
-      },
-      "default": {
-        "enabled": true,
-        "requestsPerHour": 36000
       }
     },
     "gitURLType": {
@@ -112,7 +108,7 @@
       ]
     },
     "exclude": {
-      "description": "A list of projects to never mirror from this GitLab instance. Takes precedence over \"projects\" and \"projectQuery\" configuration. You can exclude projects by: name ({\"name\": \"group/name\"}), ID ({\"id\": 42}), regular expression matching pattern ({\"pattern\": \"^group\\/project-.*\"}), or by excluding empty repositories ({\"emptyRepos\": true}).",
+      "description": "A list of projects to never mirror from this GitLab instance. Takes precedence over \"projects\" and \"projectQuery\" configuration. You can exclude projects by: name ({\"name\": \"group/name\"}), ID ({\"id\": 42}), regular expression matching pattern ({\"pattern\": \"^group\\/project-.*\"}), by excluding empty repositories ({\"emptyRepos\": true}), or by excluding projects in personal namespaces ({\"personalProjects\": true}).",
       "type": "array",
       "items": {
         "type": "object",
@@ -122,6 +118,7 @@
           { "required": ["name"] },
           { "required": ["id"] },
           { "required": ["emptyRepos"] },
+          { "required": ["personalProjects"] },
           { "required": ["pattern"] }
         ],
         "properties": {
@@ -138,6 +135,10 @@
             "description": "Whether to exclude empty repositories.",
             "type": "boolean"
           },
+          "personalProjects": {
+            "description": "Whether to exclude projects in personal user namespaces.",
+            "type": "boolean"
+          },
           "pattern": {
             "description": "Regular expression which matches against the name of a GitLab project (\"group/name\").",
             "type": "string",
@@ -146,7 +147,7 @@
         }
       },
       "examples": [
-        [{ "name": "group/name" }, { "id": 42 }, { "emptyRepos": true }],
+        [{ "name": "group/name" }, { "id": 42 }, { "emptyRepos": true }, { "personalProjects": true }],
         [{ "name": "gitlab-org/gitlab-ee" }, { "name": "gitlab-com/www-gitlab-com" }]
       ]
     },

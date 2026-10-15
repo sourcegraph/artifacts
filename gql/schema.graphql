@@ -626,18 +626,6 @@ type Mutation {
     ): EmptyResponse
 
     """
-    Sets Batch Changes coding agent provider configuration in the site configuration.
-
-    Only site admins may perform this mutation.
-    """
-    setBatchChangesCodingAgentProviderConfiguration(
-        """
-        The coding agent provider configuration to set.
-        """
-        input: BatchChangesCodingAgentProviderConfigurationInput!
-    ): EmptyResponse
-
-    """
     Sets the instance settings (external URL, CORS origins, branding, HTML injection)
     in the site configuration.
 
@@ -772,6 +760,28 @@ type Mutation {
         Whether sign-in should be enabled for this provider.
         """
         enabled: Boolean!
+    ): EmptyResponse
+    """
+    Sets whether users must connect an external account for a code host
+    authentication provider before they can continue using Sourcegraph. Only
+    applies to providers whose code host enforces repository permissions.
+    Site admins are exempt from this requirement.
+
+    Only site admins may perform this mutation.
+    """
+    setAuthProviderEnforceAccountConnection(
+        """
+        The service type of the auth provider.
+        """
+        serviceType: String!
+        """
+        The stable configuration identifier of the auth provider.
+        """
+        configID: String!
+        """
+        Whether connecting an account for this provider should be required.
+        """
+        enforced: Boolean!
     ): EmptyResponse
     """
     Reorders authentication providers by setting their order field in site configuration.
@@ -1585,32 +1595,6 @@ input SMTPConfigurationInput {
 }
 
 """
-Input for configuring a Batch Changes coding agent provider in site configuration.
-"""
-input BatchChangesCodingAgentProviderConfigurationInput {
-    """
-    The coding agent provider to configure.
-    """
-    provider: BatchChangesCodingAgentProvider!
-    """
-    The access token to set. If omitted or null, the access token is unchanged. If empty, this provider configuration is removed.
-    """
-    accessToken: String
-    """
-    Optional base endpoint for the direct provider API. If omitted or null, the endpoint is unchanged. If empty, the endpoint is removed and the provider default is used.
-    """
-    endpoint: String
-}
-
-"""
-Batch Changes coding agent providers with configurable access tokens.
-"""
-enum BatchChangesCodingAgentProvider {
-    CODEX
-    CLAUDE_CODE
-}
-
-"""
 Input for configuring instance settings in the site configuration.
 """
 input InstanceSettingsInput {
@@ -1750,38 +1734,6 @@ type BrandAssetsConfiguration {
     symbol: String!
 }
 
-"""
-The current Batch Changes coding agent provider configuration.
-"""
-type BatchChangesCodingAgentConfigurations {
-    """
-    Codex provider configuration.
-    """
-    codex: BatchChangesCodingAgentProviderConfiguration!
-    """
-    Claude Code provider configuration.
-    """
-    claudeCode: BatchChangesCodingAgentProviderConfiguration!
-}
-
-"""
-The current Batch Changes coding agent configuration for one provider.
-"""
-type BatchChangesCodingAgentProviderConfiguration {
-    """
-    Whether an access token is configured for this provider.
-    """
-    accessTokenConfigured: Boolean!
-    """
-    Optional custom base endpoint for the direct provider API.
-    """
-    endpoint: String!
-    """
-    Default base endpoint for the direct provider API.
-    """
-    defaultEndpoint: String!
-}
-
 extend type Query {
     """
     Returns the current instance settings configuration (external URL, CORS origins,
@@ -1789,12 +1741,6 @@ extend type Query {
     Only site admins may query this.
     """
     instanceSettingsConfiguration: InstanceSettingsConfiguration!
-
-    """
-    Returns the current Batch Changes coding agent provider configuration.
-    Only site admins may query this.
-    """
-    batchChangesCodingAgentConfigurations: BatchChangesCodingAgentConfigurations!
 }
 
 """
@@ -1997,6 +1943,13 @@ type Query {
     The root of the query.
     """
     root: Query! @deprecated(reason: "this will be removed.")
+
+    """
+    Returns the user's active password reset URL, or null if no unexpired reset URL exists.
+    Only site admins may perform this query. On Sourcegraph.com, this always returns null.
+    """
+    userPasswordResetURL(user: ID!): String
+
     """
     Looks up a node by ID.
     """
@@ -2169,6 +2122,23 @@ type Query {
         query: String!
     ): GitHubRepositoryQueryPreview!
     """
+    Previews projects matching a relative GitLab project query using an unsaved connection.
+    """
+    gitLabProjectQueryPreview(
+        """
+        The secret token value used to authenticate with GitLab.
+        """
+        token: String!
+        """
+        The URL of the GitLab instance.
+        """
+        url: String!
+        """
+        The relative GitLab API path or query string to preview.
+        """
+        query: String!
+    ): GitLabProjectQueryPreview!
+    """
     List all repositories.
     """
     repositories(
@@ -2306,9 +2276,21 @@ type Query {
     """
     organizations(
         """
-        Returns the first n organizations from the list.
+        The limit argument for forward pagination.
         """
         first: Int
+        """
+        The limit argument for backward pagination.
+        """
+        last: Int
+        """
+        The cursor argument for forward pagination.
+        """
+        after: String
+        """
+        The cursor argument for backward pagination.
+        """
+        before: String
         """
         Return organizations whose names or display names match the query.
         """
@@ -2595,6 +2577,12 @@ type Query {
         """
         kind: ExternalServiceKind
     ): WebhookConnection!
+
+    """
+    The effective retention period for incoming webhook event logs, in milliseconds.
+    Only available to site admins.
+    """
+    webhookLogRetentionInMilliseconds: BigInt!
 
     """
     List slow GraphQL requests that were recently captured (requires site-admin permissions).
@@ -4198,6 +4186,51 @@ type ExternalServiceSyncJob implements Node {
     The number of existing repos whose metadata did not change during this sync job.
     """
     reposUnmodified: Int!
+
+    """
+    The repo counts broken down by how the code host connection listed the repos:
+    per config option (for example "orgs" or "repositoryQuery") and, where the option
+    is a list of queries or namespaces, per value (for example each org). Ordered by
+    option, then value. Empty if the code host does not report this.
+    """
+    reposByMethod: [ExternalServiceSyncJobMethod!]!
+}
+
+"""
+The repos one config option value of a code host connection contributed to a sync job.
+"""
+type ExternalServiceSyncJobMethod {
+    """
+    The config option that listed the repos, for example "repos", "orgs" or "repositoryQuery".
+    """
+    configOption: String!
+
+    """
+    The value of the config option that listed the repos, for example the org name or
+    the repository query. Null when the option is not broken down by value, such as for
+    explicitly named repos.
+    """
+    value: String
+
+    """
+    The number of times an error occurred listing or syncing a repo from this method.
+    """
+    repoSyncErrors: Int!
+
+    """
+    The number of new repos discovered through this method.
+    """
+    reposAdded: Int!
+
+    """
+    The number of existing repos listed by this method whose metadata has changed.
+    """
+    reposModified: Int!
+
+    """
+    The number of existing repos listed by this method whose metadata did not change.
+    """
+    reposUnmodified: Int!
 }
 
 """
@@ -4279,6 +4312,23 @@ type GitHubRepositoryQueryPreview {
     A sample of repository names matching the query.
     """
     repositoryNames: [String!]!
+}
+"""
+A bounded preview of projects matching a relative GitLab project query.
+"""
+type GitLabProjectQueryPreview {
+    """
+    A sample of project paths matching the query.
+    """
+    projectNames: [String!]!
+    """
+    The total number of matching projects, or null when GitLab does not provide it.
+    """
+    totalCount: Int
+    """
+    Whether more projects matched than are present in the sample.
+    """
+    hasMore: Boolean!
 }
 """
 A list of repositories.
@@ -5185,6 +5235,11 @@ type MirrorRepositoryInfo {
     """
     lastError: String
     """
+    Structured details about the last sync error, including whether it was caused by
+    an external connectivity problem. Null if there is no stored error.
+    """
+    lastErrorDetails: RepositorySyncError
+    """
     The output of the most recent repo sync job
     """
     lastSyncOutput: String
@@ -5204,6 +5259,20 @@ type MirrorRepositoryInfo {
     Only site admins may perform this query.
     """
     repositoryStatistics: GitRepositoryStatistics
+}
+
+"""
+A structured repository sync error and its classification.
+"""
+type RepositorySyncError {
+    """
+    The error message text of the last sync error.
+    """
+    message: String!
+    """
+    Whether the error was caused by an external connectivity problem.
+    """
+    isExternalConnectivity: Boolean!
 }
 
 """
@@ -5472,7 +5541,8 @@ type PreviewRepositoryComparison {
     """
     fileDiffs(
         """
-        Return the first n file diffs from the list.
+        Return the first n file diffs from the list. If 0, no file diffs are returned, but totalCount and
+        diffStat describe the entire diff.
         """
         first: Int
         """
@@ -5532,7 +5602,8 @@ type RepositoryComparison {
     """
     fileDiffs(
         """
-        Return the first n file diffs from the list.
+        Return the first n file diffs from the list. If 0, no file diffs are returned, but totalCount and
+        diffStat describe the entire diff.
         """
         first: Int
         """
@@ -5579,7 +5650,7 @@ type FileDiffConnection {
     nodes: [FileDiff!]!
     """
     The total count of file diffs in the connection, if available. This total count may be larger than the number
-    of nodes in this object when the result is paginated.
+    of nodes in this object when the result is paginated. It is always available when first is 0.
     """
     totalCount: Int
     """
@@ -5589,6 +5660,9 @@ type FileDiffConnection {
     """
     The diff stat for the file diffs in this object, which may be a subset of the entire diff if the result is
     paginated.
+
+    If first is 0, this is the diff stat of the entire diff instead. The diff is then computed without being held
+    in memory, which makes this the preferred way to get the diff stat of potentially large diffs.
     """
     diffStat: DiffStat!
     """
@@ -5640,6 +5714,41 @@ type ChangedFile {
     The destination blob OID. Null if the file was deleted in this comparison.
     """
     dstOID: GitObjectID
+    """
+    The requested Git attributes associated with this file.
+
+    Attributes are read from the head revision of the comparison, or from the
+    base revision for deleted files. They come from the .gitattributes files at
+    that revision and from repository-level attributes managed by the server.
+
+    At least one and at most 16 names must be requested. Names must consist of
+    ASCII letters, digits, '-', '.', and '_', and must not start with '-'.
+    Duplicate names are ignored. Unspecified attributes are omitted, and the
+    remaining attributes are returned in name order.
+    """
+    gitAttributes(names: [String!]!): [GitAttribute!]!
+}
+
+"""
+A Git attribute associated with a file.
+"""
+type GitAttribute {
+    """
+    The attribute name.
+    """
+    name: String!
+    """
+    The effective attribute value: "set", "unset", or an assigned value.
+
+    Git reports boolean states and assigned values using the same text. For
+    example, `attr` and `attr=set` both return "set", and `-attr` and
+    `attr=unset` both return "unset". Unspecified attributes, including
+    `attr=unspecified`, are omitted.
+
+    Values that are not valid UTF-8 are returned with invalid bytes replaced by
+    U+FFFD.
+    """
+    value: String!
 }
 
 """
@@ -7775,6 +7884,12 @@ type AuthProvider {
     """
     isPermissionsProvider: Boolean!
     """
+    Whether users must connect an external account for this provider before they
+    can continue using Sourcegraph. Only applies to permissions providers whose
+    code host enforces repository permissions.
+    """
+    enforceAccountConnection: Boolean!
+    """
     Whether this auth provider is hidden from the sign-in page.
     """
     hidden: Boolean!
@@ -7974,7 +8089,7 @@ type UserEmail {
 """
 A list of organizations.
 """
-type OrgConnection {
+type OrgConnection implements Connection {
     """
     A list of organizations.
     """
@@ -7984,6 +8099,10 @@ type OrgConnection {
     than the number of nodes in this object when the result is paginated.
     """
     totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
 }
 
 """
@@ -8546,14 +8665,6 @@ type Site implements SettingsSubject {
     codyConfigFeatures: CodyConfigFeatures
 
     """
-    Returns the status of the Cody Rate limits when using the `sourcegraph` provider.
-    If the instance is not using the Cody Gateway there will be no rate limits.
-
-    Site-admin only.
-    """
-    codyGatewayRateLimitStatus: [CodyGatewayRateLimitStatus!]
-
-    """
     Rules defining the repositories that will never be shared by Cody with third-party LLM providers.
     """
     codyContextFilters(version: CodyContextFiltersVersion!): CodyContextFilters!
@@ -8627,41 +8738,6 @@ type CodyConfigFeatures {
     Enable attribution search for Cody-generated snippets.
     """
     attribution: Boolean!
-}
-
-"""
-CodyGatewayRateLimitStatus current status of a rate limit.
-"""
-type CodyGatewayRateLimitStatus {
-    """
-    The feature that the rate limit applies to.
-    """
-    feature: String!
-
-    """
-    The limit allowed.
-    """
-    limit: BigInt!
-
-    """
-    The number of usages in current period.
-    """
-    usage: BigInt!
-
-    """
-    The percentage of the rate limit used.
-    """
-    percentUsed: Int!
-
-    """
-    The time interval for the rate limit.
-    """
-    interval: String!
-
-    """
-    When the rate limit next resets if an interval has already started.
-    """
-    nextLimitReset: DateTime
 }
 
 """
@@ -9435,6 +9511,11 @@ type ProductSubscriptionStatus {
     The full name of the product in use, such as "Sourcegraph Enterprise".
     """
     productNameWithBrand: String!
+    """
+    Whether the UI should offer upgrading to a paid plan, for example because
+    this instance is on the free plan.
+    """
+    offerUpgrade: Boolean!
     """
     The max number of user accounts that have been active on this Sourcegraph site for the current license.
     If no license is in use, returns zero.
@@ -10885,6 +10966,11 @@ enum PermissionNamespace {
     Permissions related to advanced site configuration management.
     """
     ADVANCED_CONFIG
+
+    """
+    Permissions related to inference provider and routing configuration.
+    """
+    INFERENCE_CONFIGURATION
 
     """
     Permissions related to entitlement management.

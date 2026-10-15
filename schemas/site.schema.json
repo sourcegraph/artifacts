@@ -195,6 +195,18 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "batchChanges.agenticBatchChanges.sharing": {
+          "description": "Controls who can see Agentic Batch Changes agents. \"global\" lets every user with access to Agentic Batch Changes see all agents on the instance. \"link-only\" lets users see only their own agents and agents shared with them via link.",
+          "type": "string",
+          "enum": ["global", "link-only"],
+          "default": "link-only",
+          "hide": true
+        },
+        "agents.contextFilters": {
+          "description": "Rules defining the repositories and files that Sourcegraph-owned AI agents must never read or share with third-party LLM providers. A repository that matches an exclude rule is invisible to agents, as if it did not exist.",
+          "$ref": "#/definitions/ContextFilters",
+          "hide": true
+        },
         "monorepos": {
           "description": "EXPERIMENTAL: Repository names whose whole-tree unindexed searches may use searcher's shallow Git acquisition cache. If the cache cannot acquire a commit, searcher falls back to the existing gitserver archive path.",
           "type": "array",
@@ -302,6 +314,11 @@
               "default": false
             }
           }
+        },
+        "permissionsSyncBanners": {
+          "description": "Whether repository permission sync states are presented as top-of-page banners.",
+          "type": "boolean",
+          "default": false
         },
         "structuralSearch": {
           "description": "Enables structural search.",
@@ -584,7 +601,8 @@
           }
         },
         "enableGithubInternalRepoVisibility": {
-          "description": "Enable support for visibility of internal Github repositories",
+          "deprecationMessage": "DEPRECATED: Configure internal repository access with authorization.syncInternalRepoPermissions or authorization.markInternalReposAsPublic in the GitHub code host configuration instead.",
+          "description": "DEPRECATED: Enable support for visibility of internal GitHub repositories. Configure internal repository access with authorization.syncInternalRepoPermissions or authorization.markInternalReposAsPublic in the GitHub code host configuration instead.",
           "type": "boolean",
           "default": false
         },
@@ -670,20 +688,8 @@
         },
         "deepSearch.contextFilters": {
           "description": "Rules defining the repositories and files that will never be shared by DeepSearch with third-party LLM providers.",
-          "type": "object",
-          "hide": true,
-          "properties": {
-            "exclude": {
-              "description": "List of rules specifying repositories and files that DeepSearch should exclude from context in requests to third-party LLMs.",
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/DeepSearchContextFilterItem"
-              },
-              "minItems": 1
-            }
-          },
-          "minProperties": 1,
-          "additionalProperties": false
+          "$ref": "#/definitions/ContextFilters",
+          "hide": true
         },
         "deepSearch.enabled": {
           "description": "DEPRECATED: Configure this using top-level `deepSearch.enabled` instead.",
@@ -792,16 +798,27 @@
       "group": "BatchChanges",
       "default": true
     },
+    "batchChanges.attributionMode": {
+      "description": "Controls how Batch Changes attribute the pull requests they open. \"bodyAndTrailer\" (the default) adds a backlink to the pull request description and a commit trailer. \"trailerOnly\" adds only the commit trailer, keeping the pull request description untouched to avoid notification noise.",
+      "type": "string",
+      "enum": ["bodyAndTrailer", "trailerOnly"],
+      "group": "BatchChanges",
+      "default": "bodyAndTrailer"
+    },
+    "agents.enableDictation": {
+      "description": "Enables microphone dictation in agent prompt editors instance-wide. Audio is sent to Sourcegraph's model gateway for transcription.",
+      "type": "boolean",
+      "!go": {
+        "pointer": true
+      },
+      "group": "AI",
+      "default": true
+    },
     "batchChanges.disableAgentWebSearch": {
       "description": "Disables web search for Agentic Batch Changes. This removes web search from the outer batch change agent and inner coding agent steps.",
       "type": "boolean",
       "group": "BatchChanges",
       "default": false
-    },
-    "batchChanges.codingAgents": {
-      "description": "Configuration for out-of-the-box coding agent steps in Batch Changes. When an access token is configured for an agent, Sourcegraph routes that agent's LLM traffic directly to the corresponding provider from the frontend proxy. Access tokens remain server-side and are never sent to executors. Agents without an access token continue to use the Sourcegraph Model Provider.",
-      "$ref": "#/definitions/BatchChangesCodingAgents",
-      "group": "BatchChanges"
     },
     "batchChanges.buildImage.enabled": {
       "description": "Enables/disables buildImage steps for Agentic Batch Changes. When unset, buildImage steps are enabled on Sourcegraph Cloud and disabled otherwise.",
@@ -1036,6 +1053,16 @@
       "type": "boolean",
       "default": false,
       "group": "External services"
+    },
+    "repositoryFetchHistorySize": {
+      "description": "The number of completed repository fetch jobs to keep for each repository. Set to 0 to disable completed fetch history.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 20,
+      "group": "External services",
+      "!go": {
+        "pointer": true
+      }
     },
     "disableAutoCodeHostSyncs": {
       "description": "Disable periodic syncs of configured code host connections (repository metadata, permissions, batch changes changesets, etc)",
@@ -1274,9 +1301,9 @@
       ]
     },
     "repoListUpdateInterval": {
-      "description": "Interval (in minutes) for checking code hosts (such as GitHub, Gitolite, etc.) for new repositories.",
+      "description": "Minimum interval (in minutes) between syncs of each code host (such as GitHub, Gitolite, etc.). Code hosts with no changes or with sync errors are synced less often, up to every 8 hours.",
       "type": "integer",
-      "default": 1,
+      "default": 2,
       "group": "External services"
     },
     "repoConcurrentExternalServiceSyncers": {
@@ -1456,6 +1483,22 @@
           "defaultExpirationDays": 45
         }
       ],
+      "group": "Security"
+    },
+    "srcCli": {
+      "description": "Policies the Sourcegraph instance applies to the src CLI. These are served unauthenticated at /.api/src-cli/config so the CLI can read them before authenticating, so do not place sensitive values here. The allowAccessTokenAuth policy is enforced server-side.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowAccessTokenAuth": {
+          "description": "Whether the src CLI may authenticate to this instance using an access token. When false, access-token-authenticated requests from the src CLI are rejected and users must authenticate using an alternative authentication mechanism. This does not affect other clients. Enforced server-side.",
+          "type": "boolean",
+          "!go": {
+            "pointer": true
+          },
+          "default": true
+        }
+      },
       "group": "Security"
     },
     "auth.allowedIpAddress": {
@@ -2601,7 +2644,7 @@
       "group": "Authentication"
     },
     "auth.enforceExternalAccountConnection": {
-      "description": "When enabled, users are required to connect at least one external account to their Sourcegraph account. Site admins are exempt from this requirement.",
+      "description": "When enabled, users are required to connect at least one external account to their Sourcegraph account. Site admins are exempt from this requirement. To require an account for a specific code host authentication provider, set `enforceAccountConnection` on that provider in `auth.providers`.",
       "type": "boolean",
       "default": false,
       "group": "Authentication"
@@ -2739,6 +2782,9 @@
           "$ref": "#/definitions/EncryptionKey"
         },
         "externalServiceKey": {
+          "$ref": "#/definitions/EncryptionKey"
+        },
+        "inferenceProviderKey": {
           "$ref": "#/definitions/EncryptionKey"
         },
         "gitHubAppKey": {
@@ -2931,11 +2977,6 @@
             "enum": ["claude-2", "claude-instant-1"]
           }
         },
-        "azureUseDeprecatedCompletionsAPIForOldModels": {
-          "description": "Enables the use of the older completions API for select Azure OpenAI models.",
-          "type": "boolean",
-          "default": true
-        },
         "fastChatModelMaxTokens": {
           "description": "The maximum number of tokens to use as client when talking to fastChatModel. If not set, clients need to set their own limit.",
           "type": "integer"
@@ -3074,50 +3115,6 @@
     }
   },
   "definitions": {
-    "BatchChangesCodingAgents": {
-      "type": "object",
-      "additionalProperties": false,
-      "minProperties": 1,
-      "properties": {
-        "codex": {
-          "description": "Configuration for Codex coding agent steps. When accessToken is set, Codex LLM traffic is routed directly to OpenAI instead of the Sourcegraph Model Provider.",
-          "$ref": "#/definitions/BatchChangesCodingAgentProvider"
-        },
-        "claudeCode": {
-          "description": "Configuration for Claude Code coding agent steps. When accessToken is set, Claude Code LLM traffic is routed directly to Anthropic instead of the Sourcegraph Model Provider.",
-          "$ref": "#/definitions/BatchChangesCodingAgentProvider"
-        }
-      },
-      "examples": [
-        {
-          "codex": {
-            "accessToken": "sk-...",
-            "endpoint": "https://api.openai.com/v1"
-          },
-          "claudeCode": {
-            "accessToken": "sk-ant-...",
-            "endpoint": "https://api.anthropic.com"
-          }
-        }
-      ]
-    },
-    "BatchChangesCodingAgentProvider": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["accessToken"],
-      "properties": {
-        "accessToken": {
-          "description": "The provider API key used by Sourcegraph's frontend proxy for this coding agent. This value is never sent to executors.",
-          "type": "string",
-          "minLength": 1
-        },
-        "endpoint": {
-          "description": "Optional base endpoint for the direct provider API. Sourcegraph appends the provider-specific request path. Defaults to https://api.openai.com/v1 for Codex and https://api.anthropic.com for Claude Code.",
-          "type": "string",
-          "format": "uri"
-        }
-      }
-    },
     "SiteModelConfiguration": {
       "type": "object",
       "description": "BETA FEATURE, only enable if you know what you are doing. If set, Cody will use the new model configuration system and ignore the old 'completions' site configuration entirely.",
@@ -3674,7 +3671,7 @@
     },
     "ServerSideProviderConfigAzureOpenAI": {
       "type": "object",
-      "required": ["type", "endpoint", "user", "useDeprecatedCompletionsAPI"],
+      "required": ["type", "endpoint", "user"],
       "properties": {
         "type": {
           "type": "string",
@@ -3695,10 +3692,6 @@
         "user": {
           "description": "The user field passed along to OpenAI-provided models.",
           "type": "string"
-        },
-        "useDeprecatedCompletionsAPI": {
-          "description": "Enables the use of the older completions API for select Azure OpenAI models. This is just an escape hatch, for backwards compatibility, because not all Azure OpenAI models are available on the 'newer' completions API.",
-          "type": "boolean"
         },
         "apiVersion": {
           "description": "The API version to use for the Azure OpenAI Service. Compatibility may be broken between versions - the only officially supported option here is to leave it unset.",
@@ -3825,11 +3818,6 @@
           "description": "Whether to enable verbose logging of requests. When enabled, grep for 'OpenAICompatible' in the frontend container logs to see the requests Cody makes to the endpoint.",
           "type": "boolean",
           "default": false
-        },
-        "useLegacyCompletions": {
-          "description": "If true (default), uses the /completions endpoint for autocomplete requests. If false, uses the /chat/completions endpoint for all requests, including autocomplete.",
-          "type": "boolean",
-          "default": true
         }
       }
     },
@@ -4407,6 +4395,9 @@
         "noSignIn": {
           "$ref": "#/definitions/AuthProviderCommon/properties/noSignIn"
         },
+        "enforceAccountConnection": {
+          "$ref": "#/definitions/AuthProviderCommon/properties/enforceAccountConnection"
+        },
         "order": {
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
         },
@@ -4505,6 +4496,9 @@
         "noSignIn": {
           "$ref": "#/definitions/AuthProviderCommon/properties/noSignIn"
         },
+        "enforceAccountConnection": {
+          "$ref": "#/definitions/AuthProviderCommon/properties/enforceAccountConnection"
+        },
         "order": {
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
         },
@@ -4589,6 +4583,9 @@
         "noSignIn": {
           "$ref": "#/definitions/AuthProviderCommon/properties/noSignIn"
         },
+        "enforceAccountConnection": {
+          "$ref": "#/definitions/AuthProviderCommon/properties/enforceAccountConnection"
+        },
         "order": {
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
         },
@@ -4645,6 +4642,9 @@
         "noSignIn": {
           "$ref": "#/definitions/AuthProviderCommon/properties/noSignIn"
         },
+        "enforceAccountConnection": {
+          "$ref": "#/definitions/AuthProviderCommon/properties/enforceAccountConnection"
+        },
         "order": {
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
         },
@@ -4687,6 +4687,9 @@
         },
         "noSignIn": {
           "$ref": "#/definitions/AuthProviderCommon/properties/noSignIn"
+        },
+        "enforceAccountConnection": {
+          "$ref": "#/definitions/AuthProviderCommon/properties/enforceAccountConnection"
         },
         "order": {
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
@@ -4734,6 +4737,9 @@
         "noSignIn": {
           "$ref": "#/definitions/AuthProviderCommon/properties/noSignIn"
         },
+        "enforceAccountConnection": {
+          "$ref": "#/definitions/AuthProviderCommon/properties/enforceAccountConnection"
+        },
         "order": {
           "$ref": "#/definitions/AuthProviderCommon/properties/order"
         },
@@ -4774,6 +4780,11 @@
         },
         "noSignIn": {
           "description": "Hides the configured auth provider from the sign in page, but still allows users to connect an external account using their Account Security page to enable permissions syncing.",
+          "type": "boolean",
+          "default": false
+        },
+        "enforceAccountConnection": {
+          "description": "When enabled, users must connect an external account for this provider before they can continue using Sourcegraph, if repository permissions are enforced for the provider's code host. Users are prompted to connect providers without this setting as well, but those connections are optional and can be skipped. Site admins are exempt from this requirement. To instead require at least one account from any provider, use `auth.enforceExternalAccountConnection`.",
           "type": "boolean",
           "default": false
         },
@@ -5107,7 +5118,7 @@
         }
       }
     },
-    "DeepSearchContextFilterItem": {
+    "ContextFilterItem": {
       "type": "object",
       "anyOf": [{ "required": ["repoNamePatterns"] }, { "required": ["filePathPatterns"] }],
       "properties": {
@@ -5130,6 +5141,22 @@
           "minItems": 1
         }
       },
+      "additionalProperties": false
+    },
+    "ContextFilters": {
+      "description": "Rules defining the repositories and files that Sourcegraph-owned AI agents must never read or share with third-party LLM providers.",
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "description": "List of rules specifying repositories and files that Sourcegraph-owned AI agents must exclude from context.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ContextFilterItem"
+          },
+          "minItems": 1
+        }
+      },
+      "minProperties": 1,
       "additionalProperties": false
     },
     "MTLSConfiguration": {

@@ -1,0 +1,452 @@
+extend type Query {
+    """
+    EXPERIMENTAL: Lists synchronized code-host change requests, newest first
+    by creation time on the code host. Only site administrators can list change
+    requests, and only while the change-requests-page feature flag is enabled.
+    """
+    changeRequests(
+        """
+        Filters applied before pagination. Omit to list all change requests.
+        """
+        filter: ChangeRequestFilter
+        """
+        Returns the first n change requests. Must be between 1 and 100, and
+        cannot be combined with last or before. Defaults to 50 when neither
+        first nor last is set.
+        """
+        first: Int
+        """
+        Opaque cursor from pageInfo.endCursor. Returns change requests after it.
+        """
+        after: String
+        """
+        Returns the last n change requests. Must be between 1 and 100, and
+        cannot be combined with first or after.
+        """
+        last: Int
+        """
+        Opaque cursor from pageInfo.startCursor. Returns change requests before it.
+        """
+        before: String
+        """
+        Whether to return only one change request per stack: the newest member
+        that matches the filter. Change requests outside of stacks are
+        unaffected. Use stack.changeRequests to list all members. Omit or pass
+        null for false.
+        """
+        collapseStacks: Boolean
+    ): ChangeRequestConnection!
+
+    """
+    EXPERIMENTAL: Looks up a synchronized code-host change request by ID. Returns
+    null if it does not exist. Only site administrators can look up change
+    requests, and only while the change-requests-page feature flag is enabled.
+    """
+    changeRequest(id: ID!): ChangeRequest
+}
+
+"""
+Filters for synchronized change requests. All supplied filters are combined.
+"""
+input ChangeRequestFilter {
+    """
+    Include any of these states. Omit or pass an empty list for all states.
+    """
+    states: [ChangeRequestState!]
+    """
+    Whether to include only drafts or only non-drafts. Omit for both.
+    """
+    draft: Boolean
+    """
+    The author. A Sourcegraph user matches linked code-host accounts or verified
+    emails in the stored payload. A code-host account matches its login on that
+    code host. Currently supports GitHub. Omit for all authors.
+    """
+    author: ChangeRequestParticipantInput
+    """
+    The requested reviewer. Does not imply a state or draft filter. Omit for all
+    reviewers.
+
+    A Sourcegraph user includes direct and team requests. Direct requests match
+    a linked code-host account or verified email in the stored payload. Team
+    requests require a linked GitHub account and app-synchronized membership
+    from the last 30 minutes. Membership is refreshed periodically using Review
+    GitHub App installations with Organization members: read permission.
+
+    A code-host account matches only direct requests for its login on that code
+    host. Currently supports GitHub.
+    """
+    requestedReviewer: ChangeRequestParticipantInput
+    """
+    Literal, case-insensitive substring of the repository name. Empty or omitted means unrestricted.
+    """
+    repository: String
+    """
+    Exact code-host base URL, ignoring a trailing slash. Empty or omitted means unrestricted.
+    """
+    codeHostURL: String
+}
+
+"""
+A change request participant used in filters. Set exactly one field. A
+Sourcegraph user or code-host account without matching change requests has no
+results, never all results.
+"""
+input ChangeRequestParticipantInput {
+    """
+    The ID of a Sourcegraph user.
+    """
+    user: ID
+    """
+    A code-host account, which does not need to be linked to a Sourcegraph user.
+    """
+    codeHostAccount: ChangeRequestCodeHostAccountInput
+}
+
+"""
+An account on a code host, identified by its login.
+"""
+input ChangeRequestCodeHostAccountInput {
+    """
+    The code host's base URL, ignoring a trailing slash.
+    """
+    codeHostURL: String!
+    """
+    The account's case-insensitive login on the code host, as stored when the
+    change request was last synchronized.
+    """
+    login: String!
+}
+
+"""
+A page of change requests. Nodes are always newest first, whether paging
+forward or backward.
+"""
+type ChangeRequestConnection {
+    """
+    The change requests in this page.
+    """
+    nodes: [ChangeRequest!]!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+A change request, such as a GitHub pull request, synchronized from a code host.
+It may belong to a repository that is not in Sourcegraph's repository catalog.
+"""
+type ChangeRequest {
+    """
+    The unique ID of the change request.
+    """
+    id: ID!
+    """
+    The kind of code host on which the change request exists.
+    """
+    codeHost: ExternalServiceKind!
+    """
+    The base URL of the code host on which the change request exists.
+    """
+    codeHostURL: String!
+    """
+    The code host's identifier for the change request's repository.
+    """
+    externalRepositoryID: String!
+    """
+    The name of the change request's repository on the code host, such as
+    owner/name.
+    """
+    repositoryName: String!
+    """
+    The Sourcegraph repository mirroring the change request's repository, or
+    null if it is not synchronized to Sourcegraph or the viewer cannot access it.
+    Use repository.comparison(base: baseOID, head: headOID) to load its diff.
+    Currently supports GitHub.
+    """
+    repository: Repository
+    """
+    The change request's number within its repository, such as a pull request
+    number.
+    """
+    externalID: String!
+    """
+    The change request's URL on the code host.
+    """
+    url: String!
+    """
+    The change request's title.
+    """
+    title: String!
+    """
+    The change request's description as raw, unsanitized code-host markup.
+    Clients must sanitize it before rendering it as HTML.
+    """
+    body: String!
+    """
+    The change request's state.
+    """
+    state: ChangeRequestState!
+    """
+    Whether the change request is a draft.
+    """
+    draft: Boolean!
+    """
+    The code-host user who opened the change request.
+    """
+    author: Person!
+    """
+    The code-host users assigned to the change request.
+    """
+    assignees: [Person!]!
+    """
+    The code-host users from whom a review is currently requested.
+    """
+    requestedReviewers: [Person!]!
+    """
+    The code-host teams whose review is currently requested.
+    """
+    requestedTeams: [String!]!
+    """
+    The change request's labels.
+    """
+    labels: [String!]!
+    """
+    The name of the branch containing the changes.
+    """
+    headRef: String!
+    """
+    The name of the branch into which the changes would be merged.
+    """
+    baseRef: String!
+    """
+    The current head commit of the change request.
+    """
+    headOID: GitObjectID!
+    """
+    The base commit of the change request when it was last synchronized.
+    """
+    baseOID: GitObjectID!
+    """
+    When the change request was created on the code host.
+    """
+    createdAt: DateTime!
+    """
+    When the change request was last updated on the code host.
+    """
+    updatedAt: DateTime!
+    """
+    When Sourcegraph last synchronized the change request.
+    """
+    syncedAt: DateTime!
+    """
+    When the change request was closed on the code host, or null if it was not
+    closed.
+    """
+    closedAt: DateTime
+    """
+    When the change request was merged, or null if it was not merged.
+    """
+    mergedAt: DateTime
+    """
+    The code host's diff statistics as of the last synchronization, or null if
+    the code host did not report them. Currently supports GitHub.
+    """
+    diffStat: ChangeRequestDiffStat
+    """
+    File review priorities for the current synchronized revision. Read-only:
+    querying this field never schedules analysis. Null if no job exists or
+    the repository is not available to the viewer.
+    """
+    fileGrouping: ChangeRequestFileGrouping
+    """
+    The stack containing the change request, or null if it is not part of a
+    stack. Currently supports GitHub stacked pull requests.
+    """
+    stack: ChangeRequestStack
+}
+
+"""
+An ordered chain of change requests in one repository, where each change
+request is based on the one below it.
+"""
+type ChangeRequestStack {
+    """
+    The unique ID of the stack.
+    """
+    id: ID!
+    """
+    The synchronized members of the stack from the bottom, which merges first,
+    to the top. Includes merged and closed members and ignores list filters.
+    """
+    changeRequests: [ChangeRequest!]!
+}
+
+"""
+Diff statistics for a change request, as reported by its code host.
+"""
+type ChangeRequestDiffStat {
+    """
+    Number of lines added.
+    """
+    added: Int!
+    """
+    Number of lines deleted.
+    """
+    deleted: Int!
+    """
+    Number of files changed.
+    """
+    changedFiles: Int!
+}
+
+"""
+Analysis of an immutable PR comparison, using the merge base like GitHub's PR diff.
+"""
+type ChangeRequestFileGrouping {
+    """
+    Generation state. SKIPPED means the repository was absent from Sourcegraph.
+    """
+    status: ChangeRequestFileGroupingStatus!
+    """
+    The resolved merge base, or null before comparison preparation.
+    """
+    diffBaseOID: GitObjectID
+    """
+    The PR head being analyzed.
+    """
+    headOID: GitObjectID!
+    """
+    Review, skim, and skip, in that order. Empty until a complete result exists.
+    Files are filtered by the viewer's current permissions.
+    """
+    groups: [ChangeRequestFileGroup!]!
+}
+
+"""
+The lifecycle of file grouping generation. Retryable failures remain QUEUED.
+"""
+enum ChangeRequestFileGroupingStatus {
+    QUEUED
+    PROCESSING
+    COMPLETED
+    FAILED
+    SKIPPED
+}
+
+"""
+A group of changed files with the same suggested level of review attention.
+"""
+type ChangeRequestFileGroup {
+    """
+    Suggested review attention.
+    """
+    category: ChangeRequestFileCategory!
+    """
+    Existing comparison file objects, in grouping order.
+    """
+    files: [ChangedFile!]!
+}
+
+"""
+Suggested review attention, not a guarantee of correctness or safety.
+"""
+enum ChangeRequestFileCategory {
+    REVIEW
+    SKIM
+    SKIP
+}
+
+"""
+The state of a change request.
+"""
+enum ChangeRequestState {
+    """
+    The change request is open.
+    """
+    OPEN
+    """
+    The change request was closed without being merged.
+    """
+    CLOSED
+    """
+    The change request was merged.
+    """
+    MERGED
+    """
+    The code host reported a state that Sourcegraph does not recognize.
+    """
+    UNKNOWN
+}
+
+extend type Mutation {
+    """
+    EXPERIMENTAL: Submits a review for a code-host change request. The initial
+    implementation supports GitHub pull requests only.
+    """
+    submitChangeRequestReview(input: SubmitChangeRequestReviewInput!): SubmitChangeRequestReviewPayload!
+}
+
+"""
+Input for submitting a review for a code-host change request.
+"""
+input SubmitChangeRequestReviewInput {
+    """
+    The repository containing the change request.
+    """
+    repository: ID!
+    """
+    The change request's stable identifier within its repository.
+    """
+    externalID: String!
+    """
+    The change request head commit that was reviewed.
+    """
+    expectedHeadOID: GitObjectID!
+    """
+    The review action to submit.
+    """
+    action: ChangeRequestReviewAction!
+    """
+    An optional review comment. A non-empty body is required for COMMENT and
+    REQUEST_CHANGES actions.
+    """
+    body: String
+}
+
+"""
+An action that can be submitted as part of a change-request review.
+"""
+enum ChangeRequestReviewAction {
+    COMMENT
+    APPROVE
+    REQUEST_CHANGES
+}
+
+"""
+The result of submitting a change-request review.
+"""
+type SubmitChangeRequestReviewPayload {
+    """
+    The outcome of the review submission.
+    """
+    status: SubmitChangeRequestReviewStatus!
+    """
+    The latest head commit when status is HEAD_CHANGED.
+    """
+    currentHeadOID: GitObjectID
+}
+
+"""
+The outcome of submitting a change-request review.
+"""
+enum SubmitChangeRequestReviewStatus {
+    SUCCESS
+    UNSUPPORTED
+    NOT_FOUND
+    CREDENTIAL_REQUIRED
+    PERMISSION_DENIED
+    HEAD_CHANGED
+    INVALID_STATE
+}
