@@ -12,6 +12,43 @@ extend type Query {
     previewLicenseKey(licenseKey: String!): PreviewLicenseKeyResult!
 }
 
+extend type Site {
+    """
+    The monthly active users of this site for the current calendar month (UTC).
+    Null when the license does not bill or cap by monthly active users (neither the
+    true-up nor the mau-hardcapped license tag is present).
+    Requires the USER_MANAGEMENT#READ permission.
+    """
+    monthlyActiveUsers: MonthlyActiveUsers
+}
+
+"""
+The monthly active users of a site for one calendar month (UTC).
+
+A user becomes active the first time they make an authenticated request in the month,
+and stays active until the month ends. Service accounts are never counted.
+"""
+type MonthlyActiveUsers {
+    """
+    The first instant of the month this describes.
+    """
+    month: DateTime!
+    """
+    The first instant of the next month, when the set of active users resets.
+    """
+    resetsAt: DateTime!
+    """
+    The number of users active so far this month.
+    """
+    count: Int!
+    """
+    The number of active users the license allows per month, if the license hard-caps
+    monthly active users. Null when the license bills for active users (true-up)
+    instead of limiting them.
+    """
+    limit: Int
+}
+
 """
 Result of validating/previewing a license key.
 If error is null, the license is valid and the other fields will be populated.

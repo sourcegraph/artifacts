@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS scip_uploads_last_referenced_scan_at;

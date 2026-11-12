@@ -1,0 +1,93 @@
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS visible_hash;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS version;
+DROP VIEW IF EXISTS reconciler_changesets;
+
+CREATE VIEW reconciler_changesets WITH (security_invoker = true) AS
+ SELECT c.id,
+    c.batch_change_ids,
+    c.repo_id,
+    c.queued_at,
+    c.created_at,
+    c.updated_at,
+    c.metadata,
+    c.external_id,
+    c.external_service_type,
+    c.external_deleted_at,
+    c.external_branch,
+    c.external_updated_at,
+    c.external_state,
+    c.external_review_state,
+    c.external_check_state,
+    c.commit_verification,
+    c.diff_stat_added,
+    c.diff_stat_deleted,
+    c.sync_state,
+    c.current_spec_id,
+    c.previous_spec_id,
+    c.last_pushed_spec_id,
+    c.publication_state,
+    c.owned_by_batch_change_id,
+    c.reconciler_state,
+    c.computed_state,
+    c.failure_message,
+    c.started_at,
+    c.finished_at,
+    c.process_after,
+    c.num_resets,
+    c.closing,
+    c.num_failures,
+    c.log_contents,
+    c.execution_logs,
+    c.syncer_error,
+    c.external_title,
+    c.worker_hostname,
+    c.ui_publication_state,
+    c.last_heartbeat_at,
+    c.external_fork_name,
+    c.external_fork_namespace,
+    c.detached_at,
+    c.previous_failure_message,
+    c.tenant_id,
+    c.auto_merge_method,
+    c.sync_skip_reason,
+    c.publish_entitlement_window_started_at,
+    c.publish_entitlement_user_id,
+    c.expected_head_sha
+   FROM (changesets c
+     JOIN repo r ON ((r.id = c.repo_id)))
+  WHERE ((r.deleted_at IS NULL) AND (EXISTS ( SELECT 1
+           FROM ((batch_changes
+             LEFT JOIN users namespace_user ON ((batch_changes.namespace_user_id = namespace_user.id)))
+             LEFT JOIN orgs namespace_org ON ((batch_changes.namespace_org_id = namespace_org.id)))
+          WHERE ((c.batch_change_ids ? (batch_changes.id)::text) AND (namespace_user.deleted_at IS NULL) AND (namespace_org.deleted_at IS NULL)))));
+
+ALTER TABLE changesets DROP COLUMN IF EXISTS failure_code;
+ALTER TABLE changesets DROP COLUMN IF EXISTS pushed_commit_sha;
+ALTER TABLE batch_change_agent_tool_approvals DROP COLUMN IF EXISTS system_decision_reason;
+ALTER TABLE batch_change_agent_tool_approvals
+ DROP COLUMN IF EXISTS publication_scope,
+ DROP COLUMN IF EXISTS publication_workspace_ids,
+ DROP COLUMN IF EXISTS publication_repository_ids,
+ DROP COLUMN IF EXISTS publication_mode,
+ DROP COLUMN IF EXISTS publication_batch_spec_id;
+
+
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS notified_awaiting_merge_at;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS notified_done_at;
+
+DROP INDEX IF EXISTS batch_change_agents_owner_start_request_id_idx;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS goal;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS start_request_id;
+
+ALTER TABLE batch_change_agents
+    DROP COLUMN IF EXISTS run_mode,
+    DROP COLUMN IF EXISTS stopped_at;
+
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS started_externally;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS scope_repository_ids;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS canary;
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS ci_repair;
+
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS notification_observed_at;
+
+ALTER TABLE batch_change_agents DROP COLUMN IF EXISTS stopped_by;

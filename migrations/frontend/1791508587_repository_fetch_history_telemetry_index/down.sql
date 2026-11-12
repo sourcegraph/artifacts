@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS repository_fetch_history_telemetry_unexported;

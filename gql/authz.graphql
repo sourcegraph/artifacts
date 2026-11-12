@@ -137,6 +137,150 @@ extend type Mutation {
         """
         reason: String
     ): CancelPermissionsSyncJobResultMessage!
+
+    """
+    Send one of the code host API requests that permissions syncing makes with an external account's
+    OAuth token, and return the code host's raw response, to diagnose permissions problems. The token
+    never leaves Sourcegraph. Every run is recorded in the audit log.
+
+    Only Sourcegraph operators may run requests.
+    """
+    runPermissionsSyncCodeHostRequest(
+        """
+        The external account whose token to send.
+        """
+        externalAccount: ID!
+        """
+        The ID of a request listed by permissionsSyncCodeHostRequests for the external account.
+        """
+        request: String!
+        """
+        Values for the path parameters of the request.
+        """
+        pathParameters: [PermissionsSyncCodeHostRequestParameterInput!]
+        """
+        The query parameters to send instead of the request's default ones. Each must be one of the
+        request's allowed query parameters. Omit to send the default ones.
+        """
+        queryParameters: [PermissionsSyncCodeHostRequestParameterInput!]
+    ): PermissionsSyncCodeHostResponse!
+}
+
+"""
+A path or query parameter of a code host API request.
+"""
+input PermissionsSyncCodeHostRequestParameterInput {
+    """
+    The parameter's name.
+    """
+    name: String!
+    """
+    The parameter's value.
+    """
+    value: String!
+}
+
+"""
+A path or query parameter of a code host API request.
+"""
+type PermissionsSyncCodeHostRequestParameter {
+    """
+    The parameter's name.
+    """
+    name: String!
+    """
+    The parameter's value.
+    """
+    value: String!
+}
+
+"""
+A code host API request that permissions syncing makes with a user's OAuth token.
+"""
+type PermissionsSyncCodeHostRequest {
+    """
+    The request's ID, such as "github.user-repos".
+    """
+    id: String!
+    """
+    A short title.
+    """
+    title: String!
+    """
+    When and why permissions syncing makes the request.
+    """
+    description: String!
+    """
+    The path relative to the code host's API root. Segments in braces, such as {org}, are path
+    parameters.
+    """
+    path: String!
+    """
+    The names of the path parameters.
+    """
+    pathParameters: [String!]!
+    """
+    The query parameters that permissions syncing sends.
+    """
+    defaultQueryParameters: [PermissionsSyncCodeHostRequestParameter!]!
+    """
+    The names of the query parameters that may be sent.
+    """
+    allowedQueryParameters: [String!]!
+    """
+    The field of the JSON response that holds its items, or null when the response is the list of
+    items itself, or a single item.
+    """
+    itemsField: String
+    """
+    The item fields that matter for permissions.
+    """
+    columns: [PermissionsSyncCodeHostRequestColumn!]!
+}
+
+"""
+An item field of a code host API response to show in a table.
+"""
+type PermissionsSyncCodeHostRequestColumn {
+    """
+    The column's title.
+    """
+    title: String!
+    """
+    The dot-separated path of the field in each item, such as "permissions.pull".
+    """
+    field: String!
+}
+
+"""
+A code host's raw response to a code host API request that permissions syncing makes.
+"""
+type PermissionsSyncCodeHostResponse {
+    """
+    The URL the request was sent to.
+    """
+    url: String!
+    """
+    The HTTP status code of the response.
+    """
+    statusCode: Int!
+    """
+    The response headers.
+    """
+    headers: [HTTPHeader!]!
+    """
+    The response body.
+    """
+    body: String!
+    """
+    Whether body holds only the start of a very large response body.
+    """
+    bodyTruncated: Boolean!
+    """
+    The query parameters that request the next page, or null on the last page and for requests that
+    don't page.
+    """
+    nextPageQueryParameters: [PermissionsSyncCodeHostRequestParameter!]
 }
 
 """
@@ -183,6 +327,20 @@ extend type Query {
     The returned list can be used to query authorizedUserRepositories for pending permissions.
     """
     usersWithPendingPermissions: [String!]!
+
+    """
+    The code host API requests that permissions syncing makes with the external account's OAuth
+    token. The list is empty when permissions syncing for the account's code host doesn't use user
+    tokens. Send one with runPermissionsSyncCodeHostRequest.
+
+    Only Sourcegraph operators may list requests.
+    """
+    permissionsSyncCodeHostRequests(
+        """
+        The external account.
+        """
+        externalAccount: ID!
+    ): [PermissionsSyncCodeHostRequest!]!
 
     """
     Returns a list of recent permissions sync jobs for a given set of parameters.
@@ -394,13 +552,11 @@ enum RepositoryPermission {
 """
 PermissionSource indicates where a permission originated from.
 
-REPO_SYNC: The permission was synced from the code host, via repo-centric permission sync.
-USER_SYNC: The permission was synced from the code host using user-centric permission sync.
+SYNC: The permission was synced from the code host by a user- or repo-centric permission sync.
 API: The permission was set explicitly via the GraphQL API.
 """
 enum PermissionSource {
-    REPO_SYNC
-    USER_SYNC
+    SYNC
     API
 }
 
@@ -684,6 +840,16 @@ enum PermissionsSyncJobReason {
     REASON_GITHUB_ORG_MEMBER_REMOVED_EVENT
     REASON_GITHUB_REPO_EVENT
     REASON_GITHUB_REPO_MADE_PRIVATE_EVENT
+    REASON_GITLAB_PROJECT_MEMBER_ADDED_EVENT
+    REASON_GITLAB_PROJECT_MEMBER_UPDATED_EVENT
+    REASON_GITLAB_PROJECT_MEMBER_REMOVED_EVENT
+    REASON_GITLAB_GROUP_MEMBER_ADDED_EVENT
+    REASON_GITLAB_GROUP_MEMBER_UPDATED_EVENT
+    REASON_GITLAB_GROUP_MEMBER_REMOVED_EVENT
+    REASON_GITLAB_PROJECT_TRANSFERRED_EVENT
+    REASON_GITLAB_PROJECT_VISIBILITY_CHANGED_EVENT
+    REASON_GITLAB_USER_DESTROYED_EVENT
+    REASON_GITLAB_USER_BLOCKED_EVENT
     REASON_MANUAL_REPO_SYNC
     REASON_MANUAL_USER_SYNC
     REASON_EXTERNAL_ACCOUNT_ADDED
@@ -721,6 +887,11 @@ Describes the status of a permissions sync for a given provider (code host).
 enum CodeHostStatus {
     SUCCESS
     ERROR
+    """
+    The provider was not synced, for example because the user's external account on it
+    has expired. Stored permissions for the provider were left as they were.
+    """
+    SKIPPED
 }
 
 """

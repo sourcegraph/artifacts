@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS changesets_agent_push_pending_batch_change;

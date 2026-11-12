@@ -97,12 +97,6 @@
             "pointer": true
           }
         },
-        "changesetsReviewPage": {
-          "description": "Shows the changesets review page. Only takes effect when the change-requests-page feature flag is enabled and the user is a site admin.",
-          "type": "boolean",
-          "default": false,
-          "doNotSuggest": true
-        },
         "goCodeCheckerTemplates": {
           "description": "Shows a panel with code insights templates for go code checker results.",
           "type": "boolean",
@@ -293,6 +287,32 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/SearchScope"
+      }
+    },
+    "notifications.email.enabled": {
+      "description": "Whether to receive opted-in user notifications by email.",
+      "type": "boolean",
+      "default": true,
+      "!go": {
+        "pointer": true
+      }
+    },
+    "notifications.changesetReviewRequests.email.enabled": {
+      "description": "Whether to receive an email when a changeset requests your review. Has no effect when notification emails are turned off.",
+      "type": "boolean",
+      "default": true,
+      "doNotSuggest": true,
+      "!go": {
+        "pointer": true
+      }
+    },
+    "notifications.changesetReviewRequests.slack.enabled": {
+      "description": "Whether to receive a Slack direct message when a changeset requests your review, if you linked a Slack account.",
+      "type": "boolean",
+      "default": true,
+      "doNotSuggest": true,
+      "!go": {
+        "pointer": true
       }
     },
     "codeIntel.disableSearchBased": {
@@ -491,6 +511,11 @@
       "!go": {
         "pointer": true
       }
+    },
+    "integrations.hideMCPSetupGuide": {
+      "description": "Hides the MCP section on the integrations page, for example when users should install the Sourcegraph MCP server from an MCP gateway's catalog instead of connecting to it directly. This does not disable the MCP server.",
+      "type": "boolean",
+      "default": false
     },
     "insights.aggregations.extendedTimeout": {
       "description": "The number of seconds to execute the aggregation for when running in extended timeout mode. This value should always be less than any proxy timeout if one exists. The maximum value is equal to searchLimits.maxTimeoutSeconds",

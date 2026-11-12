@@ -1,0 +1,29 @@
+extend type Query {
+    """
+    The enrollment of the execd deployment with this Sourcegraph instance, or
+    null if its manager has not enrolled.
+
+    Only site admins may query this.
+    """
+    execdManagerEnrollment: ExecdManagerEnrollment
+}
+
+"""
+The enrollment of the execd deployment with this Sourcegraph instance.
+"""
+type ExecdManagerEnrollment {
+    """
+    The time when the manager first enrolled.
+    """
+    firstEnrolledAt: DateTime!
+    """
+    The time when the manager last enrolled.
+    """
+    lastEnrolledAt: DateTime!
+    """
+    The ID of the enrollment public key that the manager used when it last
+    enrolled. The ID is the unpadded base64url SHA-256 hash of the raw Ed25519
+    public key.
+    """
+    lastEnrolledKeyID: String!
+}

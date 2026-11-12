@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS changeset_jobs_pending_publication_batch_change;

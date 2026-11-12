@@ -1,0 +1,3 @@
+name: repository_fetch_history_telemetry_index
+parents: [1791508585]
+createIndexConcurrently: true

@@ -1,0 +1,2 @@
+ALTER TABLE codeintel_destination_backfill_rounds DROP COLUMN IF EXISTS status_reported_at;
+ALTER TABLE codeintel_destination_backfill_rounds DROP COLUMN IF EXISTS status_reported_caught_up;

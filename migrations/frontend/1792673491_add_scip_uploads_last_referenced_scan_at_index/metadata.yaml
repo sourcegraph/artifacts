@@ -1,0 +1,3 @@
+name: add_scip_uploads_last_referenced_scan_at_index
+parents: [1788555432, 1792613221]
+createIndexConcurrently: true

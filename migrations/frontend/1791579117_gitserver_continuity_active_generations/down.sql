@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS gitserver_continuity_replica_sessions;
+
+ALTER TABLE gitserver_continuity_manifests DROP CONSTRAINT IF EXISTS gitserver_continuity_manifests_readiness_check;
+ALTER TABLE gitserver_continuity_manifests DROP CONSTRAINT IF EXISTS gitserver_continuity_manifests_active_check;
+ALTER TABLE gitserver_continuity_manifests DROP COLUMN IF EXISTS activation_readiness;
+ALTER TABLE gitserver_continuity_manifests DROP COLUMN IF EXISTS active_manifest_key;
+ALTER TABLE gitserver_continuity_manifests DROP COLUMN IF EXISTS active_manifest_digest;
+ALTER TABLE gitserver_continuity_manifests DROP COLUMN IF EXISTS active_generation;

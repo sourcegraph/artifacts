@@ -1,0 +1,1344 @@
+extend type Query {
+    """
+    EXPERIMENTAL: Compendia, AI-written long-form articles that walk the
+    reader through part of a codebase. Behind the compendia feature flag and
+    the COMPENDIA#READ permission; every field errors for a viewer without
+    them.
+    """
+    compendia: CompendiaQuery!
+}
+
+extend type Mutation {
+    """
+    EXPERIMENTAL: Mutations on compendia. Require the COMPENDIA#WRITE
+    permission.
+    """
+    compendia: CompendiaMutation!
+}
+
+"""
+A compendium as a listing shows it: its row and the title, deck and
+repositories of its current edition, read without the edition itself.
+"""
+type CompendiumSummary {
+    """
+    The GraphQL ID of the compendium.
+    """
+    id: ID!
+    """
+    The stable, non-enumerable identifier the URL uses when there is no slug.
+    """
+    publicID: String!
+    """
+    The share name the URL uses, if one is set.
+    """
+    slug: String
+    """
+    The free-text request the compendium answers.
+    """
+    request: String!
+    """
+    Where the compendium is in its generation.
+    """
+    state: CompendiumState!
+    """
+    How many editions have been generated. 0 until the first completes.
+    """
+    edition: Int!
+    """
+    Why the last generation failed. Only set when state is FAILED, and only
+    for viewers who may request another edition.
+    """
+    failureMessage: String
+    """
+    The user who requested the compendium, if still present.
+    """
+    creator: User
+    """
+    When the compendium was requested.
+    """
+    createdAt: DateTime!
+    """
+    When the compendium or its state last changed.
+    """
+    updatedAt: DateTime!
+    """
+    The compendium's URL on this instance.
+    """
+    url: String!
+    """
+    The decorative sketch generated on creation, if available and visible to the viewer.
+    Served through an access-checked image URL.
+    """
+    backdropURL: String
+    """
+    The headline. Null until an edition has been generated.
+    """
+    title: String
+    """
+    The standfirst under the headline.
+    """
+    deck: String
+    """
+    When listed by compendia.list(query:) and the query matched the article's text
+    rather than only its title or request: the passage where it matched,
+    with each hit bracketed by U+2E22 and U+2E23. Null otherwise.
+    """
+    searchHeadline: String
+    """
+    The repositories the article cites, most important first.
+    """
+    repositories: [String!]!
+    """
+    The compendium in full, with its current edition. Reading it costs what
+    the summary saves, so ask for it only when the edition is wanted.
+    """
+    compendium: Compendium!
+}
+
+"""
+When a compendium last changed, read cheaply.
+"""
+type CompendiumStatus {
+    """
+    The compendium's GraphQL ID.
+    """
+    id: ID!
+    """
+    See Compendium.changedAt.
+    """
+    changedAt: DateTime!
+}
+
+"""
+Queries on compendia. A compendium by GraphQL ID is reached through node(id:).
+"""
+type CompendiaQuery {
+    """
+    A compendium by handle: the segment of its URL, which is its slug or its
+    public ID. Null when none exists.
+    """
+    compendium(handle: String!): Compendium
+    """
+    Whether and when the compendium with this handle last changed, read
+    without the compendium itself. An open page asks this to learn when to
+    reload, by comparing changedAt with the one it shows. Null when none
+    exists.
+    """
+    status(handle: String!): CompendiumStatus
+    """
+    The compendia on this instance the viewer may read, most recently
+    updated first, or best match first when query is set.
+    """
+    list(
+        """
+        Return the first n compendia. Must be between 1 and 200; defaults to 50.
+        """
+        first: Int
+        """
+        Opaque cursor from pageInfo.endCursor. Returns the compendia after it.
+        A cursor from a search continues that search only.
+        """
+        after: String
+        """
+        Search the request, title and text, web-style.
+        """
+        query: String
+        """
+        Keep only compendia whose current edition cites this repository, or,
+        with path, the file or directory at path in it.
+        """
+        repository: String
+        """
+        A path in repository; ignored without one.
+        """
+        path: String
+    ): CompendiumConnection!
+    """
+    A completed compendium the viewer may read, drawn at random; null when
+    there is none.
+    """
+    featured: CompendiumSummary
+    """
+    The repositories cited by any compendium the viewer may read, most cited
+    first.
+    """
+    citedRepositories(
+        """
+        Return the first n repositories. Must be between 1 and 200; defaults to 50.
+        """
+        first: Int
+        """
+        Opaque cursor from pageInfo.endCursor. Returns the repositories after it.
+        """
+        after: String
+    ): CompendiumCitedRepositoryConnection!
+}
+
+"""
+A page of compendia.
+"""
+type CompendiumConnection implements Connection {
+    """
+    The compendia in this page.
+    """
+    nodes: [CompendiumSummary!]!
+    """
+    How many compendia match in all, across every page.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+A page of cited repositories.
+"""
+type CompendiumCitedRepositoryConnection implements Connection {
+    """
+    The repositories in this page.
+    """
+    nodes: [CompendiumCitedRepository!]!
+    """
+    How many repositories are cited in all, across every page.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+Mutations on compendia.
+"""
+type CompendiaMutation {
+    """
+    Enqueue a new compendium for a free-text request. Returns immediately with
+    state QUEUED; poll the compendium until COMPLETED.
+    """
+    create(input: CreateCompendiumInput!): Compendium!
+    """
+    Regenerate a compendium in place. The previous edition is given to the generator
+    so the new one keeps its structure where still accurate; chapters whose cited
+    code did not change are carried over as they are. With rewrite, every chapter
+    is written afresh instead, with the previous edition as a guide to scope only:
+    for when the generator itself changed. A no-op while the compendium is already
+    generating.
+    """
+    regenerate(id: ID!, rewrite: Boolean = false): Compendium!
+    """
+    Regenerate every compendium with an edition that the viewer may see, as
+    regenerate does for one, rewrite included: for when the generator itself
+    changed. Each is attributed to the viewer and generated as them.
+    Compendia already generating are left as they are. Administrators only.
+    Returns how many compendia were queued.
+    """
+    regenerateAll(rewrite: Boolean = false): Int!
+    """
+    Rewrite some chapters of the current edition against the code at head
+    without re-planning the article; the edition number is kept. With no
+    chapters given, the chapters the last freshness check found stale are
+    revised, along with every chapter that cites code the check saw change.
+    A no-op while the compendium is already generating.
+    """
+    revise(input: ReviseCompendiumInput!): Compendium!
+    """
+    Ask for an additional diagram of a compendium, e.g. "the request lifecycle".
+    Returns immediately with state QUEUED; poll the compendium's requestedDiagrams.
+    """
+    requestDiagram(input: RequestCompendiumDiagramInput!): CompendiumDiagramRequest!
+    """
+    Leave a note for the generator: what the next edition should do
+    differently. Notes never appear in the compendium; before the next
+    regeneration they are distilled into the compendium's standing directions.
+    """
+    addNote(input: AddCompendiumNoteInput!): Compendium!
+    """
+    Remove a note. Removing an applied note does not undo its effect on the
+    directions.
+    """
+    deleteNote(id: ID!): Compendium!
+    """
+    Bind a Deep Search conversation the viewer owns to the part of a
+    compendium it was asked about, so it is shown again next to that part.
+    Binding the same conversation twice is a no-op.
+    """
+    attachThread(input: AttachCompendiumThreadInput!): CompendiumThread!
+    """
+    Name the compendium's URL: /compendium/{slug}.
+    """
+    setSlug(input: SetCompendiumSlugInput!): Compendium!
+    """
+    Opt the compendium into, or out of, being kept up to date automatically:
+    once its edition has drifted from the code it cites and the drift has
+    settled, the stale chapters are revised, or a new edition written when
+    the code was reorganized, without anyone asking.
+    """
+    setAutoRefresh(input: SetCompendiumAutoRefreshInput!): Compendium!
+    """
+    Delete a compendium with every edition, diagram, note and conversation
+    binding it has. An edition in the works is abandoned.
+    """
+    delete(id: ID!): EmptyResponse!
+}
+
+"""
+What to write a compendium about.
+"""
+input CreateCompendiumInput {
+    """
+    What the compendium should explain, e.g. "the search backend" or "how batch
+    changes execute a spec".
+    """
+    request: String!
+    """
+    Sketches to hand the generator with the request, as data URLs
+    (image/png, image/jpeg, image/gif or image/webp, at most 4 MB each):
+    a hand-drawn diagram of how the reader pictures the subject, a
+    marked-up screenshot, and so on. They inform the compendium's directions
+    and are never shown to readers.
+    """
+    sketches: [String!]
+}
+
+"""
+Which chapters of a compendium to rewrite.
+"""
+input ReviseCompendiumInput {
+    """
+    The compendium.
+    """
+    id: ID!
+    """
+    The ids of the chapters to rewrite. Omitted or null: the chapters the
+    last freshness check found stale, and every chapter that cites code the
+    check saw change.
+    """
+    chapters: [String!]
+}
+
+"""
+A request for one more diagram of a compendium.
+"""
+input RequestCompendiumDiagramInput {
+    """
+    The compendium.
+    """
+    compendium: ID!
+    """
+    What the diagram should show, e.g. "the request lifecycle".
+    """
+    request: String!
+}
+
+"""
+A note for the generator of a compendium.
+"""
+input AddCompendiumNoteInput {
+    """
+    The compendium.
+    """
+    compendium: ID!
+    """
+    The note, in plain text.
+    """
+    body: String!
+    """
+    A data URL (image/png, image/jpeg, image/gif or image/webp, at most
+    4 MB) such as a photo of a hand-drawn diagram; it informs the directions
+    but is never shown to readers.
+    """
+    image: String
+}
+
+"""
+A Deep Search conversation to bind to a part of a compendium.
+"""
+input AttachCompendiumThreadInput {
+    """
+    The compendium.
+    """
+    compendium: ID!
+    """
+    The Deep Search conversation's ID.
+    """
+    conversationID: ID!
+    """
+    The part of the compendium the conversation was asked about.
+    """
+    anchorKind: CompendiumThreadAnchorKind!
+    """
+    The chapter or diagram node id; omitted for the compendium as a whole.
+    """
+    anchorID: String
+}
+
+"""
+A share name for a compendium's URL.
+"""
+input SetCompendiumSlugInput {
+    """
+    The compendium.
+    """
+    id: ID!
+    """
+    Lowercase letters, digits and single hyphens, at most 80 characters,
+    unique on the instance. Null or empty clears the slug, so the URL falls
+    back to the public ID, which always works whatever the slug is.
+    """
+    slug: String
+}
+
+"""
+Whether a compendium is kept up to date automatically.
+"""
+input SetCompendiumAutoRefreshInput {
+    """
+    The compendium.
+    """
+    id: ID!
+    """
+    Whether to keep it up to date automatically.
+    """
+    enabled: Boolean!
+}
+
+"""
+The part of a compendium a Deep Search conversation was asked about.
+"""
+enum CompendiumThreadAnchorKind {
+    COMPENDIUM
+    CHAPTER
+    DIAGRAM_NODE
+}
+
+"""
+The generation lifecycle state of a compendium or a requested diagram.
+"""
+enum CompendiumState {
+    QUEUED
+    PROCESSING
+    COMPLETED
+    FAILED
+}
+
+"""
+An AI-written long-form article walking the reader through part of a
+codebase, with embedded code excerpts and architecture diagrams.
+"""
+type Compendium implements Node {
+    """
+    The GraphQL ID.
+    """
+    id: ID!
+    """
+    The stable, non-enumerable identifier the URL uses when there is no slug.
+    """
+    publicID: String!
+    """
+    The share name the URL uses, if one is set.
+    """
+    slug: String
+    """
+    The free-text request the compendium answers.
+    """
+    request: String!
+    """
+    Where the compendium is in its generation.
+    """
+    state: CompendiumState!
+    """
+    How many editions have been generated. 0 until the first completes.
+    """
+    edition: Int!
+    """
+    Why the last generation failed. Only set when state is FAILED, and only
+    for viewers who may request another edition.
+    """
+    failureMessage: String
+    """
+    The user who requested the compendium, if still present.
+    """
+    creator: User
+    """
+    When the compendium was requested.
+    """
+    createdAt: DateTime!
+    """
+    When the compendium or its state last changed.
+    """
+    updatedAt: DateTime!
+    """
+    When the compendium last changed in a way a reader could see: it was
+    requeued, begun or finished, an edition or revision was stored, its
+    directions or auto-refresh setting changed, or a diagram was asked for,
+    begun or finished. Unlike updatedAt it covers the diagrams, so an open
+    page compares it with CompendiaQuery.status to learn when to reload.
+    """
+    changedAt: DateTime!
+    """
+    The compendium's URL on this instance.
+    """
+    url: String!
+
+    """
+    The decorative sketch generated on creation, if available and visible to the viewer.
+    Served through an access-checked image URL.
+    """
+    backdropURL: String
+
+    """
+    The headline. Null until an edition has been generated; while a
+    regeneration runs the previous edition stays visible.
+    """
+    title: String
+    """
+    The standfirst under the headline.
+    """
+    deck: String
+    """
+    The opening section in Markdown.
+    """
+    lede: String
+    """
+    The repositories the article cites, most important first.
+    """
+    repositories: [String!]!
+    """
+    The chapters of the current edition, in reading order.
+    """
+    chapters: [CompendiumChapter!]!
+    """
+    The chronicle: how the subsystem came to be, told through the commits
+    that shaped it. Null when the historian could not compile one for this
+    edition.
+    """
+    history: CompendiumHistory
+    """
+    The diagrams drawn as part of the article. The first is the overview;
+    others belong to a chapter (see CompendiumDiagram.chapterID).
+    """
+    diagrams: [CompendiumDiagram!]!
+    """
+    Diagrams readers asked for after the article was written. A request not
+    yet drawn is listed only for its requester and administrators.
+    """
+    requestedDiagrams: [CompendiumDiagramRequest!]!
+    """
+    When the current edition was written.
+    """
+    generatedAt: DateTime
+    """
+    Deep Search conversations readers started from this compendium.
+    """
+    threads: [CompendiumThread!]!
+    """
+    The standing directions distilled from the editor's notes, in Markdown;
+    empty until a note has been applied. Every agent that writes an edition
+    is given them. Empty for viewers who may not write: the notes may name
+    code the compendium does not cite.
+    """
+    directions: String!
+    """
+    The editor's notes for the generator, oldest first. Empty for viewers who
+    may not write: the notes and their sketches may name code the compendium
+    does not cite.
+    """
+    notes: [CompendiumNote!]!
+    """
+    The commits the edition is pinned to: for each cited repository, where
+    its head was when the edition was written. Excerpts render at these
+    commits. Empty for editions written before pinning existed.
+    """
+    revisions: [CompendiumRevision!]!
+    """
+    What the last freshness check found, or null if the edition has not been
+    checked since it changed.
+    """
+    freshness: CompendiumFreshness
+    """
+    When chapters of this edition were last revised against newer code
+    without a new edition, and which.
+    """
+    revisedAt: DateTime
+    """
+    The ids of the chapters the last revision rewrote.
+    """
+    revisedChapters: [String!]!
+    """
+    The chapters this edition kept from the previous one without rewriting
+    them, because the plan kept them and nothing they cite changed.
+    """
+    carriedChapters: [String!]!
+    """
+    The chapters a queued or running revision is rewriting.
+    """
+    revisingChapters: [String!]!
+    """
+    Whether the compendium is kept up to date automatically: once its
+    edition has drifted from the code it cites and the drift has settled,
+    the remedy the freshness check recommends is carried out without anyone
+    asking.
+    """
+    autoRefresh: Boolean!
+    """
+    Other compendia the edition points readers to, in the order recorded;
+    only those the viewer may read.
+    """
+    related: [CompendiumRelation!]!
+    """
+    Compendia whose current edition points at this one and are not already
+    among related; only those the viewer may read, newest first.
+    """
+    citedBy: [Compendium!]!
+    """
+    Compendia the edition's prose links to, including those among related;
+    only those the viewer may read. Lets a reader resolve a link in the
+    text to a title without another query.
+    """
+    linked: [Compendium!]!
+    """
+    Compendia the edition recommends be commissioned. Empty unless the
+    viewer may create compendia.
+    """
+    suggestions: [CompendiumSuggestion!]!
+    """
+    The editions the compendium has had, newest first, the current one
+    among them. Empty unless the viewer may request editions.
+    """
+    editions(
+        """
+        Return the first n editions. Must be between 1 and 200; defaults to 50.
+        """
+        first: Int
+        """
+        Opaque cursor from pageInfo.endCursor. Returns the editions after it.
+        """
+        after: String
+    ): CompendiumEditionConnection!
+    """
+    One of the compendium's editions by ID, or the newest when no ID is
+    given. Null when the compendium has no such edition, and unless the
+    viewer may request editions.
+    """
+    storedEdition(id: ID): CompendiumEdition
+}
+
+"""
+A page of a compendium's editions.
+"""
+type CompendiumEditionConnection implements Connection {
+    """
+    The editions in this page.
+    """
+    nodes: [CompendiumEdition!]!
+    """
+    How many editions the compendium has had in all, across every page.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+How an edition came to be stored.
+"""
+enum CompendiumEditionKind {
+    """
+    Written afresh, with a new number.
+    """
+    GENERATION
+    """
+    A chapter-level revision of the edition before it, under the same
+    number.
+    """
+    REVISION
+}
+
+"""
+An edition of a compendium as it was stored, kept so editions can be
+compared.
+"""
+type CompendiumEdition {
+    """
+    The GraphQL ID.
+    """
+    id: ID!
+    """
+    The edition's number. A revision keeps the number of the edition it
+    revised.
+    """
+    edition: Int!
+    """
+    How the edition came to be stored.
+    """
+    kind: CompendiumEditionKind!
+    """
+    When the edition was stored.
+    """
+    storedAt: DateTime!
+    """
+    The edition stored before this one: the edition this one replaced, or
+    the same edition as it stood before the revision. Null for the first.
+    """
+    previous: CompendiumEdition
+    """
+    When the edition was written.
+    """
+    generatedAt: DateTime
+    """
+    When chapters of the edition were last revised against newer code.
+    """
+    revisedAt: DateTime
+    """
+    The headline.
+    """
+    title: String!
+    """
+    The standfirst under the headline.
+    """
+    deck: String!
+    """
+    The opening section in Markdown.
+    """
+    lede: String!
+    """
+    The chapters, in reading order.
+    """
+    chapters: [CompendiumChapter!]!
+    """
+    The commits the edition is pinned to (see Compendium.revisions).
+    """
+    revisions: [CompendiumRevision!]!
+    """
+    The chapters the edition kept from the one before it without rewriting
+    them.
+    """
+    carriedChapters: [String!]!
+}
+
+"""
+How another compendium stands to one.
+"""
+enum CompendiumRelationKind {
+    """
+    It explains the larger thing this one is part of: read it first.
+    """
+    BACKGROUND
+    """
+    It explains one part of this one more closely: read it after.
+    """
+    IN_DEPTH
+    """
+    It explains a neighboring subsystem.
+    """
+    SEE_ALSO
+}
+
+"""
+Another compendium an edition points readers to.
+"""
+type CompendiumRelation {
+    """
+    The other compendium.
+    """
+    compendium: Compendium!
+    """
+    How it stands to this one.
+    """
+    relation: CompendiumRelationKind!
+    """
+    One sentence on what the reader finds there.
+    """
+    why: String!
+    """
+    The chapter the related compendium bears most on, when it is one
+    chapter rather than the article as a whole.
+    """
+    chapterID: String
+}
+
+"""
+A compendium the edition recommends be commissioned: a request a reader
+could submit as written.
+"""
+type CompendiumSuggestion {
+    """
+    A working title.
+    """
+    title: String!
+    """
+    The request to submit; it names the repositories it would read.
+    """
+    request: String!
+    """
+    How the suggested compendium would stand to this one.
+    """
+    relation: CompendiumRelationKind!
+    """
+    The chapter the suggestion grows out of, if one.
+    """
+    chapterID: String
+}
+
+"""
+A cited repository's commit an edition is pinned to.
+"""
+type CompendiumRevision {
+    """
+    The repository name.
+    """
+    repository: String!
+    """
+    The commit the edition read the repository at.
+    """
+    commit: GitObjectID!
+    """
+    The branch, tag or commit the article reads the repository at, when it
+    is not the default branch; empty otherwise. The commit above is where
+    that ref was when the edition was written.
+    """
+    ref: String!
+}
+
+"""
+What the freshness check found when it compared an edition's pinned commits
+with the heads of the repositories it cites.
+"""
+type CompendiumFreshness {
+    """
+    When the check ran.
+    """
+    checkedAt: DateTime!
+    """
+    When drift was first found and has persisted since; null while every
+    chapter still describes the code at head.
+    """
+    staleSince: DateTime
+    """
+    The edition is older than the age at which an article deserves a fresh
+    look even if nothing it cites changed.
+    """
+    aged: Boolean!
+    """
+    What the drift calls for; null when nothing is stale.
+    """
+    remedy: CompendiumFreshnessRemedy
+    """
+    Each cited repository's movement since the edition was pinned.
+    """
+    repositories: [CompendiumRepositoryDrift!]!
+    """
+    The chapters that no longer match the code at head.
+    """
+    staleChapters: [CompendiumStaleChapter!]!
+    """
+    Why the last check could not compare the edition with the code (a cited
+    repository gone or unreachable, say), or null when it could. The rest
+    of this result is then the last check that succeeded.
+    """
+    checkFailed: String
+    """
+    When the checks began failing; null when the last check succeeded.
+    """
+    checkFailedSince: DateTime
+}
+
+"""
+What drift calls for.
+"""
+enum CompendiumFreshnessRemedy {
+    """
+    Rewriting the stale chapters is enough.
+    """
+    REVISE
+    """
+    The code was reorganized; a new edition is called for.
+    """
+    REPLAN
+}
+
+"""
+One cited repository's movement since the edition was pinned.
+"""
+type CompendiumRepositoryDrift {
+    """
+    The repository name.
+    """
+    repository: String!
+    """
+    The pinned commit; null if the edition was never pinned for this
+    repository.
+    """
+    pinned: GitObjectID
+    """
+    The commit at the head of the branch the edition reads.
+    """
+    head: GitObjectID!
+    """
+    The cited paths that changed between the two.
+    """
+    changedPaths: [String!]!
+}
+
+"""
+A chapter whose excerpts or cited files no longer match the code at head.
+"""
+type CompendiumStaleChapter {
+    """
+    The chapter's id.
+    """
+    chapterID: String!
+    """
+    Human-readable reasons, e.g. "the excerpt from x.go (L10–20) no longer
+    appears in the file".
+    """
+    reasons: [String!]!
+}
+
+"""
+A reader's note for the generator: what the next edition should do
+differently.
+"""
+type CompendiumNote implements Node {
+    """
+    The GraphQL ID.
+    """
+    id: ID!
+    """
+    The note, in plain text.
+    """
+    body: String!
+    """
+    Whether the note carries an image.
+    """
+    hasImage: Boolean!
+    """
+    The note's image as a data URL, or null when the note carries none.
+    """
+    image: String
+    """
+    The edition whose generation folded the note into the directions; null
+    while the note is pending.
+    """
+    appliedEdition: Int
+    """
+    The user who left the note, if still present.
+    """
+    author: User
+    """
+    When the note was left.
+    """
+    createdAt: DateTime!
+}
+
+"""
+One section of a compendium: prose in Markdown with embedded code excerpts.
+"""
+type CompendiumChapter {
+    """
+    A slug unique within the compendium, used as the anchor (#id) and by diagram
+    nodes.
+    """
+    id: String!
+    """
+    The chapter's title.
+    """
+    heading: String!
+    """
+    A one-sentence summary of the chapter.
+    """
+    deck: String!
+    """
+    Markdown. A line consisting of "[[excerpt:ID]]" places the excerpt with
+    that ID.
+    """
+    body: String!
+    """
+    The code excerpts the body places.
+    """
+    excerpts: [CompendiumExcerpt!]!
+    """
+    The files and directories the chapter is about.
+    """
+    refs: [CompendiumRef!]!
+}
+
+"""
+The chronicle of a compendium: the history of the subsystem it covers, told
+through the commits that shaped it.
+"""
+type CompendiumHistory {
+    """
+    A one-sentence summary of the span and arc of the chronicle.
+    """
+    deck: String!
+    """
+    The commits on the timeline the viewer may see, most recent first.
+    """
+    events(
+        """
+        Return the first n events. Must be between 1 and 200; defaults to 50.
+        """
+        first: Int
+        """
+        Opaque cursor from pageInfo.endCursor. Returns the events after it.
+        """
+        after: String
+    ): CompendiumHistoryEventConnection!
+}
+
+"""
+A page of a chronicle's events.
+"""
+type CompendiumHistoryEventConnection implements Connection {
+    """
+    The events in this page.
+    """
+    nodes: [CompendiumHistoryEvent!]!
+    """
+    How many events the viewer may see in all, across every page.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+What a commit on a compendium's timeline did.
+"""
+enum CompendiumHistoryEventKind {
+    FEATURE
+    FIX
+    REVERT
+    REFACTOR
+    RELEASE
+    REMOVAL
+    OTHER
+}
+
+"""
+One commit on a compendium's timeline.
+"""
+type CompendiumHistoryEvent {
+    """
+    A slug unique within the chronicle.
+    """
+    id: String!
+    """
+    The repository the commit is in.
+    """
+    repository: String!
+    """
+    The commit.
+    """
+    commit: GitObjectID!
+    """
+    When the commit was authored.
+    """
+    date: DateTime!
+    """
+    The commit author's name.
+    """
+    author: String!
+    """
+    The commit message's subject line.
+    """
+    subject: String!
+    """
+    What the commit did.
+    """
+    kind: CompendiumHistoryEventKind!
+    """
+    What the commit changed and why it mattered to the subsystem as it is today.
+    """
+    summary: String!
+    """
+    The earliest release tag whose history contains the commit, if any.
+    """
+    tag: String
+    """
+    The edition whose chronicle first recorded the commit; null for entries
+    written before editions were recorded.
+    """
+    edition: Int
+    """
+    The files or directories the commit chiefly touched, among those the article cites.
+    """
+    refs: [CompendiumRef!]!
+    """
+    The ids of the chapters that explain what the commit left behind.
+    """
+    chapters: [String!]!
+    """
+    The commit's page.
+    """
+    url: String!
+}
+
+"""
+A range of a real file embedded in a chapter.
+"""
+type CompendiumExcerpt {
+    """
+    An id unique within the chapter, named by the body's "[[excerpt:ID]]" lines.
+    """
+    id: String!
+    """
+    The repository the file is in.
+    """
+    repository: String!
+    """
+    The file's path in the repository.
+    """
+    path: String!
+    """
+    1-based, inclusive.
+    """
+    startLine: Int!
+    """
+    1-based, inclusive.
+    """
+    endLine: Int!
+    """
+    One sentence saying what to notice.
+    """
+    caption: String!
+    """
+    The commit the excerpt is rendered at: the edition's pinned commit for
+    the repository, or null to mean head.
+    """
+    commit: GitObjectID
+    """
+    The file's URL on this instance at that commit, with the line range
+    selected.
+    """
+    url: String!
+}
+
+"""
+A repository, directory or file a compendium cites.
+"""
+type CompendiumRef {
+    """
+    The repository name.
+    """
+    repository: String!
+    """
+    Empty for the repository as a whole; a directory path has no trailing
+    slash.
+    """
+    path: String!
+    """
+    The revision to read the ref at: for a ref that names lines, the commit
+    the article was written at, since the lines are true there; otherwise
+    the branch the article reads the repository at, or empty for the default
+    branch.
+    """
+    revision: String!
+    """
+    The repository, directory or file's URL on this instance, at the lines
+    when the ref names them.
+    """
+    url: String!
+    """
+    The first line of the file the ref names, when a diagram node points at
+    the code that defines it rather than the whole file.
+    """
+    startLine: Int
+    """
+    The last line of the file the ref names, when a diagram node points at
+    the code that defines it rather than the whole file.
+    """
+    endLine: Int
+}
+
+"""
+The reading direction of a diagram.
+"""
+enum CompendiumDiagramFlow {
+    RIGHT
+    DOWN
+}
+
+"""
+An architecture diagram: components and the relationships between them.
+"""
+type CompendiumDiagram {
+    """
+    An id unique within the compendium.
+    """
+    id: String!
+    """
+    The diagram's title.
+    """
+    title: String!
+    """
+    One or two sentences on what the diagram shows.
+    """
+    caption: String!
+    """
+    The chapter the diagram belongs to; empty for the overview.
+    """
+    chapterID: String!
+    """
+    The reader's request, for on-demand diagrams.
+    """
+    request: String!
+    """
+    The reading direction the diagram asks for; null lets the viewer choose.
+    """
+    flow: CompendiumDiagramFlow
+    """
+    The components.
+    """
+    nodes: [CompendiumNode!]!
+    """
+    The relationships between components.
+    """
+    edges: [CompendiumEdge!]!
+}
+
+"""
+What a diagram node stands for.
+"""
+enum CompendiumNodeKind {
+    SERVICE
+    PACKAGE
+    COMPONENT
+    TYPE
+    FUNCTION
+    STORE
+    QUEUE
+    API
+    UI
+    CONFIG
+    EXTERNAL
+    ACTOR
+}
+
+"""
+A component in a diagram.
+"""
+type CompendiumNode {
+    """
+    An id unique within the diagram, named by edges and thread anchors.
+    """
+    id: String!
+    """
+    The component's name as drawn.
+    """
+    label: String!
+    """
+    What the component is.
+    """
+    kind: CompendiumNodeKind!
+    """
+    A few words on the component's role; may be empty.
+    """
+    note: String!
+    """
+    The chapter that explains the component; empty if none.
+    """
+    chapterID: String!
+    """
+    The files and directories the component lives in.
+    """
+    refs: [CompendiumRef!]!
+}
+
+"""
+A relationship between two components of a diagram.
+"""
+type CompendiumEdge {
+    """
+    The id of the node the edge starts at.
+    """
+    from: String!
+    """
+    The id of the node the edge points to.
+    """
+    to: String!
+    """
+    What the relationship is, e.g. "calls" or "reads"; may be empty.
+    """
+    label: String!
+}
+
+"""
+A diagram a reader asked for after the article was written.
+"""
+type CompendiumDiagramRequest implements Node {
+    """
+    The GraphQL ID.
+    """
+    id: ID!
+    """
+    What the reader asked the diagram to show.
+    """
+    request: String!
+    """
+    Where the request is in its generation.
+    """
+    state: CompendiumState!
+    """
+    Set once the state is COMPLETED.
+    """
+    diagram: CompendiumDiagram
+    """
+    Why drawing the diagram failed. Only set when state is FAILED, and only
+    for viewers who may request diagrams.
+    """
+    failureMessage: String
+    """
+    When the diagram was requested.
+    """
+    createdAt: DateTime!
+}
+
+"""
+A Deep Search conversation started from a part of a compendium.
+"""
+type CompendiumThread implements Node {
+    """
+    The GraphQL ID.
+    """
+    id: ID!
+    """
+    The Deep Search conversation's ID, as used by the Deep Search API.
+    """
+    conversationID: ID!
+    """
+    The part of the compendium the conversation was asked about.
+    """
+    anchorKind: CompendiumThreadAnchorKind!
+    """
+    The chapter or node ID; empty for the compendium as a whole.
+    """
+    anchorID: String!
+    """
+    When the conversation was bound to the compendium.
+    """
+    createdAt: DateTime!
+}
+
+"""
+A repository cited by at least one compendium.
+"""
+type CompendiumCitedRepository {
+    """
+    The repository name.
+    """
+    repository: String!
+    """
+    The number of compendia citing it.
+    """
+    compendia: Int!
+}

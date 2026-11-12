@@ -1,0 +1,2 @@
+-- Not reversible: the up migration does not record which apps it changed, and
+-- restoring the invalid repos/SITE_CREDENTIAL combination is not useful.

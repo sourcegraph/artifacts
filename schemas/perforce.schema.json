@@ -68,6 +68,12 @@
           "type": "boolean",
           "default": false
         },
+        "converter": {
+          "description": "The program that converts Perforce depots to Git. \"p4-fusion-go\" is a Go reimplementation of p4-fusion that accepts the same settings and continues depots p4-fusion converted.",
+          "type": "string",
+          "enum": ["p4-fusion", "p4-fusion-go"],
+          "default": "p4-fusion"
+        },
         "networkThreads": {
           "description": "The number of threads in the threadpool for running network calls. Defaults to the number of logical CPUs.",
           "type": "integer",

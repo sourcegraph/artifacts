@@ -1,0 +1,3 @@
+-- Intentionally a no-op: the up migration's grants cannot be distinguished from
+-- grants an administrator made afterwards, so revoking them could remove access
+-- that was deliberately configured.

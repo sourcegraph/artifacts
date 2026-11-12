@@ -1,0 +1,3 @@
+name: add_scip_uploads_finished_at_index
+parents: [1791508587, 1791875263, 1791536857]
+createIndexConcurrently: true

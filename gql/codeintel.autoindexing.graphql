@@ -355,6 +355,11 @@ enum PreciseIndexState {
     UPLOADING_INDEX
     QUEUED_FOR_PROCESSING
     PROCESSING
+    """
+    The index was processed and is being written into the new code intelligence store.
+    It becomes COMPLETED, and is used for code navigation, once it is written.
+    """
+    WRITING
     PROCESSING_ERRORED
     COMPLETED
     SUPERSEDED

@@ -1,0 +1,1 @@
+COMMENT ON COLUMN changeset_jobs.initiated_by IS 'Set on a new job that tracks a publication outcome (user or agent) and on a merge job a batch change agent queued (agent), whose ending the agent inbox reports. NULL with a non-NULL publication_outcome_state identifies a UI job written by code that predates this column. NULL with no outcome state is untracked.';

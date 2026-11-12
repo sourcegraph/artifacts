@@ -1,0 +1,68 @@
+extend type Query {
+    """
+    Instance-wide repository block rules, newest first. Requires REPO_MANAGEMENT#READ
+    or REPO_MANAGEMENT#WRITE.
+    """
+    repositoryBlocks(first: Int, after: String, last: Int, before: String, query: String): RepositoryBlockConnection!
+}
+
+extend type Mutation {
+    """
+    Prevent a repository from being synced by any code host connection, including
+    repositories not yet added. Also blocks existing matching repositories.
+    Accepts an exact repository path or clone URL. Requires REPO_MANAGEMENT#WRITE.
+    """
+    blockRepository(repository: String!, reason: String!): RepositoryBlock!
+
+    """
+    Remove a repository block rule, allowing future code host syncs to add the
+    repository. Other matching rules and manual blocks remain in force.
+    Requires REPO_MANAGEMENT#WRITE.
+    """
+    unblockRepository(id: ID!): RepositoryBlock!
+}
+
+"""
+A rule preventing a repository from being synced by any code host connection.
+"""
+type RepositoryBlock {
+    """
+    The block rule's opaque ID.
+    """
+    id: ID!
+    """
+    The normalized repository location.
+    """
+    repository: String!
+    """
+    The reason the repository was blocked.
+    """
+    reason: String!
+    """
+    The user who created the rule. Null if the user was deleted or if the rule
+    was created before creators were recorded.
+    """
+    createdBy: User
+    """
+    When the rule was created.
+    """
+    createdAt: DateTime!
+}
+
+"""
+A paginated list of repository block rules.
+"""
+type RepositoryBlockConnection {
+    """
+    The block rules in this page.
+    """
+    nodes: [RepositoryBlock!]!
+    """
+    The number of rules matching the query, before pagination.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}

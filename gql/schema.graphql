@@ -829,6 +829,15 @@ type Mutation {
     reloadSite: EmptyResponse
         @deprecated(reason: "This mutation is no longer used and will be removed in a future release.")
     """
+    Starts an update check now instead of waiting for the next scheduled one, and returns the
+    update check state. Does nothing when a check is already running or when update checks are
+    disabled, because the license key allows air-gapped operation or the instance hosts
+    Sourcegraph Workspaces.
+
+    Requires the ADVANCED_CONFIG#WRITE permission.
+    """
+    checkForUpdates: UpdateCheck!
+    """
     Submits a user satisfaction (NPS) survey.
     """
     submitSurvey(input: SurveySubmissionInput!): EmptyResponse
@@ -2167,6 +2176,11 @@ type Query {
         """
         names: [String!]
         """
+        Return repositories whose numeric database IDs are in the list.
+        An empty list does not filter results. Combined with other filters using AND.
+        """
+        databaseIDs: [Int!]
+        """
         Include cloned repositories.
         """
         cloned: Boolean = true
@@ -2207,6 +2221,46 @@ type Query {
         """
         descending: Boolean = false
     ): NewRepositoryConnection!
+
+    """
+    Text search indexes of the repositories whose most recent persisted index
+    report skipped files. Only includes repositories the viewer can read.
+
+    The status, refs and host fields of the nodes query the indexed search
+    backend for every node. Avoid requesting them in long lists.
+
+    Requires the REPO_MANAGEMENT#READ or REPO_MANAGEMENT#WRITE permission.
+    """
+    repositoriesWithSkippedFiles(
+        """
+        Returns the first n repositories from the list.
+        """
+        first: Int
+        """
+        Returns the last n repositories from the list.
+        """
+        last: Int
+        """
+        An opaque cursor that is used for pagination.
+        """
+        after: String
+        """
+        An opaque cursor that is used for pagination.
+        """
+        before: String
+        """
+        Return repositories whose names contain this string, ignoring case.
+        """
+        query: String
+        """
+        Sort field.
+        """
+        orderBy: RepositoriesWithSkippedFilesOrderBy = SKIPPED_FILES
+        """
+        Sort direction.
+        """
+        descending: Boolean = true
+    ): RepositoryTextSearchIndexConnection!
 
     """
     Looks up a Phabricator repository by name.
@@ -3500,8 +3554,8 @@ type SearchResultMatch {
     """
     A list of highlights that specify locations of matches of the query in the body. Each highlight is
     a line number, character offset, and length. Currently, highlights are only displayed on match bodies
-    that are code blocks. If the result body is a code block, exclude the markdown code fence lines in
-    the line and character count. Leave as an empty list if no highlights are available.
+    that are code blocks. Line numbers count from the start of the body, so the opening markdown code
+    fence of a code block is line 0. Leave as an empty list if no highlights are available.
     """
     highlights: [Highlight!]!
 }
@@ -3775,11 +3829,11 @@ A highlighted region in a string (e.g., matched by a query).
 """
 type Highlight {
     """
-    The 1-indexed line number.
+    The 0-based line number in the highlighted string.
     """
     line: Int!
     """
-    The 1-indexed character on the line.
+    The 0-based offset of the highlight on the line, in characters.
     """
     character: Int!
     """
@@ -4188,10 +4242,11 @@ type ExternalServiceSyncJob implements Node {
     reposUnmodified: Int!
 
     """
-    The repo counts broken down by how the code host connection listed the repos:
+    The repo counts broken down by how the code host connection lists repos:
     per config option (for example "orgs" or "repositoryQuery") and, where the option
-    is a list of queries or namespaces, per value (for example each org). Ordered by
-    option, then value. Empty if the code host does not report this.
+    is a list of queries or namespaces, per value (for example each org). Includes
+    options and values that found no repos. Ordered by option, then value. Empty if
+    the code host does not report this.
     """
     reposByMethod: [ExternalServiceSyncJobMethod!]!
 }
@@ -4201,16 +4256,34 @@ The repos one config option value of a code host connection contributed to a syn
 """
 type ExternalServiceSyncJobMethod {
     """
-    The config option that listed the repos, for example "repos", "orgs" or "repositoryQuery".
+    The config option that lists the repos, for example "repos", "orgs" or "repositoryQuery".
     """
     configOption: String!
 
     """
-    The value of the config option that listed the repos, for example the org name or
+    The value of the config option that lists the repos, for example the org name or
     the repository query. Null when the option is not broken down by value, such as for
     explicitly named repos.
     """
     value: String
+
+    """
+    The number of repos the code host returned for this method, including those the
+    connection then dropped as excluded or as overlap.
+    """
+    reposFound: Int!
+
+    """
+    The number of found repos the connection dropped, for example because of its exclude
+    rules or because the repo is disabled on the code host.
+    """
+    reposExcluded: Int!
+
+    """
+    The number of found repos that another method of the connection had already listed.
+    They are counted towards that method instead.
+    """
+    reposOverlap: Int!
 
     """
     The number of times an error occurred listing or syncing a repo from this method.
@@ -4581,6 +4654,13 @@ type Repository implements Node & GenericSearchResultInterface {
         Attempt to fetch missing revisions from remote if they are not found
         """
         fetchMissing: Boolean = true
+        """
+        Ignore whitespace when comparing lines in file diffs, like git diff -w. Lines that
+        differ only in whitespace become unchanged lines with their content from head, and
+        files with only whitespace changes are omitted from fileDiffs. changedFiles and
+        totalDiffCount are not affected.
+        """
+        ignoreWhitespace: Boolean = false
     ): RepositoryComparison!
     """
     The repository's contributors.
@@ -5399,6 +5479,44 @@ type RepositoryTextSearchIndex {
     Information about the indexserver that hosts the repo's index.
     """
     host: repositoryIndexserverHost
+    """
+    The number of files the index skipped on all indexed branches, from the most
+    recent persisted index report that included counts. A file on several
+    branches counts once. Null if no report included counts yet.
+    """
+    skippedFilesCount: BigInt
+}
+
+"""
+The order of repositoriesWithSkippedFiles.
+"""
+enum RepositoriesWithSkippedFilesOrderBy {
+    """
+    Order by repository name, ignoring case.
+    """
+    REPOSITORY_NAME
+    """
+    Order by the number of files the index skipped.
+    """
+    SKIPPED_FILES
+}
+
+"""
+A list of repository text search indexes.
+"""
+type RepositoryTextSearchIndexConnection {
+    """
+    A list of repository text search indexes.
+    """
+    nodes: [RepositoryTextSearchIndex!]!
+    """
+    The total count of text search indexes in the connection.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
 }
 
 """
@@ -5487,6 +5605,12 @@ type RepositoryTextSearchIndexedRef {
     EXPERIMENTAL: Information about the files that were not indexed.
     """
     skippedIndexed: SkippedIndexed
+        @deprecated(reason: "Use skippedFiles instead. This field will be removed in a future release.")
+    """
+    EXPERIMENTAL: The files that were not indexed, in total and per reason. Null
+    if the ref is not indexed.
+    """
+    skippedFiles: SkippedFiles
 }
 
 """
@@ -5499,6 +5623,54 @@ type SkippedIndexed {
     count: BigInt!
     """
     The query to retrieve the list of files that were not indexed.
+    """
+    query: String!
+}
+
+"""
+EXPERIMENTAL: The files of an indexed ref that were not indexed, in total and
+per reason.
+"""
+type SkippedFiles {
+    """
+    All files that were not indexed. The count can exceed the sum of the
+    reasons below if the index reports a reason this API doesn't list yet.
+    """
+    total: SkippedFilesCount!
+    """
+    The files that were not indexed because they are larger than the maximum
+    file size. Files that match search.largeFiles in the site configuration are
+    indexed regardless of size.
+    """
+    tooLarge: SkippedFilesCount!
+    """
+    The files that were not indexed because they contain binary content.
+    """
+    binary: SkippedFilesCount!
+    """
+    The files that were not indexed because they contain too many distinct
+    trigrams, as minified or generated files often do. Files that match
+    search.largeFiles in the site configuration are exempt.
+    """
+    tooManyTrigrams: SkippedFilesCount!
+    """
+    The files that were not indexed because they are too small to index (fewer
+    than 3 bytes).
+    """
+    tooSmall: SkippedFilesCount!
+}
+
+"""
+EXPERIMENTAL: A count of files that were not indexed, with a search query that
+lists them.
+"""
+type SkippedFilesCount {
+    """
+    The number of files.
+    """
+    count: BigInt!
+    """
+    The search query that lists the files.
     """
     query: String!
 }
@@ -6406,6 +6578,10 @@ type GitCommit implements Node {
         Return commits older than the specified date.
         """
         beforeDate: String
+        """
+        Return commits whose author name or email contains this string.
+        """
+        author: String
     ): GitCommitConnection!
     """
     Returns the number of commits that this commit is behind and ahead of revspec.
@@ -6438,6 +6614,10 @@ type GitCommit implements Node {
         The base commit to compare to. Defaults to the commit's first parent.
         """
         base: String
+        """
+        Ignore whitespace when comparing lines in file diffs. See Repository.comparison.
+        """
+        ignoreWhitespace: Boolean = false
     ): RepositoryComparison!
     """
     The Git tags that contain this commit.
@@ -7752,8 +7932,9 @@ type AccessToken implements Node {
     id: ID!
     """
     The user whose privileges the access token grants.
+    Returns null if the subject user has been deleted.
     """
-    subject: User!
+    subject: User
     """
     The scopes that define the allowed set of operations that can be performed using this access token.
     """
@@ -7785,6 +7966,11 @@ type AccessToken implements Node {
     Only available for tokens created starting with Sourcegraph 6.13.
     """
     tokenLastChars: String
+    """
+    The date when the access token was deleted. Deleted tokens can no longer be used, but their
+    records are retained. Null if the token has not been deleted.
+    """
+    deletedAt: DateTime
 }
 
 """
@@ -8005,6 +8191,10 @@ type PublicExternalAccountData {
     Link to the user profile page for the external account.
     """
     url: String
+    """
+    URL of the avatar image for the external account, if the provider exposes one.
+    """
+    avatarURL: String
 }
 
 """
@@ -8444,6 +8634,10 @@ type Site implements SettingsSubject {
         If true, include expired access tokens in the results.
         """
         includeExpired: Boolean
+        """
+        If true, include deleted access tokens in the results.
+        """
+        includeDeleted: Boolean
     ): AccessTokenConnection!
     """
     A list of all authentication providers. This information is visible to all viewers and does not contain any
@@ -8596,6 +8790,10 @@ type Site implements SettingsSubject {
         """
         serviceAccount: Boolean
         """
+        Returns users with or without unrestricted repository access.
+        """
+        unrestrictedRepoAccess: Boolean
+        """
         Returns users that contain filter in the username field.
         """
         username: String
@@ -8624,6 +8822,12 @@ type Site implements SettingsSubject {
         Returns users who have any of the specified roles.
         """
         roles: [String!]
+        """
+        Returns users that have (true) or have not (false) been active in the current
+        calendar month (UTC), as recorded by the monthly active user ledger.
+        Returns all users when omitted.
+        """
+        activeThisMonth: Boolean
     ): SiteUsers!
 
     """
@@ -8741,17 +8945,84 @@ type CodyConfigFeatures {
 }
 
 """
-Instance upgrade readiness information includes schema drifts and deprecated-but-unfinished out-of-band migrations.
+Instance upgrade readiness information: schema drift and deprecated-but-unfinished out-of-band migrations.
+Each check reports its own outcome, so a failure in one check does not hide the result of another.
 """
 type UpgradeReadiness {
+    """
+    Compares the databases with the schema description bundled in this frontend's image. Set
+    database to frontend, codeintel or codeinsights to check only that database.
+    """
+    schemaDriftCheck(database: String): SchemaDriftCheck!
+    """
+    The check for unfinished out-of-band migrations that block a future upgrade.
+    """
+    outOfBandMigrationsCheck: OutOfBandMigrationsCheck!
     """
     The schema drift details.
     """
     schemaDrift: [SchemaDriftSummary!]!
+        @deprecated(reason: "Use schemaDriftCheck, which reports errors per database instead of failing the query.")
     """
     The list of deprecated-but-unfinished out-of-band migrations.
     """
     requiredOutOfBandMigrations: [OutOfBandMigration!]!
+        @deprecated(reason: "Use outOfBandMigrationsCheck, which reports errors instead of failing the query.")
+}
+
+"""
+The outcome of comparing databases with the schema description bundled in this frontend's image.
+"""
+type SchemaDriftCheck {
+    """
+    Why no database was checked, for example because the frontend database version does not
+    match this frontend image's version. Null when the databases were checked.
+    """
+    errorMessage: String
+    """
+    The outcome for each checked database.
+    """
+    databases: [DatabaseSchemaDriftCheck!]!
+}
+
+"""
+The outcome of comparing one database with the expected schema description.
+"""
+type DatabaseSchemaDriftCheck {
+    """
+    The database schema name: frontend, codeintel or codeinsights.
+    """
+    name: String!
+    """
+    Why this database could not be checked. Null when it was checked.
+    """
+    errorMessage: String
+    """
+    True when this database is not part of this instance, such as codeinsights while code insights is
+    disabled. errorMessage says why. This is an expected state, not a failed check.
+    """
+    skipped: Boolean!
+    """
+    The drift found. Empty when the database matches the expected schema.
+    """
+    drift: [SchemaDriftSummary!]!
+}
+
+"""
+The outcome of looking for out-of-band migrations that must finish before a future upgrade.
+"""
+type OutOfBandMigrationsCheck {
+    """
+    Why the check could not run. Null when it ran.
+    """
+    errorMessage: String
+    """
+    Unfinished out-of-band migrations deprecated between the running version and the latest release
+    found by the update check. Air-gapped instances never check, so they list every unfinished
+    migration deprecated in the running version or a later one. Each must complete before upgrading
+    to or past the version in which it is deprecated.
+    """
+    requiredMigrations: [OutOfBandMigration!]!
 }
 
 """
@@ -8902,6 +9173,11 @@ type UpdateCheck {
     If an update is available, the version string of the updated version.
     """
     updateVersionAvailable: String
+    """
+    Whether this instance never checks for updates, because the license key
+    allows air-gapped operation or the instance hosts Sourcegraph Workspaces.
+    """
+    disabled: Boolean!
 }
 
 """
@@ -9240,6 +9516,12 @@ type SiteUser {
     """
     deletedAt: String
     """
+    When the user first became active in the current calendar month (UTC), as
+    recorded by the monthly active user ledger. Null if the user has not been
+    active this month. Unlike lastActiveAt, this is updated immediately.
+    """
+    activeThisMonthSince: DateTime
+    """
     Whether user is site admin or not.
     """
     siteAdmin: Boolean!
@@ -9259,6 +9541,10 @@ type SiteUser {
     Whether this account is a service account.
     """
     serviceAccount: Boolean!
+    """
+    Whether this account can read all repositories, regardless of repository permissions.
+    """
+    unrestrictedRepoAccess: Boolean!
     """
     The list of all roles assigned to this user.
     """
@@ -9311,6 +9597,10 @@ enum SiteUserOrderBy {
     User type (site admin, service account, regular user).
     """
     USER_TYPE
+    """
+    When the user first became active in the current calendar month (UTC).
+    """
+    ACTIVE_THIS_MONTH
 }
 
 """
@@ -10875,6 +11165,12 @@ enum PermissionNamespace {
     This represents the Batch Changes namespace.
     """
     BATCH_CHANGES
+
+    """
+    Administering every user's agentic batch change threads: listing and
+    opening them.
+    """
+    BATCH_CHANGE_AGENT_ADMINISTRATION
     """
     Code ownership namespace used for permitting to assign ownership
     within Sourcegraph.
@@ -11006,6 +11302,17 @@ enum PermissionNamespace {
     Permissions related to observability and debugging (outbound requests, slow requests, gitserver/zoekt info, background jobs, and observability test alerts).
     """
     OBSERVABILITY
+
+    """
+    Permissions related to compendia: reading them, and writing them (creating
+    them, requesting new editions and diagrams, and leaving notes).
+    """
+    COMPENDIA
+
+    """
+    Permissions related to connectors (MCP servers) that users add for their own agents.
+    """
+    CONNECTORS
 }
 
 """
@@ -11028,6 +11335,12 @@ type Permission implements Node {
     A unique, human-readable string used to represent a permission, taking the form: <namespace>:<object_id>#<relation>@<user_id | user_group>
     """
     displayName: String!
+    """
+    Whether this permission belongs to an experimental feature whose feature flag is not
+    enabled for the viewer. Clients should not show such permissions. This does not affect
+    whether the permission is granted or enforced.
+    """
+    hiddenByFeatureFlag: Boolean!
     """
     The date and time when the permission was created.
     """

@@ -195,17 +195,42 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "execd": {
+          "description": "EXPERIMENTAL: Connection and manager-initiated registration for the execd deployment. Managers register with Sourcegraph at startup to retrieve the Sourcegraph credential. Registration is disabled when this configuration or its enrollment public keys are absent.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "codeIntel": {
+              "description": "Use execd instead of normal executors for code intelligence auto-indexing. Restart workers after changing this setting. Execution is not implemented yet; leave this disabled.",
+              "type": "boolean",
+              "default": false
+            },
+            "gatewayURL": {
+              "description": "The gateway URL for outbound Sourcegraph SDK session RPCs to execd. This is not an enrollment destination.",
+              "type": "string",
+              "examples": ["http://execd-gateway.executors.svc:50052"]
+            },
+            "enrollmentPublicKeys": {
+              "description": "Trusted PKIX PEM Ed25519 public keys for manager-initiated registration. Provision the corresponding PKCS#8 private key outside the manager in the execd-enrollment-key Secret. An empty list disables registration. Multiple keys allow rotation; removing a key blocks new enrollment but does not revoke issued credentials.",
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          }
+        },
         "batchChanges.agenticBatchChanges.sharing": {
           "description": "Controls who can see Agentic Batch Changes agents. \"global\" lets every user with access to Agentic Batch Changes see all agents on the instance. \"link-only\" lets users see only their own agents and agents shared with them via link.",
           "type": "string",
           "enum": ["global", "link-only"],
-          "default": "link-only",
-          "hide": true
+          "default": "link-only"
         },
         "agents.contextFilters": {
-          "description": "Rules defining the repositories and files that Sourcegraph-owned AI agents must never read or share with third-party LLM providers. A repository that matches an exclude rule is invisible to agents, as if it did not exist.",
-          "$ref": "#/definitions/ContextFilters",
-          "hide": true
+          "description": "Rules defining the repositories and files that Sourcegraph-owned AI agents and Sourcegraph MCP tools must never read or share with third-party LLM providers. A repository that matches an exclude rule is invisible to them, as if it did not exist.",
+          "$ref": "#/definitions/ContextFilters"
         },
         "monorepos": {
           "description": "EXPERIMENTAL: Repository names whose whole-tree unindexed searches may use searcher's shallow Git acquisition cache. If the cache cannot acquire a commit, searcher falls back to the existing gitserver archive path.",
@@ -687,7 +712,8 @@
           }
         },
         "deepSearch.contextFilters": {
-          "description": "Rules defining the repositories and files that will never be shared by DeepSearch with third-party LLM providers.",
+          "description": "DEPRECATED: Move these rules to `agents.contextFilters`, which covers Deep Search and every other Sourcegraph-owned agent. Rules here still apply but will be ignored in a future release.",
+          "deprecationMessage": "DEPRECATED: Move these rules to `agents.contextFilters`, which covers Deep Search and every other Sourcegraph-owned agent. Rules here still apply but will be ignored in a future release.",
           "$ref": "#/definitions/ContextFilters",
           "hide": true
         },
@@ -941,6 +967,13 @@
       "group": "BatchChanges",
       "examples": ["336h", "48h", "5h30m40s"]
     },
+    "batchChanges.changesetSyncMaxInterval": {
+      "description": "The longest time Batch Changes waits between polls of a changeset's status on its code host. Changesets back off towards this interval the longer they go without changes. Raising it reduces code host API usage from old changesets that rarely change; configure code host webhooks so that changes are still picked up immediately. Defaults to 8h.",
+      "type": "string",
+      "group": "BatchChanges",
+      "default": "8h",
+      "examples": ["24h", "72h", "168h"]
+    },
     "batchChanges.containerRegistryAllowlist": {
       "description": "A list of permitted container registries for use in batch changes, e.g., docker.io. Applies to step 'container' images and 'buildImage' base images. If empty, all container registries are allowed. It cannot be used together with 'batchChanges.containerRegistryDenylist'",
       "type": "array",
@@ -1020,6 +1053,38 @@
       "type": "boolean",
       "default": false,
       "group": "Security"
+    },
+    "api.requestSizeLimits": {
+      "description": "Maximum sizes, in bytes, of HTTP API request bodies. Larger requests are rejected with 413 Request Entity Too Large. Raise a limit if legitimate requests, such as large SCIP uploads, are rejected.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultBytes": {
+          "description": "Maximum size of an API request body, except SCIP uploads. Defaults to 33554432 (32 MiB).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 33554432,
+          "!go": {
+            "pointer": true
+          }
+        },
+        "scipUploadBytes": {
+          "description": "Maximum size of a SCIP upload request body (/.api/scip/upload). Defaults to 1073741824 (1 GiB).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1073741824,
+          "!go": {
+            "pointer": true
+          }
+        }
+      },
+      "group": "Security",
+      "examples": [
+        {
+          "defaultBytes": 33554432,
+          "scipUploadBytes": 2147483648
+        }
+      ]
     },
     "disableNonCriticalTelemetry": {
       "deprecationMessage": "DEPRECATED: This setting has no effect",
@@ -1645,15 +1710,6 @@
       "type": "integer",
       "default": 3600,
       "minimum": 1
-    },
-    "contributorsDataEnabled": {
-      "description": "Enables the computation of contributor statistics per author and repository. Will all commits of each repository initially, and then work on deltas.",
-      "type": "boolean",
-      "default": true,
-      "!go": {
-        "pointer": true
-      },
-      "examples": [true]
     },
     "branding": {
       "description": "Customize Sourcegraph homepage logo and search icon.",
@@ -2755,15 +2811,6 @@
       "group": "Authentication",
       "default": 3
     },
-    "update.channel": {
-      "description": "DEPRECATED: This setting has no effect.",
-      "deprecationMessage": "DEPRECATED: This setting has no effect.",
-      "type": ["string"],
-      "enum": ["release", "none"],
-      "default": "release",
-      "examples": ["none"],
-      "group": "Misc."
-    },
     "encryption.keys": {
       "description": "Configuration for encryption keys used to encrypt data at rest in the database.",
       "type": "object",
@@ -2806,6 +2853,10 @@
           "$ref": "#/definitions/EncryptionKey"
         },
         "slackConfigurationKey": {
+          "$ref": "#/definitions/EncryptionKey"
+        },
+        "connectorKey": {
+          "description": "Encrypts connector (MCP server) credentials and per-user connector OAuth tokens.",
           "$ref": "#/definitions/EncryptionKey"
         }
       },
@@ -4176,6 +4227,11 @@
           "description": "Only allow users to authenticate if their email domain is equal to this value (example: mycompany.com). Do not include a leading \"@\". If not set, all users on this OpenID Connect provider can authenticate to Sourcegraph.",
           "type": "string",
           "pattern": "^[^<@]"
+        },
+        "requireEmailVerified": {
+          "description": "Require the OpenID Connect provider to return email_verified=true before allowing sign-in or signup. Defaults to false for compatibility with providers that omit this claim. Only leave disabled if the provider guarantees that users cannot assert email addresses they do not own. An explicit email_verified=false is always rejected.",
+          "type": "boolean",
+          "default": false
         },
         "allowSignup": {
           "description": "Allows new visitors to sign up for accounts via OpenID Connect authentication. If false, users signing in via OpenID Connect must have an existing Sourcegraph account, which will be linked to their OpenID Connect identity after sign-in.",

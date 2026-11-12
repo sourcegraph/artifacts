@@ -1,0 +1,470 @@
+extend type Query {
+    """
+    The connectors (MCP servers) administrators configured for all users,
+    ordered by name. Every user can list them to see which ones they still need
+    to authorize. Users' personal connectors are listed by User.connectors.
+    """
+    connectors(
+        """
+        Returns the first n connectors from the list.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): ConnectorConnection!
+    """
+    Checks the MCP server at url before a connector is created: its name,
+    whether it requires authentication, and whether connectors can use OAuth
+    with it, like createConnector does.
+
+    Checks for personal connectors (personal: true) behave like personal
+    connectors: they require the CONNECTORS#WRITE_USER permission, and they can
+    only reach servers on public addresses, so they can't check servers on
+    private networks. Other checks require the INTEGRATION_MANAGEMENT#WRITE
+    permission.
+    """
+    discoverConnector(url: String!, personal: Boolean = false): ConnectorDiscovery!
+}
+
+extend type User {
+    """
+    The connectors (MCP servers) the user's agents can use, ordered by name:
+    those administrators configured for all users, and the user's personal
+    connectors if the user has the CONNECTORS#WRITE_USER permission. The
+    authorization and settings of the connectors are the user's.
+
+    Only the user and site admins can list them.
+    """
+    connectors(
+        """
+        Returns the first n connectors from the list.
+        """
+        first: Int = 50
+        """
+        Opaque pagination cursor.
+        """
+        after: String
+    ): ConnectorConnection!
+}
+
+"""
+A list of connectors.
+"""
+type ConnectorConnection {
+    """
+    The current page of connectors.
+    """
+    nodes: [Connector!]!
+    """
+    The total number of connectors in the list.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+What Sourcegraph found out about an MCP server before creating a connector.
+"""
+type ConnectorDiscovery {
+    """
+    The display name the server reports, if any.
+    """
+    serverName: String
+    """
+    Whether the server rejects requests without authentication.
+    """
+    authRequired: Boolean!
+    """
+    Why connecting without authentication failed for another reason than
+    requiring authentication, for example because the server is unreachable.
+    The server may still accept connections with custom headers.
+    """
+    connectError: String
+    """
+    Whether connectors can use OAuth with the server.
+    """
+    oauth: ConnectorOAuthSupport!
+}
+
+"""
+Whether connectors can use OAuth with an MCP server.
+"""
+type ConnectorOAuthSupport {
+    """
+    Whether the server advertises an OAuth authorization server.
+    """
+    supported: Boolean!
+    """
+    Why OAuth cannot be used, if it is not supported.
+    """
+    unsupportedReason: String
+    """
+    Whether Sourcegraph can register itself as an OAuth client with dynamic
+    client registration. Otherwise, an OAuth client has to be registered
+    manually and its client ID provided.
+    """
+    dynamicClientRegistration: Boolean!
+    """
+    Whether a manually registered client needs a client secret, because the
+    authorization server does not accept public clients.
+    """
+    clientSecretRequired: Boolean!
+}
+
+extend type Mutation {
+    """
+    Creates a connector after checking that Sourcegraph can talk to it. For
+    connectors with shared credentials, this lists the server's tools. For
+    OAuth connectors, this discovers the authorization server and registers
+    Sourcegraph as an OAuth client.
+
+    Personal connectors require the CONNECTORS#WRITE_USER permission. Other
+    connectors require the INTEGRATION_MANAGEMENT#WRITE permission.
+    """
+    createConnector(input: CreateConnectorInput!): Connector!
+    """
+    Updates a connector and checks connectivity like createConnector. Users
+    have to connect again if the server or OAuth client changes, for example
+    because the instance's external URL changed.
+
+    Requires the INTEGRATION_MANAGEMENT#WRITE permission, or owning the
+    personal connector and the CONNECTORS#WRITE_USER permission, like all
+    mutations that manage a connector.
+    """
+    updateConnector(id: ID!, input: UpdateConnectorInput!): Connector!
+    """
+    Deletes a connector and all user authorizations for it.
+    """
+    deleteConnector(id: ID!): EmptyResponse!
+    """
+    Enables or disables tools of a connector. Tools are enabled by default,
+    except tools that may delete or overwrite data, which includes tools
+    without hints about their effects.
+    """
+    setConnectorToolsEnabled(connector: ID!, tools: [String!]!, enabled: Boolean!): Connector!
+    """
+    Connects to a connector, lists its tools again, and stores them, so it also
+    checks that Sourcegraph can reach the server and authenticate. Connectors
+    with per-user authorization use the current user's authorization.
+    """
+    refreshConnectorTools(connector: ID!): Connector!
+    """
+    Removes the current user's authorization for a connector with per-user
+    authorization.
+    """
+    disconnectConnector(connector: ID!): Connector!
+    """
+    Stores the current user's API token for a connector with per-user tokens,
+    after checking that the server accepts it.
+    """
+    setConnectorUserToken(connector: ID!, token: String!): Connector!
+    """
+    Turns a connector off or on for one kind of the current user's agents.
+    Connectors are on by default.
+    """
+    setConnectorDisabled(connector: ID!, agent: ConnectorAgent!, disabled: Boolean!): Connector!
+}
+
+"""
+A kind of agent that uses connectors. Users turn connectors off for each kind
+separately.
+"""
+enum ConnectorAgent {
+    """
+    The batch change agent.
+    """
+    BATCH_CHANGE_AGENT
+    """
+    The coding agents that change repositories in batch change workspaces.
+    """
+    BATCH_CHANGE_CODING_AGENT
+}
+
+"""
+How Sourcegraph authenticates to a connector.
+"""
+enum ConnectorAuthType {
+    """
+    The server does not require authentication.
+    """
+    NONE
+    """
+    A bearer token shared by all users.
+    """
+    BEARER
+    """
+    Every user authorizes the connector with OAuth. Sourcegraph discovers the
+    authorization server from the MCP server.
+    """
+    OAUTH
+    """
+    Every user provides their own API token, which is sent as a bearer token.
+    """
+    USER_TOKEN
+}
+
+"""
+A custom header that Sourcegraph sends with every request to a connector.
+"""
+input ConnectorHeaderInput {
+    """
+    The header name, such as X-API-Key.
+    """
+    name: String!
+    """
+    The header value. When updating a connector, omit it to keep the current
+    value.
+    """
+    value: String
+}
+
+"""
+Input for creating a connector.
+"""
+input CreateConnectorInput {
+    """
+    Whether the connector is a personal connector of the current user, which
+    only their agents can use.
+    """
+    personal: Boolean = false
+    """
+    A human-friendly name, such as "Sourcegraph".
+    """
+    name: String!
+    """
+    Prefix of the connector's tool names, such as "sg" for tools named
+    sg_read_file. Lowercase letters, digits, and underscores.
+    """
+    slug: String!
+    """
+    The URL of the MCP server's Streamable HTTP endpoint.
+    """
+    url: String!
+    """
+    How Sourcegraph authenticates to the MCP server.
+    """
+    authType: ConnectorAuthType!
+    """
+    Required for BEARER.
+    """
+    bearerToken: String
+    """
+    For OAUTH, a preregistered OAuth client ID for authorization servers that
+    do not support dynamic client registration.
+    """
+    oauthClientID: String
+    """
+    The secret of the preregistered OAuth client, if it has one.
+    """
+    oauthClientSecret: String
+    """
+    Custom headers to send with every request, such as tenant IDs or API keys.
+    """
+    headers: [ConnectorHeaderInput!]
+}
+
+"""
+Input for updating a connector. The URL and the authentication type can't be
+changed, so that the connector's credentials never go to another server;
+create a new connector instead.
+"""
+input UpdateConnectorInput {
+    """
+    A human-friendly name, such as "Sourcegraph".
+    """
+    name: String!
+    """
+    Prefix of the connector's tool names.
+    """
+    slug: String!
+    """
+    How Sourcegraph authenticates to the MCP server. Must be the connector's
+    current authentication type.
+    """
+    authType: ConnectorAuthType!
+    """
+    A new bearer token for BEARER. Omit to keep the current token.
+    """
+    bearerToken: String
+    """
+    A preregistered OAuth client ID. Omit to use dynamic client registration.
+    """
+    oauthClientID: String
+    """
+    A new secret for the preregistered OAuth client. Omit to keep the current
+    secret of the same client.
+    """
+    oauthClientSecret: String
+    """
+    The custom headers. Omit to keep the current headers.
+    """
+    headers: [ConnectorHeaderInput!]
+}
+
+"""
+A connector is an MCP server whose tools agents can call on behalf of users.
+"""
+type Connector implements Node {
+    """
+    The unique ID of the connector.
+    """
+    id: ID!
+    """
+    The human-friendly name.
+    """
+    name: String!
+    """
+    The prefix of the connector's tool names.
+    """
+    slug: String!
+    """
+    A data URL of the server's icon: the icon the MCP server advertises, or its
+    website's icon. Sourcegraph stores it, so showing it makes no requests to
+    the server. Null if no icon was found.
+    """
+    iconURL: String
+    """
+    The URL of the MCP endpoint.
+    """
+    url: String!
+    """
+    How Sourcegraph authenticates to the MCP server.
+    """
+    authType: ConnectorAuthType!
+    """
+    Whether this is a personal connector, which only its owner's agents use.
+    """
+    personal: Boolean!
+    """
+    Whether the current user can manage the connector: change its settings,
+    toggle its tools, and delete it.
+    """
+    viewerCanAdminister: Boolean!
+    """
+    Whether the user can use the connector. Always true for connectors with
+    shared credentials. For connectors with per-user authorization, whether the
+    user has authorized them.
+
+    The user is the one whose connectors User.connectors lists, and the current
+    user otherwise. The same applies to authorizationExpired and
+    disabledAgents.
+    """
+    authorized: Boolean!
+    """
+    Whether the user authorized this connector, but the authorization expired
+    or was revoked, so they have to authorize it again.
+    """
+    authorizationExpired: Boolean!
+    """
+    The kinds of agents for which the user turned the connector off.
+    """
+    disabledAgents: [ConnectorAgent!]!
+    """
+    The URL that starts the OAuth authorization flow for the current user. Null
+    unless the connector uses OAuth.
+    """
+    authorizeURL: String
+    """
+    The manually registered OAuth client ID. Null for dynamically registered
+    clients and connectors without OAuth.
+    """
+    oauthClientID: String
+    """
+    The OAuth redirect URL the connector's client was registered with. Null
+    unless the connector uses OAuth.
+    """
+    oauthRedirectURL: String
+    """
+    Whether the instance's external URL changed since the OAuth client was
+    registered, so users cannot connect until the connector is updated.
+    """
+    oauthRedirectURLOutdated: Boolean!
+    """
+    The names of the custom headers. Their values are secret. Empty unless the
+    current user can manage the connector.
+    """
+    headerNames: [String!]!
+    """
+    The tools of the server, as last listed.
+    """
+    tools: [ConnectorTool!]!
+    """
+    When the tools were last listed. Null for connectors with per-user
+    authorization that nobody authorized yet.
+    """
+    toolsUpdatedAt: DateTime
+    """
+    The error of the last failed attempt to list the tools, unless a later
+    attempt succeeded. Null unless the current user can manage the connector.
+    """
+    toolsRefreshError: String
+    """
+    When listing the tools last failed.
+    """
+    toolsRefreshFailedAt: DateTime
+    """
+    When the server rejected the connector's shared credentials. Agents can't
+    use the connector until the credentials are updated or the server accepts
+    them again.
+    """
+    credentialsRejectedAt: DateTime
+    """
+    When the connector was added.
+    """
+    createdAt: DateTime!
+}
+
+"""
+A tool exposed by a connector.
+"""
+type ConnectorTool {
+    """
+    The tool's name on the MCP server.
+    """
+    name: String!
+    """
+    The name under which agents call the tool: the connector's slug, an
+    underscore, and the tool name, with characters other than letters, digits,
+    and underscores replaced by underscores. If that makes the names of two
+    tools of the connector the same, such as read-file and read_file, the tool
+    whose name changed gets a numeric suffix, such as sg_read_file_2.
+    """
+    functionName: String!
+    """
+    The human-friendly title the MCP server gives the tool, if any.
+    """
+    title: String
+    """
+    The MCP server's description of the tool, if any.
+    """
+    description: String
+    """
+    The JSON schema of the tool's arguments.
+    """
+    inputSchema: JSONValue
+    """
+    The JSON schema of the tool's structured output, if it declares one.
+    """
+    outputSchema: JSONValue
+    """
+    Whether the server says the tool does not modify its environment.
+    """
+    readOnly: Boolean!
+    """
+    Whether the tool may delete or overwrite data. Tools without hints may.
+    """
+    destructive: Boolean!
+    """
+    Whether the server gave hints about the tool's effects.
+    """
+    annotated: Boolean!
+    """
+    Whether agents can call the tool.
+    """
+    enabled: Boolean!
+}

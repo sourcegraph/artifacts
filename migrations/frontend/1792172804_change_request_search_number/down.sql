@@ -1,0 +1,2 @@
+-- Nothing to undo: older indexers rewrite each entry without the number when
+-- they next index it.

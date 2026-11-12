@@ -1,0 +1,1 @@
+ALTER TABLE compendia DROP COLUMN IF EXISTS backdrop;

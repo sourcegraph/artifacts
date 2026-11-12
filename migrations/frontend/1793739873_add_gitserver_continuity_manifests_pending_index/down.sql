@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS gitserver_continuity_manifests_pending;

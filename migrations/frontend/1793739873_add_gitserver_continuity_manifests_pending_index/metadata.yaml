@@ -1,0 +1,3 @@
+name: add_gitserver_continuity_manifests_pending_index
+parents: [1793716394]
+createIndexConcurrently: true

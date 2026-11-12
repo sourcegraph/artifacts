@@ -19,7 +19,8 @@ extend type Query {
 
     Gated by the experimentalFeatures.batchChanges.agenticBatchChanges.sharing
     site setting; unless it is "global" the connection is empty and totalCount
-    is 0.
+    is 0. The ALL scope lifts both the sharing gate and the visibility filter
+    for administrators; see BatchChangeAgentsScope.
     """
     batchChangeAgents(
         """
@@ -51,14 +52,19 @@ extend type Query {
         default value.
         """
         sort: BatchChangeAgentsSortOrder
+        """
+        Which agents the connection covers. Defaults to DISCOVERABLE.
+        """
+        scope: BatchChangeAgentsScope
     ): BatchChangeAgentConnection!
 
     """
     Users who own at least one agent listed by batchChangeAgents, ordered by
-    username, for the owner filter of the global agent list. Gated like
-    batchChangeAgents: empty unless the
+    username, for the owner filter of the global agent list. The connection's
+    totalCount and pageInfo.hasNextPage report whether more owners matched
+    than were returned. Gated like batchChangeAgents: empty unless the
     experimentalFeatures.batchChanges.agenticBatchChanges.sharing site setting
-    is "global".
+    is "global", or the ALL scope is requested by an administrator.
     """
     batchChangeAgentOwners(
         """
@@ -71,7 +77,33 @@ extend type Query {
         nullable argument.
         """
         first: Int
-    ): [User!]!
+        """
+        Which agents' owners to list. Defaults to DISCOVERABLE.
+        """
+        scope: BatchChangeAgentsScope
+        """
+        User IDs to leave out, e.g. users a picker already shows elsewhere.
+        Leaving them out here keeps the page full instead of short by one.
+        """
+        exclude: [ID!]
+    ): UserConnection!
+}
+
+"""
+Which agents a cross-owner agent list covers.
+"""
+enum BatchChangeAgentsScope {
+    """
+    Every owner's GLOBAL agents plus the viewer's own LINK_ONLY ones, only while
+    the experimentalFeatures.batchChanges.agenticBatchChanges.sharing site
+    setting is "global".
+    """
+    DISCOVERABLE
+    """
+    Every active agent on the instance regardless of visibility or the sharing
+    site setting. Requires the BATCH_CHANGE_AGENT_ADMINISTRATION#MANAGE permission.
+    """
+    ALL
 }
 
 extend type User {
@@ -206,6 +238,25 @@ extend type Mutation {
     while the site sharing setting is "global". Returns the updated agent.
     """
     updateBatchChangeAgentVisibility(input: UpdateBatchChangeAgentVisibilityInput!): BatchChangeAgent!
+
+    """
+    Hands an agent and its batch change over to another user. The owner or an
+    administrator may call this; the agent must have no work in flight.
+    """
+    transferBatchChangeAgentOwnership(input: TransferBatchChangeAgentOwnershipInput!): BatchChangeAgent!
+
+    """
+    Invites a user to collaborate on an agent until the grant expires. The
+    owner or an administrator may call this; the invitee needs Batch Changes
+    write permission. Requires the abc-collaboration feature flag.
+    """
+    inviteBatchChangeAgentCollaborator(input: InviteBatchChangeAgentCollaboratorInput!): BatchChangeAgentCollaborator!
+
+    """
+    Revokes a collaborator grant. The owner or an administrator may call
+    this even when the abc-collaboration feature flag is disabled.
+    """
+    revokeBatchChangeAgentCollaborator(input: RevokeBatchChangeAgentCollaboratorInput!): EmptyResponse
 
     """
     Queues workspaces in an agent's current materialized batch spec: the
@@ -473,6 +524,107 @@ input UpdateBatchChangeAgentVisibilityInput {
     Who can find the agent.
     """
     visibility: BatchChangeAgentVisibility!
+}
+
+"""
+Input for transferBatchChangeAgentOwnership.
+"""
+input TransferBatchChangeAgentOwnershipInput {
+    """
+    The ID of the agent.
+    """
+    id: ID!
+    """
+    The ID of the user who becomes the new owner.
+    """
+    newOwner: ID!
+}
+
+"""
+How long a collaborator grant lasts. Grants always expire.
+"""
+enum BatchChangeAgentCollaboratorExpiry {
+    ONE_HOUR
+    TWENTY_FOUR_HOURS
+    SEVEN_DAYS
+}
+
+"""
+Input for inviteBatchChangeAgentCollaborator.
+"""
+input InviteBatchChangeAgentCollaboratorInput {
+    """
+    The ID of the agent.
+    """
+    id: ID!
+    """
+    The ID of the user to invite.
+    """
+    user: ID!
+    """
+    When the grant expires, counted from now.
+    """
+    expiresIn: BatchChangeAgentCollaboratorExpiry!
+}
+
+"""
+Input for revokeBatchChangeAgentCollaborator.
+"""
+input RevokeBatchChangeAgentCollaboratorInput {
+    """
+    The ID of the agent.
+    """
+    id: ID!
+    """
+    The ID of the collaborator grant to revoke.
+    """
+    grantID: ID!
+}
+
+"""
+A user invited to collaborate on an agent.
+"""
+type BatchChangeAgentCollaborator {
+    """
+    The ID of the grant, used to revoke it.
+    """
+    id: ID!
+
+    """
+    The collaborator, or null if the user was deleted.
+    """
+    user: User
+
+    """
+    The user who invited the collaborator, or null if the user was deleted.
+    """
+    grantedBy: User
+
+    """
+    When the grant expires.
+    """
+    expiresAt: DateTime!
+}
+
+"""
+What the current viewer may do with an agent.
+"""
+type BatchChangeAgentViewerCapabilities {
+    """
+    Read the agent's details and transcript.
+    """
+    read: Boolean!
+
+    """
+    Drive the agent: send messages, answer questions, approve tools. Only the
+    owner, unless the abc-collaboration feature flag is enabled.
+    """
+    collaborate: Boolean!
+
+    """
+    Hand the agent over to another user.
+    """
+    handOver: Boolean!
 }
 
 """
@@ -886,6 +1038,21 @@ enum BatchChangeAgentToolApprovalGrantScope {
 }
 
 """
+How far a publication approval applies.
+"""
+enum BatchChangeAgentPublicationApprovalScope {
+    """
+    Approve this agent's reviewed publication.
+    """
+    THIS_AGENT
+    """
+    Also allow draft publication in these repositories for all current and future
+    attended agents owned by this user.
+    """
+    ALL_ATTENDED_AGENTS
+}
+
+"""
 Input for submitBatchChangeAgentToolApproval.
 """
 input SubmitBatchChangeAgentToolApprovalInput {
@@ -915,6 +1082,28 @@ input SubmitBatchChangeAgentToolApprovalInput {
     decision is ALLOW and the approval's findings name at least one secret.
     """
     grantScope: BatchChangeAgentToolApprovalGrantScope = ONCE
+
+    """
+    Publication choices for an ALLOW publication decision. Omit for secret
+    approvals and REQUEST_CHANGES. When omitted on an ALLOW publication decision,
+    approve the reviewed mode for this agent only.
+    """
+    publication: BatchChangeAgentPublicationApprovalInput
+}
+
+"""
+The scope and mode of an ALLOW publication decision.
+"""
+input BatchChangeAgentPublicationApprovalInput {
+    """
+    How far the publication approval extends.
+    """
+    scope: BatchChangeAgentPublicationApprovalScope!
+
+    """
+    The reviewed publication mode, optionally lowered from READY to DRAFT.
+    """
+    mode: BatchChangeAgentPublicationMode!
 }
 
 """
@@ -976,11 +1165,11 @@ interface BatchChangeAgent {
     id: ID!
 
     """
-    The user who owns this agent. Exposed on the shared interface so it is
-    readable by every viewer, including those who resolve to
-    HiddenBatchChangeAgent.
+    The user who owns this agent, or null if the user was deleted. Exposed on
+    the shared interface so it is readable by every viewer, including those
+    who resolve to HiddenBatchChangeAgent.
     """
-    owner: User!
+    owner: User
 
     """
     Whether the current viewer owns this agent. False for unauthenticated
@@ -1004,9 +1193,9 @@ type HiddenBatchChangeAgent implements Node & BatchChangeAgent {
     id: ID!
 
     """
-    The user who owns this agent.
+    The user who owns this agent, or null if the user was deleted.
     """
-    owner: User!
+    owner: User
 
     """
     Whether the current viewer owns this agent. Always false for a
@@ -1032,9 +1221,15 @@ type VisibleBatchChangeAgent implements Node & BatchChangeAgent {
     databaseID: Int!
 
     """
-    The user who owns this agent.
+    The user who owns this agent, or null if the user was deleted.
     """
-    owner: User!
+    owner: User
+
+    """
+    The user who created this agent, or null if the user was deleted. Differs
+    from owner after an ownership transfer.
+    """
+    creator: User
 
     """
     The display title for the agent. This can be null when not set.
@@ -1124,6 +1319,59 @@ type VisibleBatchChangeAgent implements Node & BatchChangeAgent {
         """
         after: String
     ): BatchChangeAgentThreadConnection!
+
+    """
+    Workspaces of the agent's current batch spec a user cannot read. Only the
+    owner and administrators may ask about another user.
+    """
+    inaccessibleWorkspaces(
+        """
+        The user to compute the counts for. Defaults to the viewer.
+        """
+        user: ID
+    ): BatchChangeAgentInaccessibleWorkspaces!
+
+    """
+    Users the agent can be handed over to: every user but the current owner.
+    Only the owner and administrators may list them.
+    """
+    handOverCandidates(
+        """
+        Returns users whose usernames or display names match the query.
+        """
+        query: String
+        """
+        Returns the first n users from the list.
+        """
+        first: Int
+    ): UserConnection!
+
+    """
+    What the current viewer may do with this agent.
+    """
+    viewerCapabilities: BatchChangeAgentViewerCapabilities!
+
+    """
+    The users invited to collaborate on this agent whose grants are active.
+    Only the owner and administrators may list them, including when the
+    abc-collaboration feature flag is disabled.
+    """
+    collaborators: [BatchChangeAgentCollaborator!]!
+}
+
+"""
+Workspaces of an agent's current batch spec that a user cannot read.
+"""
+type BatchChangeAgentInaccessibleWorkspaces {
+    """
+    Workspaces whose repository the user cannot read.
+    """
+    workspaceCount: Int!
+
+    """
+    How many of those already have a published changeset.
+    """
+    publishedChangesetCount: Int!
 }
 
 """
@@ -1361,6 +1609,10 @@ type BatchChangeAgentUserMessageThreadEntry implements BatchChangeAgentThreadEnt
     The inbox event kind that woke the agent, if this is a wake message.
     """
     wakeKind: BatchChangeAgentInboxFactKind
+    """
+    The user who sent the message; null for wake messages and deleted users.
+    """
+    author: User
     """
     The text supplied by the user or wake event.
     """
@@ -1779,6 +2031,12 @@ type BatchChangeAgentToolApprovalRequest {
     message: String!
 
     """
+    What allowing the gated tool call does, shown to the approver. Null when
+    the tool has no description.
+    """
+    effect: String
+
+    """
     The structured reasons backing the prompt, each shown as a bullet and
     optionally carrying an affected snippet the UI can reveal on demand.
     Snapshotted when the gate was raised; may be empty.
@@ -1800,6 +2058,37 @@ type BatchChangeAgentToolApprovalRequest {
     The human's free-text feedback for a REQUEST_CHANGES decision, if any.
     """
     note: String
+
+    """
+    Publication details, or null for a secret approval.
+    """
+    publication: BatchChangeAgentPublicationApproval
+}
+
+"""
+The reviewed publication and the owner's decision, when one has been made.
+"""
+type BatchChangeAgentPublicationApproval {
+    """
+    The reviewed publication mode.
+    """
+    mode: BatchChangeAgentPublicationMode!
+
+    """
+    Mode that was actually approved, after any owner lowering.
+    """
+    approvedMode: BatchChangeAgentPublicationMode
+
+    """
+    Publication approval scope chosen by the owner.
+    """
+    approvedScope: BatchChangeAgentPublicationApprovalScope
+
+    """
+    Repository names covered by the reviewed publication, limited to repositories
+    visible to the viewer.
+    """
+    repositoryNames: [String!]!
 }
 
 """
@@ -1817,8 +2106,8 @@ type BatchChangeAgentToolApprovalFinding {
     summary: String!
 
     """
-    What the snippet is, e.g. "Run script", "Build image", or "Coding agent".
-    Null when the finding has no associated snippet.
+    What the finding or its snippet is about, e.g. "Run script", "Coding agent",
+    or a changeset's merge status such as "Merge conflicts". Null when unset.
     """
     subject: String
 
@@ -1845,6 +2134,25 @@ enum BatchChangeAgentInboxFactKind {
     A BCA-owned batch spec workspace execution job failed.
     """
     WORKSPACE_EXECUTION_FAILED
+
+    """
+    A BCA-owned batch spec workspace execution job that the agent started completed.
+    Nothing records this kind; it remains only for wakes stored by older
+    versions. Agent-started runs wake with AGENT_WORKSPACES_FINISHED.
+    """
+    AGENT_WORKSPACE_EXECUTION_COMPLETED
+
+    """
+    Every BCA-owned batch spec workspace execution job that the agent started in
+    a run has finished: completed, failed, or canceled.
+    """
+    AGENT_WORKSPACES_FINISHED
+
+    """
+    Every changeset publication or update that the agent started in a batch
+    change has finished.
+    """
+    AGENT_CHANGESET_PUBLICATIONS_FINISHED
 
     """
     A BCA-owned changeset hook execution job failed.
@@ -1876,9 +2184,14 @@ enum BatchChangeAgentInboxFactKind {
     CHANGESET_CI_FAILED
 
     """
-    A direct UI publication job or its reconcile failed.
+    A changeset publication job started by the user or agent, or its reconcile, failed.
     """
     CHANGESET_PUBLICATION_FAILED
+
+    """
+    Every changeset merge that the agent queued in a batch change has finished.
+    """
+    AGENT_CHANGESET_MERGES_FINISHED
 }
 
 """
@@ -1943,6 +2256,11 @@ enum BatchChangeAgentStatus {
     The agent is waiting for the user to answer a pending ask_user tool call.
     """
     WAITING_FOR_USER
+
+    """
+    The agent has been stopped and will not accept new work.
+    """
+    STOPPED
 }
 
 """
@@ -1950,7 +2268,8 @@ Ordering options for User.batchChangeAgents.
 """
 enum BatchChangeAgentsSortOrder {
     """
-    Agents waiting on the user first, then most recently updated.
+    Agents waiting on the user first, then by most recent activity (see
+    BatchChangeAgent.lastActivityAt).
     """
     ATTENTION
 

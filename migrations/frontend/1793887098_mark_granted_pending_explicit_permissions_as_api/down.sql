@@ -1,0 +1,2 @@
+-- Not reversible: the up migration does not record which permissions it changed,
+-- and restoring the wrong source is not useful.

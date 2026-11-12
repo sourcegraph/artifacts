@@ -182,9 +182,10 @@ enum ChangesetMergeableState {
     """
     CONFLICTING
     """
-    The changeset has no merge conflicts, but the code host will still reject
-    the merge because branch-protection requirements (for example, required
-    signed commits or required status checks) are not satisfied.
+    The changeset has no merge conflicts, but branch-protection requirements
+    (for example, required signed commits or required status checks) are not
+    satisfied. The code host rejects the merge unless the merging credential is
+    allowed to bypass branch protection.
     """
     BLOCKED
     """
@@ -284,6 +285,14 @@ enum ChangesetSyncSkipReason {
     a batch changes credential for the code host resumes syncing.
     """
     MISSING_CREDENTIALS
+    """
+    The code host rejected the credential used to sync this changeset as
+    unauthorized, for example because the token was revoked or expired. Syncs
+    use the credential of the user who last applied the batch change, or the
+    global credential if that user has none or the changeset was imported.
+    Replacing the rejected credential resumes syncing.
+    """
+    CREDENTIAL_REJECTED
 }
 
 """
@@ -316,25 +325,6 @@ interface Changeset {
     The unique ID for the changeset.
     """
     id: ID!
-
-    """
-    Opaque pagination cursor representing this changeset's position in a
-    ChangesetConnection result set. Intended for use as the `after` argument
-    when polling a visible slice of a paginated changeset list — pass the
-    cursor of the row just before the desired range to fetch only that range.
-
-    The cursor encodes the current sort key(s) and is computed by the
-    connection that returned this changeset, so it is only meaningful within
-    the context of the same connection (same filters and sort order). Other
-    resolvers that return Changeset (e.g. a direct node query) will return an
-    empty string here because there is no connection context.
-
-    Note: the Relay spec places cursors on edges rather than nodes precisely
-    because a node can belong to multiple connections with different orderings.
-    We accept that trade-off here: callers that fetch changesets outside a
-    paginated connection simply ignore this field.
-    """
-    cursor: String!
 
     """
     The batch changes that contain this changeset.
@@ -397,25 +387,6 @@ type HiddenExternalChangeset implements Node & Changeset {
     id: ID!
 
     """
-    Opaque pagination cursor representing this changeset's position in a
-    ChangesetConnection result set. Intended for use as the `after` argument
-    when polling a visible slice of a paginated changeset list — pass the
-    cursor of the row just before the desired range to fetch only that range.
-
-    The cursor encodes the current sort key(s) and is computed by the
-    connection that returned this changeset, so it is only meaningful within
-    the context of the same connection (same filters and sort order). Other
-    resolvers that return Changeset (e.g. a direct node query) will return an
-    empty string here because there is no connection context.
-
-    Note: the Relay spec places cursors on edges rather than nodes precisely
-    because a node can belong to multiple connections with different orderings.
-    We accept that trade-off here: callers that fetch changesets outside a
-    paginated connection simply ignore this field.
-    """
-    cursor: String!
-
-    """
     The batch changes that contain this changeset.
     """
     batchChanges(
@@ -474,25 +445,6 @@ type ExternalChangeset implements Node & Changeset {
     The unique ID for the changeset.
     """
     id: ID!
-
-    """
-    Opaque pagination cursor representing this changeset's position in a
-    ChangesetConnection result set. Intended for use as the `after` argument
-    when polling a visible slice of a paginated changeset list — pass the
-    cursor of the row just before the desired range to fetch only that range.
-
-    The cursor encodes the current sort key(s) and is computed by the
-    connection that returned this changeset, so it is only meaningful within
-    the context of the same connection (same filters and sort order). Other
-    resolvers that return Changeset (e.g. a direct node query) will return an
-    empty string here because there is no connection context.
-
-    Note: the Relay spec places cursors on edges rather than nodes precisely
-    because a node can belong to multiple connections with different orderings.
-    We accept that trade-off here: callers that fetch changesets outside a
-    paginated connection simply ignore this field.
-    """
-    cursor: String!
 
     """
     The external ID that uniquely identifies this ExternalChangeset on the
@@ -997,6 +949,12 @@ Used in the batch change page for the overview component.
 """
 type ChangesetsStats {
     """
+    The count of changesets that have reached the code host, including pushed-only
+    branches, archived changesets, and changesets with pending or failed updates.
+    Initial publications that are queued or failed do not count.
+    """
+    published: Int!
+    """
     The count of unpublished changesets.
     """
     unpublished: Int!
@@ -1056,6 +1014,26 @@ type ChangesetsStats {
     The count of pushed-only changesets.
     """
     pushedOnly: Int!
+    """
+    The count of non-archived changesets in repositories the viewer can access whose code host checks passed.
+    """
+    checksPassed: Int!
+    """
+    The count of non-archived changesets in repositories the viewer can access whose code host checks failed.
+    """
+    checksFailed: Int!
+    """
+    The count of non-archived changesets in repositories the viewer can access whose code host checks are still running.
+    """
+    checksPending: Int!
+    """
+    The count of non-archived changesets in repositories the viewer can access that are awaiting review.
+    """
+    reviewPending: Int!
+    """
+    The count of non-archived changesets in repositories the viewer can access that are approved.
+    """
+    reviewApproved: Int!
 }
 
 """
@@ -2942,6 +2920,15 @@ type BatchSpecWorkspaceResolution {
     """
     workspaces(
         first: Int = 50
+        """
+        Returns the workspaces after this cursor, usually a pageInfo.endCursor.
+
+        For orderings whose key changes while workspaces run (STATE, DURATION,
+        FINISHED_AT, DIFF_SIZE), pageInfo.endCursor is a fixed position in the
+        sort order: refetching the page after it later returns the workspaces
+        that are at that position by then. Such a cursor is only valid with the
+        orderBy and direction it was issued for.
+        """
         after: String
         """
         Field to order results by. When omitted, results are ordered by a
@@ -3118,28 +3105,6 @@ interface BatchSpecWorkspace {
     id: ID!
 
     """
-    Opaque pagination cursor representing this workspace's position in a
-    BatchSpecWorkspaceConnection result set. Intended for use as the `after`
-    argument when polling a visible slice of a paginated workspace list —
-    pass the cursor of the row just before the desired range to fetch only
-    that range.
-
-    The cursor encodes the current sort key(s) and is computed by the
-    connection that returned this workspace, so it is only meaningful within
-    the context of the same connection (same filters and sort order). Other
-    resolvers that return BatchSpecWorkspace (e.g. the detail query) will
-    return an empty string here because there is no connection context.
-
-    Note: the Relay spec places cursors on edges rather than nodes precisely
-    because a node can belong to multiple connections with different orderings.
-    We accept that trade-off here: callers that fetch workspaces outside a
-    paginated connection simply ignore this field.
-
-    See https://graphql.org/learn/pagination
-    """
-    cursor: String!
-
-    """
     Used for reverse querying.
     """
     batchSpec: BatchSpec!
@@ -3240,26 +3205,6 @@ type VisibleBatchSpecWorkspace implements BatchSpecWorkspace & Node {
     The unique ID for the workspace.
     """
     id: ID!
-
-    """
-    Opaque pagination cursor representing this workspace's position in a
-    BatchSpecWorkspaceConnection result set. Intended for use as the `after`
-    argument when polling a visible slice of a paginated workspace list —
-    pass the cursor of the row just before the desired range to fetch only
-    that range.
-
-    The cursor encodes the current sort key(s) and is computed by the
-    connection that returned this workspace, so it is only meaningful within
-    the context of the same connection (same filters and sort order). Other
-    resolvers that return BatchSpecWorkspace (e.g. the detail query) will
-    return an empty string here because there is no connection context.
-
-    Note: the Relay spec places cursors on edges rather than nodes precisely
-    because a node can belong to multiple connections with different orderings.
-    We accept that trade-off here: callers that fetch workspaces outside a
-    paginated connection simply ignore this field.
-    """
-    cursor: String!
 
     """
     The repository to run over.
@@ -3433,26 +3378,6 @@ type HiddenBatchSpecWorkspace implements BatchSpecWorkspace & Node {
     The unique ID for the workspace.
     """
     id: ID!
-
-    """
-    Opaque pagination cursor representing this workspace's position in a
-    BatchSpecWorkspaceConnection result set. Intended for use as the `after`
-    argument when polling a visible slice of a paginated workspace list —
-    pass the cursor of the row just before the desired range to fetch only
-    that range.
-
-    The cursor encodes the current sort key(s) and is computed by the
-    connection that returned this workspace, so it is only meaningful within
-    the context of the same connection (same filters and sort order). Other
-    resolvers that return BatchSpecWorkspace (e.g. the detail query) will
-    return an empty string here because there is no connection context.
-
-    Note: the Relay spec places cursors on edges rather than nodes precisely
-    because a node can belong to multiple connections with different orderings.
-    We accept that trade-off here: callers that fetch workspaces outside a
-    paginated connection simply ignore this field.
-    """
-    cursor: String!
 
     """
     Used for reverse querying.
@@ -3847,6 +3772,12 @@ type BatchChange implements Node {
         first: Int = 50
         """
         Opaque pagination cursor.
+
+        With orderBy STATE, pageInfo.endCursor is a fixed position in the sort
+        order: refetching the page after it later returns the changesets that
+        are at that position by then, even when the changeset it was taken from
+        changed state. Such a cursor is only valid with the orderBy and
+        direction it was issued for.
         """
         after: String
         """
@@ -3868,6 +3799,13 @@ type BatchChange implements Node {
         Only include changesets with the given check state.
         """
         checkState: ChangesetCheckState
+        """
+        Only include changesets matching the mergeability shown in the Resolve table.
+        Unpublished, scheduled, and pushed-only rows with a blank mergeability column are excluded.
+        Merged changesets are excluded regardless of their code-host mergeability, since they display Merged.
+        Other unpublished, in-progress changesets and changesets whose mergeability is not known match UNKNOWN.
+        """
+        mergeable: ChangesetMergeableState
         """
         Only return changesets that have been published by this batch change. Imported changesets will be omitted.
         """

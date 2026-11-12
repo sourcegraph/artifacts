@@ -1,0 +1,1 @@
+-- Notification observation baselines are retained on rollback.

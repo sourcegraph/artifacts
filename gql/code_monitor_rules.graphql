@@ -1,0 +1,436 @@
+extend type Query {
+    """
+    Opt-in Code Monitors owned by the viewer or an organization they belong to.
+    Filters apply before pagination. Query matches monitor names literally, ignoring case.
+    Owner is a User or Org ID and never widens the viewer's access.
+    """
+    codeMonitorRules(
+        first: Int = 50
+        after: String
+        query: String
+        enabled: Boolean
+        reviewEnabled: Boolean
+        owner: ID
+    ): CodeMonitorRuleConnection!
+    """
+    An experimental monitor, visible only to its owner, organization members, or administrators.
+    """
+    codeMonitorRule(id: ID!): CodeMonitorRule
+}
+
+extend type Mutation {
+    """
+    Generate a transient monitor draft using read-only repository tools. Requires available credits.
+    No monitor or checkpoint is saved until createCodeMonitorRule is called.
+    """
+    generateCodeMonitorRule(instructions: String!): CodeMonitorRuleDraft!
+    """
+    Explicitly create an experimental monitor and baseline the current fetched revisions. Runs as the viewer.
+    """
+    createCodeMonitorRule(input: CodeMonitorRuleInput!): CodeMonitorRule!
+    """
+    Save the complete configuration. Requires the current version and explicit takeover as the viewer.
+    Changing the query or execution identity takes a fresh future-looking baseline.
+    """
+    updateCodeMonitorRule(id: ID!, version: Int!, runAsViewer: Boolean!, input: CodeMonitorRuleInput!): CodeMonitorRule!
+    """
+    Pause or resume scheduled polling without changing the execution identity or checkpoint.
+    Requires the current configuration version. Already queued runs and notifications continue.
+    """
+    setCodeMonitorRuleEnabled(id: ID!, version: Int!, enabled: Boolean!): CodeMonitorRule!
+    """
+    Delete an experimental monitor and its retained runs and findings.
+    """
+    deleteCodeMonitorRule(id: ID!): EmptyResponse!
+    """
+    Queue a search since the saved checkpoint, or return the already active search.
+    """
+    runCodeMonitorRule(id: ID!): CodeMonitorRuleRun!
+    """
+    Mark a finding as seen for everyone, or restore it to Overview by marking it unseen.
+    Records the authenticated viewer and time without changing the automated verdict,
+    evidence, run history, or queued notifications. Pending reviews cannot be marked seen.
+    Requires access to both the monitor and the finding's repository.
+    Repeated acknowledgements preserve the original viewer and time until marked unseen.
+    """
+    setCodeMonitorFindingSeen(id: ID!, seen: Boolean!): CodeMonitorFinding!
+}
+
+"""
+The complete experimental monitor configuration. Notifications use the existing Code Monitors channel options.
+"""
+input CodeMonitorRuleInput {
+    """
+    A short name.
+    """
+    name: String!
+    """
+    A type:diff or type:commit candidate query.
+    """
+    query: String!
+    """
+    Instructions and exceptions for automated review.
+    """
+    instructions: String!
+    """
+    The viewer's User ID or an accessible Sourcegraph organization ID.
+    """
+    owner: ID!
+    """
+    Whether to review candidates with AI. Reviews run only while the instance has credits.
+    """
+    reviewEnabled: Boolean!
+    """
+    Whether scheduled polling is enabled.
+    """
+    enabled: Boolean!
+    """
+    Explicit notification destinations. Empty means findings are available only in the product.
+    """
+    actions: [MonitorActionInput!]!
+}
+
+"""
+A transient, read-only overview for explicit approval.
+"""
+type CodeMonitorRuleDraft {
+    """
+    Proposed name.
+    """
+    name: String!
+    """
+    Validated candidate query.
+    """
+    query: String!
+    """
+    Self-contained review instructions.
+    """
+    instructions: String!
+}
+
+"""
+A page of experimental monitors.
+"""
+type CodeMonitorRuleConnection {
+    """
+    Accessible monitors.
+    """
+    nodes: [CodeMonitorRule!]!
+    """
+    Pagination cursor.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+An opt-in extension of an existing Code Monitor, not a separate automation.
+"""
+type CodeMonitorRule {
+    """
+    Unique experimental monitor ID.
+    """
+    id: ID!
+    """
+    Monitor name.
+    """
+    name: String!
+    """
+    Candidate search query.
+    """
+    query: String!
+    """
+    Review instructions.
+    """
+    instructions: String!
+    """
+    Optimistic concurrency version required when saving changes.
+    """
+    version: Int!
+    """
+    Whether scheduled polling is enabled.
+    """
+    enabled: Boolean!
+    """
+    Whether candidates receive automated review.
+    """
+    reviewEnabled: Boolean!
+    """
+    When the next scheduled search becomes eligible, not a guaranteed start time.
+    Null when scheduled polling is paused.
+    """
+    nextRunAt: DateTime
+    """
+    Personal or organization owner; null if deleted. Does not grant repository access.
+    """
+    owner: Namespace
+    """
+    The person whose current permissions are used for execution; null if deleted.
+    Another owner must save the configuration to take over execution when this user is deleted.
+    """
+    runsAs: User
+    """
+    Current notification configuration.
+    """
+    actions(first: Int = 50, after: String): MonitorActionConnection!
+    """
+    All retained findings, including agent-dismissed findings and findings from earlier runs.
+    Current repository permissions and verdict filters apply before pagination.
+    Actionable excludes agent-dismissed findings; an empty verdicts filter includes every verdict.
+    UnseenOnly excludes shared acknowledgements before pagination; false retains all findings.
+    """
+    findings(
+        first: Int = 20
+        after: String
+        actionable: Boolean = false
+        verdicts: [CodeMonitorFindingVerdict!]
+        unseenOnly: Boolean = false
+    ): CodeMonitorFindingConnection!
+    """
+    Search and review history, newest first, including empty runs.
+    """
+    runs(first: Int = 20, after: String): CodeMonitorRuleRunConnection!
+    """
+    One run belonging to this monitor.
+    """
+    run(id: ID!): CodeMonitorRuleRun
+}
+
+"""
+A page of permission-filtered findings.
+"""
+type CodeMonitorFindingConnection {
+    """
+    Accessible findings; a page may be empty when repository policy changed.
+    """
+    nodes: [CodeMonitorFinding!]!
+    """
+    Continue while hasNextPage is true, even for an empty page.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+The automated classification or review state of a candidate. Users cannot override it.
+"""
+enum CodeMonitorFindingVerdict {
+    """
+    Waiting for automated review.
+    """
+    PENDING
+    """
+    Automated review found evidence of a violation.
+    """
+    FLAGGED
+    """
+    Automated review could not decide because evidence is missing or ambiguous.
+    """
+    NEEDS_REVIEW
+    """
+    Automated review determined that the match is not a violation.
+    """
+    DISMISSED
+    """
+    Raw match: review was disabled or unavailable, not an approval.
+    """
+    UNREVIEWED
+}
+
+"""
+One captured candidate commit and its automated review.
+"""
+type CodeMonitorFinding {
+    """
+    Unique finding ID.
+    """
+    id: ID!
+    """
+    Time the candidate was captured.
+    """
+    createdAt: DateTime!
+    """
+    When someone marked this finding as seen for everyone; null if unseen.
+    This is an acknowledgement, not a change to the automated verdict.
+    """
+    seenAt: DateTime
+    """
+    Who marked this finding as seen; null if unseen or that user was deleted.
+    """
+    seenBy: User
+    """
+    Current repository name.
+    """
+    repositoryName: String!
+    """
+    Captured commit, never the current branch head.
+    """
+    commitID: String!
+    """
+    Link to the captured commit.
+    """
+    commitURL: String!
+    """
+    Raw matching diff or commit-message preview.
+    """
+    preview: String!
+    """
+    Automated classification, or pending/unreviewed when no review is available.
+    """
+    verdict: CodeMonitorFindingVerdict!
+    """
+    Automated explanation; empty if not reviewed.
+    """
+    reason: String!
+    """
+    Why automated review was unavailable.
+    """
+    reviewError: String!
+    """
+    A proposal only; never an executed action.
+    """
+    suggestedFix: String!
+    """
+    Server-read source evidence, bound to the captured revisions.
+    """
+    evidence: [CodeMonitorEvidence!]!
+}
+
+"""
+A verified source range supporting a review.
+"""
+type CodeMonitorEvidence {
+    """
+    Repository-relative file path; empty for the commit message.
+    """
+    path: String!
+    """
+    Exact commit used to read the source.
+    """
+    revision: String!
+    """
+    First line, 1-based and inclusive.
+    """
+    startLine: Int!
+    """
+    Last line, inclusive.
+    """
+    endLine: Int!
+    """
+    Source text read by the server, not supplied by the model.
+    """
+    content: String!
+    """
+    Revision-bound source link.
+    """
+    url: String!
+}
+
+"""
+A page of runs.
+"""
+type CodeMonitorRuleRunConnection {
+    """
+    Runs, newest first.
+    """
+    nodes: [CodeMonitorRuleRun!]!
+    """
+    Pagination cursor.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+One persisted search and its independently retried review and deliveries.
+"""
+type CodeMonitorRuleRun {
+    """
+    Unique run ID, available as soon as a search is queued.
+    """
+    id: ID!
+    """
+    Actual search worker state.
+    """
+    searchState: String!
+    """
+    Actual review worker state, or null before the configuration is captured.
+    """
+    reviewState: String
+    """
+    Search start time; null while queued.
+    """
+    startedAt: DateTime
+    """
+    Review finish time, or search failure time.
+    """
+    finishedAt: DateTime
+    """
+    Latest search or review failure, if any.
+    """
+    failureMessage: String!
+    """
+    Immutable query used for this run; empty before capture.
+    """
+    query: String!
+    """
+    Immutable review instructions; empty before capture.
+    """
+    instructions: String!
+    """
+    Configuration version; zero before capture.
+    """
+    configurationVersion: Int!
+    """
+    Recorded execution messages, not a simulated agent transcript.
+    """
+    logs: [String!]!
+    """
+    Findings first discovered in this run, including agent-dismissed findings.
+    Current repository permissions and verdict filters apply before pagination.
+    Actionable excludes agent-dismissed findings; an empty verdicts filter includes every verdict.
+    UnseenOnly is false by default so acknowledgements never remove run-history evidence.
+    """
+    findings(
+        first: Int = 20
+        after: String
+        actionable: Boolean = false
+        verdicts: [CodeMonitorFindingVerdict!]
+        unseenOnly: Boolean = false
+    ): CodeMonitorFindingConnection!
+    """
+    Durable notification attempts. Delivery is at least once, not exactly once.
+    """
+    deliveries: [CodeMonitorDelivery!]!
+}
+
+"""
+One notification destination and its retry status.
+"""
+type CodeMonitorDelivery {
+    """
+    Stable delivery ID; webhook consumers can use it for deduplication.
+    """
+    id: ID!
+    """
+    Email, Slack, or webhook.
+    """
+    channel: String!
+    """
+    Actual delivery worker state.
+    """
+    state: String!
+    """
+    Latest failure without secret destination URLs or response bodies.
+    """
+    failureMessage: String!
+    """
+    Number of failed attempts.
+    """
+    failures: Int!
+    """
+    Start of the latest attempt.
+    """
+    startedAt: DateTime
+    """
+    Finish of the latest attempt.
+    """
+    finishedAt: DateTime
+}

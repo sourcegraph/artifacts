@@ -318,6 +318,17 @@ CREATE FUNCTION delete_user_repo_permissions_on_user_soft_delete() RETURNS trigg
   END
 $$;
 
+CREATE FUNCTION diff_file_viewed_states_default_scope() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.scope IS NULL THEN
+        NEW.scope := NEW.base_ref || '...' || NEW.head_ref;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 CREATE FUNCTION enqueue_change_request_analysis() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -329,6 +340,35 @@ BEGIN
     END IF;
     INSERT INTO change_request_analysis_jobs (tenant_id, change_request_id, base_oid, head_oid)
     VALUES (NEW.tenant_id, NEW.id, NEW.base_sha, NEW.head_sha);
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION enqueue_change_request_search_index() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP = 'UPDATE'
+        AND OLD.title IS NOT DISTINCT FROM NEW.title
+        AND OLD.body IS NOT DISTINCT FROM NEW.body
+        AND OLD.repository_name IS NOT DISTINCT FROM NEW.repository_name
+        AND OLD.author IS NOT DISTINCT FROM NEW.author
+        AND OLD.head_ref IS NOT DISTINCT FROM NEW.head_ref
+    THEN
+        RETURN NEW;
+    END IF;
+    INSERT INTO change_request_search_queue (tenant_id, change_request_id)
+    VALUES (NEW.tenant_id, NEW.id)
+    ON CONFLICT (tenant_id, change_request_id) DO UPDATE SET
+        state = 'queued',
+        queued_at = now(),
+        process_after = NULL,
+        started_at = NULL,
+        finished_at = NULL,
+        failure_message = NULL,
+        num_failures = 0,
+        num_resets = 0,
+        cancel = false;
     RETURN NEW;
 END;
 $$;
@@ -750,6 +790,18 @@ BEGIN
                 diff);
     END IF;
 
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION invalidate_changeset_last_pushed_spec_on_claim() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF OLD.reconciler_state IS DISTINCT FROM 'processing'
+       AND NEW.reconciler_state = 'processing' THEN
+        NEW.last_pushed_spec_id = NULL;
+    END IF;
     RETURN NEW;
 END;
 $$;
@@ -1275,6 +1327,53 @@ CREATE SEQUENCE access_tokens_id_seq
 
 ALTER SEQUENCE access_tokens_id_seq OWNED BY access_tokens.id;
 
+CREATE TABLE agent_handoff_connections (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    provider text NOT NULL,
+    target text NOT NULL,
+    credential_id bigint
+);
+
+COMMENT ON TABLE agent_handoff_connections IS 'Stable personal coding-agent connectors; disconnecting removes the credential, not the connector or its history.';
+
+CREATE SEQUENCE agent_handoff_connections_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_handoff_connections_id_seq OWNED BY agent_handoff_connections.id;
+
+CREATE TABLE agent_handoffs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    connection_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    instructions text NOT NULL,
+    source jsonb,
+    status text DEFAULT 'submitting'::text NOT NULL,
+    vendor_url text DEFAULT ''::text NOT NULL,
+    error text DEFAULT ''::text NOT NULL,
+    idempotency_key uuid
+);
+
+COMMENT ON COLUMN agent_handoffs.source IS 'Optional {kind, id, title} reference. Deliberately not a foreign key: source deletion must not remove handoff history.';
+
+COMMENT ON COLUMN agent_handoffs.status IS 'Submission outcome, not the state of the coding task: submitting, submitted, failed, or unconfirmed.';
+
+CREATE SEQUENCE agent_handoffs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE agent_handoffs_id_seq OWNED BY agent_handoffs.id;
+
 CREATE TABLE aggregated_user_statistics (
     user_id bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1347,6 +1446,31 @@ CREATE SEQUENCE auth_provider_wizard_drafts_id_seq
     CACHE 1;
 
 ALTER SEQUENCE auth_provider_wizard_drafts_id_seq OWNED BY auth_provider_wizard_drafts.id;
+
+CREATE TABLE batch_change_agent_access_grants (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    agent_id integer NOT NULL,
+    user_id integer,
+    relation text NOT NULL,
+    granted_by_user_id integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    revoked_by_user_id integer,
+    provenance text NOT NULL,
+    CONSTRAINT batch_change_agent_access_grants_provenance_check CHECK ((provenance = ANY (ARRAY['creation'::text, 'handover'::text, 'invite'::text]))),
+    CONSTRAINT batch_change_agent_access_grants_relation_check CHECK ((relation = ANY (ARRAY['owner'::text, 'viewer'::text, 'collaborator'::text])))
+);
+
+CREATE SEQUENCE batch_change_agent_access_grants_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_change_agent_access_grants_id_seq OWNED BY batch_change_agent_access_grants.id;
 
 CREATE TABLE batch_change_agent_action_receipts (
     id bigint NOT NULL,
@@ -1447,7 +1571,8 @@ CREATE TABLE batch_change_agent_jobs (
     cancel boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     thread_id integer NOT NULL,
-    trigger_entry_id bigint NOT NULL
+    trigger_entry_id bigint NOT NULL,
+    actor_user_id integer
 );
 
 CREATE SEQUENCE batch_change_agent_jobs_id_seq
@@ -1480,6 +1605,56 @@ CREATE SEQUENCE batch_change_agent_metered_changesets_id_seq
     CACHE 1;
 
 ALTER SEQUENCE batch_change_agent_metered_changesets_id_seq OWNED BY batch_change_agent_metered_changesets.id;
+
+CREATE TABLE batch_change_agent_publication_grants (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    agent_id integer,
+    mode text NOT NULL,
+    repository_ids integer[] NOT NULL,
+    tool_approval_id bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT batch_change_agent_publication_grants_mode_check CHECK ((mode = ANY (ARRAY['none'::text, 'branch'::text, 'draft'::text, 'ready'::text]))),
+    CONSTRAINT batch_change_agent_publication_grants_standing_draft_check CHECK (((agent_id IS NOT NULL) OR (mode = 'draft'::text)))
+);
+
+CREATE SEQUENCE batch_change_agent_publication_grants_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_change_agent_publication_grants_id_seq OWNED BY batch_change_agent_publication_grants.id;
+
+CREATE TABLE batch_change_agent_refusals (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    thread_entry_id bigint NOT NULL,
+    tool_name text NOT NULL,
+    code text NOT NULL,
+    mode text DEFAULT ''::text NOT NULL,
+    host text DEFAULT ''::text NOT NULL,
+    repository_ids integer[] DEFAULT '{}'::integer[] NOT NULL,
+    credential_status text DEFAULT ''::text NOT NULL,
+    credential_message text DEFAULT ''::text NOT NULL,
+    credential_service_type text DEFAULT ''::text NOT NULL,
+    CONSTRAINT batch_change_agent_refusals_code_check CHECK ((code = ANY (ARRAY['capability'::text, 'credential'::text, 'outside_grant'::text, 'outside_scope'::text]))),
+    CONSTRAINT batch_change_agent_refusals_credential_status_check CHECK ((credential_status = ANY (ARRAY[''::text, 'ok'::text, 'missing'::text, 'invalid'::text, 'unverified'::text, 'checks_unreadable'::text]))),
+    CONSTRAINT batch_change_agent_refusals_mode_check CHECK ((mode = ANY (ARRAY[''::text, 'none'::text, 'branch'::text, 'draft'::text, 'ready'::text])))
+);
+
+COMMENT ON TABLE batch_change_agent_refusals IS 'Active server refusal facts, recorded at their thread entry timestamp and written with their tool result; cleared by an owner message or a later result of the same tool.';
+
+CREATE SEQUENCE batch_change_agent_refusals_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_change_agent_refusals_id_seq OWNED BY batch_change_agent_refusals.id;
 
 CREATE TABLE batch_change_agent_secret_grants (
     id bigint NOT NULL,
@@ -1600,10 +1775,31 @@ CREATE TABLE batch_change_agent_tool_approvals (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     thread_entry_id bigint NOT NULL,
+    publication_batch_spec_id bigint,
+    publication_mode text,
+    publication_repository_ids integer[],
+    publication_workspace_ids bigint[],
+    publication_scope text,
+    system_decision_reason text,
     CONSTRAINT batch_change_agent_tool_approvals_decision_check CHECK (((decision IS NULL) OR (decision = ANY (ARRAY['allow'::text, 'request_changes'::text])))),
     CONSTRAINT batch_change_agent_tool_approvals_lifecycle_check CHECK ((((state = 'pending'::text) AND (decision IS NULL) AND (note = ''::text) AND (decided_by_user_id IS NULL)) OR ((state = 'allowed'::text) AND (decision = 'allow'::text) AND (note = ''::text)) OR ((state = 'changes_requested'::text) AND (decision = 'request_changes'::text) AND (note <> ''::text)))),
-    CONSTRAINT batch_change_agent_tool_approvals_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'allowed'::text, 'changes_requested'::text])))
+    CONSTRAINT batch_change_agent_tool_approvals_publication_mode_check CHECK ((publication_mode = ANY (ARRAY['branch'::text, 'draft'::text, 'ready'::text]))),
+    CONSTRAINT batch_change_agent_tool_approvals_publication_scope_check CHECK ((publication_scope = ANY (ARRAY['this_agent'::text, 'all_attended_agents'::text]))),
+    CONSTRAINT batch_change_agent_tool_approvals_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'allowed'::text, 'changes_requested'::text]))),
+    CONSTRAINT batch_change_agent_tool_approvals_system_decision_reason_check CHECK ((system_decision_reason = 'unattended_secret'::text))
 );
+
+COMMENT ON COLUMN batch_change_agent_tool_approvals.publication_batch_spec_id IS 'Identity of the materialized spec reviewed at the publication gate.';
+
+COMMENT ON COLUMN batch_change_agent_tool_approvals.publication_mode IS 'Publication mode reviewed at the gate; the linked grant records the approved mode.';
+
+COMMENT ON COLUMN batch_change_agent_tool_approvals.publication_repository_ids IS 'Repository bound reviewed at the publication gate; independent of later plans.';
+
+COMMENT ON COLUMN batch_change_agent_tool_approvals.publication_workspace_ids IS 'Workspace selection reviewed at the publication gate.';
+
+COMMENT ON COLUMN batch_change_agent_tool_approvals.publication_scope IS 'Scope decided by the owner; independent of later standing approvals and their revocation.';
+
+COMMENT ON COLUMN batch_change_agent_tool_approvals.system_decision_reason IS 'Why the server decided this approval without an owner decision; NULL for human decisions and pending approvals.';
 
 CREATE SEQUENCE batch_change_agent_tool_approvals_id_seq
     START WITH 1
@@ -1653,7 +1849,25 @@ CREATE TABLE batch_change_agents (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
-    visibility text
+    visibility text,
+    run_mode text DEFAULT 'attended'::text NOT NULL,
+    started_externally boolean DEFAULT false NOT NULL,
+    scope_repository_ids integer[] DEFAULT '{}'::integer[] NOT NULL,
+    canary boolean DEFAULT false NOT NULL,
+    ci_repair boolean DEFAULT false NOT NULL,
+    start_request_id uuid,
+    goal text,
+    stopped_at timestamp with time zone,
+    stopped_by text,
+    notification_observed_at timestamp with time zone,
+    notified_awaiting_merge_at timestamp with time zone,
+    notified_done_at timestamp with time zone,
+    version bigint DEFAULT 0 NOT NULL,
+    visible_hash text DEFAULT ''::text NOT NULL,
+    close_requested_at timestamp with time zone,
+    start_request_user_id integer,
+    CONSTRAINT batch_change_agents_run_mode_check CHECK ((run_mode = ANY (ARRAY['attended'::text, 'unattended'::text]))),
+    CONSTRAINT batch_change_agents_stopped_by_check CHECK ((stopped_by = ANY (ARRAY['owner'::text, 'admin'::text])))
 );
 
 COMMENT ON COLUMN batch_change_agents.rand_id IS 'Stable, non-enumerable public identifier used to derive externally-visible names (e.g. the materialized batch change name).';
@@ -1661,6 +1875,38 @@ COMMENT ON COLUMN batch_change_agents.rand_id IS 'Stable, non-enumerable public 
 COMMENT ON COLUMN batch_change_agents.read_token IS 'Rotatable token granting read-only downstream access (e.g. SSE stream snapshots and shared read endpoints).';
 
 COMMENT ON COLUMN batch_change_agents.visibility IS 'Owner-chosen visibility (link-only or global), clamped by the instance sharing setting. NULL follows the instance setting.';
+
+COMMENT ON COLUMN batch_change_agents.run_mode IS 'Interaction policy fixed when the run starts: attended or unattended.';
+
+COMMENT ON COLUMN batch_change_agents.started_externally IS 'Whether an external caller started the run; fixed for its lifetime.';
+
+COMMENT ON COLUMN batch_change_agents.scope_repository_ids IS 'Repository boundary for planning and execution of an unattended run. Its publication grant has the same repositories, but the reconciler reads grants to authorize code-host writes.';
+
+COMMENT ON COLUMN batch_change_agents.canary IS 'Unattended runs only: execute one repository before the rest.';
+
+COMMENT ON COLUMN batch_change_agents.ci_repair IS 'Unattended CI repair switch. Attended repair is controlled by the batch spec hooks.';
+
+COMMENT ON COLUMN batch_change_agents.start_request_id IS 'Caller-chosen key of an external Start (MCP or API). A retried Start with the same key returns this agent. NULL for UI starts.';
+
+COMMENT ON COLUMN batch_change_agents.goal IS 'Original caller goal, before planning instructions and supplied context are composed into the first message. NULL on older runs whose input cannot be recovered.';
+
+COMMENT ON COLUMN batch_change_agents.stopped_at IS 'When the owner or an administrator stopped the agent.';
+
+COMMENT ON COLUMN batch_change_agents.stopped_by IS 'Role of the first stop actor relative to the owner; retained if the actor account is deleted.';
+
+COMMENT ON COLUMN batch_change_agents.notification_observed_at IS 'Last notification outcome observation committed with delivery; newer activity is eligible for the sweep.';
+
+COMMENT ON COLUMN batch_change_agents.notified_awaiting_merge_at IS 'When awaiting merge was first announced to the owner.';
+
+COMMENT ON COLUMN batch_change_agents.notified_done_at IS 'When completion was first announced to the owner.';
+
+COMMENT ON COLUMN batch_change_agents.version IS 'Monotonic counter of observed visible read changes.';
+
+COMMENT ON COLUMN batch_change_agents.visible_hash IS 'Hash of the last observed read projection, excluding version.';
+
+COMMENT ON COLUMN batch_change_agents.close_requested_at IS 'First request to close the stopped agent''s open changesets; retained for cleanup retries.';
+
+COMMENT ON COLUMN batch_change_agents.start_request_user_id IS 'Original creator of a keyed Start. Ownership transfers do not change this request namespace.';
 
 CREATE SEQUENCE batch_change_agents_id_seq
     AS integer
@@ -1907,19 +2153,13 @@ CREATE TABLE batch_spec_workspace_execution_jobs (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     changeset_hook_job_id bigint,
     initiated_by text,
+    execution_backend text DEFAULT 'executor'::text NOT NULL,
     CONSTRAINT batch_spec_workspace_execution_jobs_initiated_by_check CHECK ((initiated_by = ANY (ARRAY['user'::text, 'agent'::text])))
 );
 
 COMMENT ON COLUMN batch_spec_workspace_execution_jobs.changeset_hook_job_id IS 'Deprecated read-compatible column retained for mixed-version rollouts; new non-null values are rejected. Drop after Sourcegraph 8.0.';
 
-CREATE SEQUENCE batch_spec_workspace_execution_jobs_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE batch_spec_workspace_execution_jobs_id_seq OWNED BY batch_spec_workspace_execution_jobs.id;
+COMMENT ON COLUMN batch_spec_workspace_execution_jobs.execution_backend IS 'Execution backend selected at enqueue time: executor or execd.';
 
 CREATE TABLE batch_spec_workspace_execution_last_dequeues (
     user_id integer NOT NULL,
@@ -1964,9 +2204,75 @@ CREATE VIEW batch_spec_workspace_execution_jobs_with_rank WITH (security_invoker
     q.place_in_user_queue,
     j.tenant_id,
     j.changeset_hook_job_id,
-    j.initiated_by
+    j.initiated_by,
+    j.execution_backend
    FROM (batch_spec_workspace_execution_jobs j
      LEFT JOIN batch_spec_workspace_execution_queue q ON ((j.id = q.id)));
+
+CREATE VIEW batch_spec_workspace_execution_execd_jobs WITH (security_invoker='true') AS
+ SELECT id,
+    batch_spec_workspace_id,
+    state,
+    failure_message,
+    started_at,
+    finished_at,
+    process_after,
+    num_resets,
+    num_failures,
+    execution_logs,
+    worker_hostname,
+    last_heartbeat_at,
+    created_at,
+    updated_at,
+    cancel,
+    queued_at,
+    user_id,
+    version,
+    place_in_global_queue,
+    place_in_user_queue,
+    tenant_id,
+    changeset_hook_job_id,
+    initiated_by,
+    execution_backend
+   FROM batch_spec_workspace_execution_jobs_with_rank
+  WHERE (execution_backend = 'execd'::text);
+
+CREATE VIEW batch_spec_workspace_execution_executor_jobs WITH (security_invoker='true') AS
+ SELECT id,
+    batch_spec_workspace_id,
+    state,
+    failure_message,
+    started_at,
+    finished_at,
+    process_after,
+    num_resets,
+    num_failures,
+    execution_logs,
+    worker_hostname,
+    last_heartbeat_at,
+    created_at,
+    updated_at,
+    cancel,
+    queued_at,
+    user_id,
+    version,
+    place_in_global_queue,
+    place_in_user_queue,
+    tenant_id,
+    changeset_hook_job_id,
+    initiated_by,
+    execution_backend
+   FROM batch_spec_workspace_execution_jobs_with_rank
+  WHERE (execution_backend = 'executor'::text);
+
+CREATE SEQUENCE batch_spec_workspace_execution_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE batch_spec_workspace_execution_jobs_id_seq OWNED BY batch_spec_workspace_execution_jobs.id;
 
 CREATE TABLE batch_spec_workspace_files (
     id integer NOT NULL,
@@ -2127,9 +2433,16 @@ CREATE TABLE changesets (
     auto_merge_method text,
     sync_skip_reason text,
     publish_entitlement_window_started_at timestamp with time zone,
+    last_pushed_spec_id bigint,
+    publish_entitlement_user_id integer,
+    expected_head_sha text,
+    failure_code text,
+    pushed_commit_sha text,
+    agent_push_pending boolean DEFAULT false NOT NULL,
     CONSTRAINT changesets_batch_change_ids_check CHECK ((jsonb_typeof(batch_change_ids) = 'object'::text)),
     CONSTRAINT changesets_external_id_check CHECK ((external_id <> ''::text)),
     CONSTRAINT changesets_external_service_type_not_blank CHECK ((external_service_type <> ''::text)),
+    CONSTRAINT changesets_failure_code_check CHECK ((failure_code = ANY (ARRAY['grant_revoked'::text, 'agent_stopped'::text, 'repository_hidden'::text]))),
     CONSTRAINT changesets_metadata_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
     CONSTRAINT external_branch_ref_prefix CHECK ((external_branch ~~ 'refs/heads/%'::text))
 );
@@ -2139,6 +2452,16 @@ COMMENT ON COLUMN changesets.external_title IS 'Normalized property generated on
 COMMENT ON COLUMN changesets.sync_skip_reason IS 'Why the changeset sync worker decided to skip syncing this changeset for a while (e.g. missing_credentials). While set, the scheduler enqueues sync jobs for it at low priority. Cleared on a successful sync or when a matching credential is added.';
 
 COMMENT ON COLUMN changesets.publish_entitlement_window_started_at IS 'Start of the published-changesets entitlement window in which one unit was reserved for sending this changeset of an agent-managed batch change to the code host for the first time. NULL when no unit is held. Cleared when the reconciler fails the changeset for good; the unit is released if the changeset never reached the code host.';
+
+COMMENT ON COLUMN changesets.publish_entitlement_user_id IS 'The user whose published-changesets entitlement the unit recorded in publish_entitlement_window_started_at was reserved against. NULL when no unit is held or the unit predates this column.';
+
+COMMENT ON COLUMN changesets.expected_head_sha IS 'The branch head the reconciler may replace when it updates the changeset''s branch: the commit Sourcegraph last left on the branch, or a head the batch change agent was told to replace. NULL when unknown.';
+
+COMMENT ON COLUMN changesets.failure_code IS 'Classified publication authority failure, independent of display text.';
+
+COMMENT ON COLUMN changesets.pushed_commit_sha IS 'Head last pushed from a changeset spec by the reconciler; distinct from code-host observations and follow-up pushes.';
+
+COMMENT ON COLUMN changesets.agent_push_pending IS 'Whether a push an agent started on this changeset has not ended yet';
 
 CREATE TABLE repo (
     id integer NOT NULL,
@@ -2232,6 +2555,54 @@ CREATE SEQUENCE change_request_analysis_jobs_id_seq
 
 ALTER SEQUENCE change_request_analysis_jobs_id_seq OWNED BY change_request_analysis_jobs.id;
 
+CREATE TABLE change_request_chat_messages (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    author_user_id integer,
+    body text NOT NULL,
+    head_oid text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    edited_at timestamp with time zone
+);
+
+CREATE SEQUENCE change_request_chat_messages_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_chat_messages_id_seq OWNED BY change_request_chat_messages.id;
+
+CREATE TABLE change_request_ci (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    head_oid text NOT NULL,
+    status text DEFAULT 'UNKNOWN'::text NOT NULL,
+    checks jsonb DEFAULT '[]'::jsonb NOT NULL,
+    sync_state text DEFAULT 'PENDING'::text NOT NULL,
+    synced_at timestamp with time zone
+);
+
+CREATE TABLE change_request_deepsearch_conversations (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    deepsearch_conversation_id integer NOT NULL,
+    head_oid text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE change_request_deepsearch_conversations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_deepsearch_conversations_id_seq OWNED BY change_request_deepsearch_conversations.id;
+
 CREATE TABLE change_request_file_groupings (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     change_request_id bigint NOT NULL,
@@ -2241,23 +2612,224 @@ CREATE TABLE change_request_file_groupings (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE TABLE change_request_team_members (
+CREATE TABLE change_request_reports (
     id bigint NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
-    github_app_installation_id integer NOT NULL,
-    team_slug text NOT NULL,
-    member_id text NOT NULL,
-    synced_at timestamp with time zone DEFAULT now() NOT NULL
+    change_request_id bigint NOT NULL,
+    user_id integer,
+    prompt text NOT NULL,
+    effort text NOT NULL,
+    base_oid text NOT NULL,
+    head_oid text NOT NULL,
+    diff_base_oid text,
+    document jsonb,
+    partial boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL
 );
 
-CREATE SEQUENCE change_request_team_members_id_seq
+CREATE SEQUENCE change_request_reports_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
 
-ALTER SEQUENCE change_request_team_members_id_seq OWNED BY change_request_team_members.id;
+ALTER SEQUENCE change_request_reports_id_seq OWNED BY change_request_reports.id;
+
+CREATE TABLE change_request_requested_teams (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    team_id bigint NOT NULL
+);
+
+CREATE TABLE change_request_review_notification_jobs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    reviewer_external_id text,
+    team_id bigint,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    recipient_user_id integer,
+    slack_configuration_id integer,
+    slack_channel_id text,
+    slack_message_ts text,
+    slack_message_status text,
+    CONSTRAINT change_request_review_notification_jobs_reviewer_check CHECK (((reviewer_external_id IS NULL) <> (team_id IS NULL)))
+);
+
+COMMENT ON TABLE change_request_review_notification_jobs IS 'Queues notifications about review requests, and records the Slack message that each reviewer job sent. Jobs that sent a message are kept until their change request is merged, so that the message can be updated.';
+
+COMMENT ON COLUMN change_request_review_notification_jobs.slack_message_status IS 'The change request status that the Slack message shows: requested, approved, merged or closed. NULL if unknown.';
+
+CREATE SEQUENCE change_request_review_notification_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_review_notification_jobs_id_seq OWNED BY change_request_review_notification_jobs.id;
+
+CREATE TABLE change_request_review_threads (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    external_id text NOT NULL,
+    path text NOT NULL,
+    start_side text,
+    start_line integer,
+    end_side text,
+    end_line integer,
+    resolved boolean NOT NULL,
+    outdated boolean NOT NULL,
+    comments jsonb NOT NULL,
+    kind text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT '1970-01-01 00:00:00+00'::timestamp with time zone NOT NULL,
+    review_state text DEFAULT ''::text NOT NULL,
+    review_commit_sha text DEFAULT ''::text NOT NULL,
+    original_context jsonb,
+    node_id text,
+    CONSTRAINT change_request_review_threads_range_check CHECK ((((start_side IS NULL) AND (start_line IS NULL) AND (end_side IS NULL) AND (end_line IS NULL)) OR ((start_side = ANY (ARRAY['base'::text, 'head'::text])) AND (end_side = ANY (ARRAY['base'::text, 'head'::text])) AND (start_line > 0) AND (end_line > 0))))
+);
+
+CREATE TABLE change_request_search_index (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    search_text text NOT NULL,
+    indexed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE change_request_search_index IS 'Search text of each change request, written by the change request search indexer from change_request_search_queue.';
+
+CREATE TABLE change_request_search_queue (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE change_request_search_queue_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_search_queue_id_seq OWNED BY change_request_search_queue.id;
+
+CREATE TABLE change_request_signals (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    change_request_id bigint NOT NULL,
+    head_oid text NOT NULL,
+    kind text NOT NULL,
+    state text NOT NULL,
+    data jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE change_request_signals_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_signals_id_seq OWNED BY change_request_signals.id;
+
+CREATE TABLE change_request_slack_accounts (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    slack_configuration_id integer NOT NULL,
+    slack_user_id text NOT NULL,
+    slack_user_name text NOT NULL,
+    slack_workspace_name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE change_request_slack_accounts_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_slack_accounts_id_seq OWNED BY change_request_slack_accounts.id;
+
+CREATE TABLE change_request_team_memberships (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    github_app_installation_id integer NOT NULL,
+    team_id bigint NOT NULL,
+    member_external_id text NOT NULL,
+    synced_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE change_request_team_memberships_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_team_memberships_id_seq OWNED BY change_request_team_memberships.id;
+
+CREATE TABLE change_request_teams (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    external_service_type text NOT NULL,
+    code_host_url text NOT NULL,
+    external_id text NOT NULL,
+    organization_external_id text NOT NULL,
+    organization_login text NOT NULL,
+    slug text NOT NULL
+);
+
+CREATE SEQUENCE change_request_teams_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE change_request_teams_id_seq OWNED BY change_request_teams.id;
 
 CREATE TABLE change_requests (
     id bigint NOT NULL,
@@ -2276,7 +2848,6 @@ CREATE TABLE change_requests (
     author text NOT NULL,
     assignees text[] DEFAULT '{}'::text[] NOT NULL,
     requested_reviewers text[] DEFAULT '{}'::text[] NOT NULL,
-    requested_teams text[] DEFAULT '{}'::text[] NOT NULL,
     labels text[] DEFAULT '{}'::text[] NOT NULL,
     head_ref text NOT NULL,
     head_sha text NOT NULL,
@@ -2294,6 +2865,12 @@ CREATE TABLE change_requests (
     requested_reviewer_data jsonb GENERATED ALWAYS AS ((external_data -> 'requested_reviewers'::text)) STORED,
     stack_id text,
     stack_position integer,
+    review_status text,
+    reviews jsonb DEFAULT '[]'::jsonb NOT NULL,
+    repository_archived boolean DEFAULT false NOT NULL,
+    repo_id integer,
+    discussions_synced_at timestamp with time zone,
+    external_node_id text,
     CONSTRAINT change_requests_stack_check CHECK ((((stack_id IS NULL) = (stack_position IS NULL)) AND ((stack_position IS NULL) OR (stack_position > 0))))
 );
 
@@ -2302,6 +2879,8 @@ COMMENT ON COLUMN change_requests.author_external_id IS 'Author account ID on it
 COMMENT ON COLUMN change_requests.author_email IS 'Lowercase author email reported by the code host, populated by the provider sync adapter.';
 
 COMMENT ON COLUMN change_requests.requested_reviewer_data IS 'Requested reviewer identities from the GitHub snapshot, stored separately to avoid reading the full external_data payload when filtering.';
+
+COMMENT ON COLUMN change_requests.external_node_id IS 'The code host''s GraphQL global object ID of the change request (GitHub: node ID; GitLab: Global ID). Refreshed on every sync; NULL if the code host has none.';
 
 CREATE SEQUENCE change_requests_id_seq
     START WITH 1
@@ -2482,11 +3061,15 @@ CREATE TABLE changeset_jobs (
     cancel boolean DEFAULT false NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     publication_outcome_state text,
+    initiated_by text,
+    CONSTRAINT changeset_jobs_initiated_by_check CHECK ((initiated_by = ANY (ARRAY['user'::text, 'agent'::text]))),
     CONSTRAINT changeset_jobs_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
     CONSTRAINT changeset_jobs_publication_outcome_state_check CHECK ((publication_outcome_state = ANY (ARRAY['pending'::text, 'reconciling'::text, 'done'::text])))
 );
 
-COMMENT ON COLUMN changeset_jobs.publication_outcome_state IS 'Set on direct UI publication jobs: pending until the job hands its changeset to the reconciler, reconciling while that reconcile is unfinished, done once its outcome is recorded or a newer spec takes the changeset away. NULL for other jobs.';
+COMMENT ON COLUMN changeset_jobs.publication_outcome_state IS 'Set on tracked publication jobs: pending until the job hands its changeset to the reconciler, reconciling while that reconcile is unfinished, done once its outcome is recorded or a newer spec takes the changeset away. NULL for untracked jobs.';
+
+COMMENT ON COLUMN changeset_jobs.initiated_by IS 'Set on a new job that tracks a publication outcome (user or agent) and on a merge job a batch change agent queued (agent), whose ending the agent inbox reports. NULL with a non-NULL publication_outcome_state identifies a UI job written by code that predates this column. NULL with no outcome state is untracked.';
 
 CREATE SEQUENCE changeset_jobs_id_seq
     START WITH 1
@@ -2692,6 +3275,114 @@ CREATE SEQUENCE cm_recipients_id_seq
     CACHE 1;
 
 ALTER SEQUENCE cm_recipients_id_seq OWNED BY cm_recipients.id;
+
+CREATE TABLE cm_rule_deliveries (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    run_id bigint NOT NULL,
+    notification jsonb NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE cm_rule_deliveries_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE cm_rule_deliveries_id_seq OWNED BY cm_rule_deliveries.id;
+
+CREATE TABLE cm_rule_findings (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    monitor_id bigint NOT NULL,
+    run_id bigint NOT NULL,
+    repo_id integer NOT NULL,
+    commit_id text NOT NULL,
+    match jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    verdict text DEFAULT 'pending'::text NOT NULL,
+    review jsonb,
+    review_error text,
+    seen_at timestamp with time zone,
+    seen_by integer
+);
+
+COMMENT ON COLUMN cm_rule_findings.seen_at IS 'Shared acknowledgement time. Independent of the automated verdict; NULL means unseen.';
+
+COMMENT ON COLUMN cm_rule_findings.seen_by IS 'User who marked the finding as seen. NULL if unseen or the user was deleted.';
+
+CREATE SEQUENCE cm_rule_findings_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE cm_rule_findings_id_seq OWNED BY cm_rule_findings.id;
+
+CREATE TABLE cm_rule_runs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    trigger_id integer NOT NULL,
+    configuration jsonb NOT NULL,
+    captured boolean DEFAULT false NOT NULL,
+    notifications_enqueued boolean DEFAULT false NOT NULL,
+    state text DEFAULT 'waiting'::text NOT NULL,
+    failure_message text,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    cancel boolean DEFAULT false NOT NULL
+);
+
+CREATE SEQUENCE cm_rule_runs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE cm_rule_runs_id_seq OWNED BY cm_rule_runs.id;
+
+CREATE TABLE cm_rules (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    monitor_id bigint NOT NULL,
+    owner_org_id integer,
+    instructions text NOT NULL,
+    review_enabled boolean DEFAULT false NOT NULL,
+    version integer DEFAULT 1 NOT NULL
+);
+
+COMMENT ON TABLE cm_rules IS 'Opt-in Code Monitors rules configuration. cm_monitors.namespace_user_id remains the execution identity; owner_org_id is the optional team owner.';
+
+CREATE SEQUENCE cm_rules_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE cm_rules_id_seq OWNED BY cm_rules.id;
 
 CREATE TABLE cm_slack_webhooks (
     id bigint NOT NULL,
@@ -2958,7 +3649,7 @@ COMMENT ON TABLE codeintel_destination_backfill_jobs IS 'Completed uploads the b
 
 COMMENT ON COLUMN codeintel_destination_backfill_jobs.upload_id IS 'The upload whose bundle to produce from the codeintel tables.';
 
-COMMENT ON COLUMN codeintel_destination_backfill_jobs.state IS 'dbworker job state. Uploads that were already written are planned as completed.';
+COMMENT ON COLUMN codeintel_destination_backfill_jobs.state IS 'dbworker job state. Uploads that were already written are planned as completed, and uploads that are not in the codeintel tables, which have nothing to backfill, as skipped.';
 
 COMMENT ON COLUMN codeintel_destination_backfill_jobs.round IS 'The backfill round that planned the job. Producers drop what they cached of the tenant when a new round starts.';
 
@@ -2978,6 +3669,8 @@ CREATE TABLE codeintel_destination_backfill_rounds (
     state text DEFAULT 'idle'::text NOT NULL,
     reset_round integer,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    status_reported_at timestamp with time zone,
+    status_reported_caught_up boolean,
     CONSTRAINT codeintel_destination_backfill_rounds_state_check CHECK ((state = ANY (ARRAY['idle'::text, 'starting'::text, 'active'::text])))
 );
 
@@ -2989,6 +3682,10 @@ COMMENT ON COLUMN codeintel_destination_backfill_rounds.state IS 'idle: no round
 
 COMMENT ON COLUMN codeintel_destination_backfill_rounds.reset_round IS 'A round whose backfill work the destination writer could not ingest; the planner drops its work and starts the next round.';
 
+COMMENT ON COLUMN codeintel_destination_backfill_rounds.status_reported_at IS 'When the backfill status of the tenant was last recorded as a telemetry event.';
+
+COMMENT ON COLUMN codeintel_destination_backfill_rounds.status_reported_caught_up IS 'Whether the backfill had caught up when its status was last recorded; a change is recorded right away.';
+
 CREATE SEQUENCE codeintel_destination_backfill_rounds_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -2997,6 +3694,52 @@ CREATE SEQUENCE codeintel_destination_backfill_rounds_id_seq
     CACHE 1;
 
 ALTER SEQUENCE codeintel_destination_backfill_rounds_id_seq OWNED BY codeintel_destination_backfill_rounds.id;
+
+CREATE TABLE codeintel_destination_write_history (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    upload_id integer NOT NULL,
+    op text NOT NULL,
+    outcome text NOT NULL,
+    backfill_round integer,
+    produce_started_at timestamp with time zone,
+    queued_at timestamp with time zone NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone NOT NULL,
+    num_failures integer NOT NULL,
+    num_resets integer NOT NULL,
+    batch_size integer NOT NULL,
+    failure_message text
+);
+
+COMMENT ON TABLE codeintel_destination_write_history IS 'Destination writer jobs that ended, with their timings, and upload hooks that failed to write a bundle. The latest written job of a completed upload is kept while the upload exists; other rows are kept for 30 days.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.op IS 'What the job did with the upload: ingest or delete.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.outcome IS 'How the job ended: written, deleted, dropped, or errored; or failed, for an upload hook that failed to write the bundle of the upload.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.backfill_round IS 'The backfill round that produced the bundle of an ingestion, or NULL for the upload hook.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.produce_started_at IS 'Time the producer started writing the bundle of an ingestion. It finished at queued_at.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.queued_at IS 'Time the job was last queued, or the time a failed upload hook failed.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.started_at IS 'Time the last attempt of the job began, shared by the jobs of its batch.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.finished_at IS 'Time the job ended.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.batch_size IS 'Number of jobs that ended together with this one, such as the uploads of one wave.';
+
+COMMENT ON COLUMN codeintel_destination_write_history.failure_message IS 'Most recent failure of the job, or the error of a failed upload hook.';
+
+CREATE SEQUENCE codeintel_destination_write_history_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE codeintel_destination_write_history_id_seq OWNED BY codeintel_destination_write_history.id;
 
 CREATE TABLE codeintel_destination_write_jobs (
     id bigint NOT NULL,
@@ -3011,7 +3754,8 @@ CREATE TABLE codeintel_destination_write_jobs (
     finished_at timestamp with time zone,
     process_after timestamp with time zone DEFAULT now() NOT NULL,
     op text DEFAULT 'ingest'::text NOT NULL,
-    backfill_round integer
+    backfill_round integer,
+    produce_started_at timestamp with time zone
 );
 
 COMMENT ON TABLE codeintel_destination_write_jobs IS 'Uploads the destination writer must write into or delete from the new code intelligence store. A job is deleted once it is done.';
@@ -3041,6 +3785,8 @@ COMMENT ON COLUMN codeintel_destination_write_jobs.process_after IS 'Earliest ti
 COMMENT ON COLUMN codeintel_destination_write_jobs.op IS 'What the destination writer does with the upload: ingest writes its bundle, delete detaches it. A job always holds the latest intent for its upload.';
 
 COMMENT ON COLUMN codeintel_destination_write_jobs.backfill_round IS 'The backfill round that produced the ingested bundle, or NULL for a bundle of the upload hook. A bundle of the backfill may omit documents it wrote in other bundles of its round.';
+
+COMMENT ON COLUMN codeintel_destination_write_jobs.produce_started_at IS 'Time the producer started writing the bundle of an ingestion. It finished when the ingestion was queued.';
 
 CREATE SEQUENCE codeintel_destination_write_jobs_id_seq
     START WITH 1
@@ -3184,6 +3930,186 @@ CREATE SEQUENCE commit_authors_id_seq
 
 ALTER SEQUENCE commit_authors_id_seq OWNED BY commit_authors.id;
 
+CREATE TABLE compendia (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    rand_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    slug text,
+    user_id integer,
+    request text NOT NULL,
+    compendium jsonb,
+    edition integer DEFAULT 0 NOT NULL,
+    directions text DEFAULT ''::text NOT NULL,
+    freshness jsonb,
+    freshness_checked_at timestamp with time zone,
+    freshness_stale_since timestamp with time zone,
+    freshness_check_failures integer DEFAULT 0 NOT NULL,
+    freshness_check_failed_at timestamp with time zone,
+    freshness_check_error text,
+    revise_chapters text[],
+    rewrite boolean DEFAULT false NOT NULL,
+    auto_refresh boolean DEFAULT true NOT NULL,
+    auto_refreshed_at timestamp with time zone,
+    search tsvector GENERATED ALWAYS AS (((((((setweight(to_tsvector('english'::regconfig, request), 'A'::"char") || setweight(to_tsvector('english'::regconfig, COALESCE((compendium ->> 'title'::text), ''::text)), 'A'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE((compendium ->> 'deck'::text), ''::text)), 'B'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE((jsonb_path_query_array(compendium, '$."chapters"[*]."heading"'::jsonpath))::text, ''::text)), 'B'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE((jsonb_path_query_array(compendium, '$."chapters"[*]."deck"'::jsonpath))::text, ''::text)), 'C'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE((compendium ->> 'lede'::text), ''::text)), 'D'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE((jsonb_path_query_array(compendium, '$."chapters"[*]."body"'::jsonpath))::text, ''::text)), 'D'::"char"))) STORED,
+    search_text text GENERATED ALWAYS AS (((request || ' '::text) || COALESCE((compendium ->> 'title'::text), ''::text))) STORED,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    current_edition_id bigint,
+    coverage_check jsonb,
+    coverage_check_after timestamp with time zone,
+    backdrop jsonb
+);
+
+COMMENT ON COLUMN compendia.backdrop IS 'One-time backdrop attempt and media type. Image bytes live in sourcegraphobjects; ready is set after upload.';
+
+CREATE SEQUENCE compendia_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendia_id_seq OWNED BY compendia.id;
+
+CREATE TABLE compendium_citations (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compendium_id bigint NOT NULL,
+    repo_name text NOT NULL,
+    path text DEFAULT ''::text NOT NULL
+);
+
+CREATE SEQUENCE compendium_citations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendium_citations_id_seq OWNED BY compendium_citations.id;
+
+CREATE TABLE compendium_diagrams (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compendium_id bigint NOT NULL,
+    user_id integer,
+    request text NOT NULL,
+    diagram jsonb,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE compendium_diagrams_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendium_diagrams_id_seq OWNED BY compendium_diagrams.id;
+
+CREATE TABLE compendium_editions (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compendium_id bigint NOT NULL,
+    edition integer NOT NULL,
+    kind text NOT NULL,
+    compendium jsonb NOT NULL,
+    user_id integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT compendium_editions_kind_check CHECK ((kind = ANY (ARRAY['generation'::text, 'revision'::text])))
+);
+
+CREATE SEQUENCE compendium_editions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendium_editions_id_seq OWNED BY compendium_editions.id;
+
+CREATE TABLE compendium_links (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compendium_id bigint NOT NULL,
+    target_public_id text NOT NULL
+);
+
+CREATE SEQUENCE compendium_links_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendium_links_id_seq OWNED BY compendium_links.id;
+
+CREATE TABLE compendium_notes (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compendium_id bigint NOT NULL,
+    user_id integer,
+    body text NOT NULL,
+    image bytea,
+    image_mime text,
+    applied_edition integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE compendium_notes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendium_notes_id_seq OWNED BY compendium_notes.id;
+
+CREATE TABLE compendium_threads (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    compendium_id bigint NOT NULL,
+    user_id integer,
+    deepsearch_conversation_id integer NOT NULL,
+    anchor_kind text NOT NULL,
+    anchor_id text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE compendium_threads_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE compendium_threads_id_seq OWNED BY compendium_threads.id;
+
 CREATE TABLE configuration_policies_audit_logs (
     log_timestamp timestamp with time zone DEFAULT clock_timestamp(),
     record_deleted_at timestamp with time zone,
@@ -3218,6 +4144,83 @@ CREATE SEQUENCE configuration_policies_audit_logs_seq
     CACHE 1;
 
 ALTER SEQUENCE configuration_policies_audit_logs_seq OWNED BY configuration_policies_audit_logs.sequence;
+
+CREATE TABLE connector_user_settings (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    connector_id integer NOT NULL,
+    user_id integer NOT NULL,
+    batch_change_agent_disabled boolean DEFAULT false NOT NULL,
+    batch_change_coding_agent_disabled boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE connector_user_settings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE connector_user_settings_id_seq OWNED BY connector_user_settings.id;
+
+CREATE TABLE connector_user_tokens (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    connector_id integer NOT NULL,
+    user_id integer NOT NULL,
+    encrypted_token text NOT NULL,
+    encryption_key_id text DEFAULT ''::text NOT NULL,
+    expired_at timestamp with time zone,
+    refresh_failure_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE connector_user_tokens_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE connector_user_tokens_id_seq OWNED BY connector_user_tokens.id;
+
+CREATE TABLE connectors (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    owner_user_id integer,
+    name text NOT NULL,
+    slug text NOT NULL,
+    url text NOT NULL,
+    auth_type text NOT NULL,
+    oauth_metadata jsonb,
+    encrypted_credentials text DEFAULT ''::text NOT NULL,
+    encryption_key_id text DEFAULT ''::text NOT NULL,
+    icon text DEFAULT ''::text NOT NULL,
+    instructions text DEFAULT ''::text NOT NULL,
+    tools jsonb DEFAULT '[]'::jsonb NOT NULL,
+    tools_updated_at timestamp with time zone,
+    tools_refresh_error text,
+    tools_refresh_failed_at timestamp with time zone,
+    credentials_rejected_at timestamp with time zone,
+    disabled_tools text[] DEFAULT '{}'::text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE connectors_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE connectors_id_seq OWNED BY connectors.id;
 
 CREATE TABLE container_registry_manifests (
     id bigint NOT NULL,
@@ -3507,12 +4510,13 @@ CREATE TABLE diff_file_viewed_states (
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     user_id integer NOT NULL,
     repo_id integer NOT NULL,
-    base_ref text NOT NULL,
-    head_ref text NOT NULL,
+    base_ref text,
+    head_ref text,
     file_path text NOT NULL,
     src_blob_sha text NOT NULL,
     dst_blob_sha text NOT NULL,
-    viewed_at timestamp with time zone DEFAULT now() NOT NULL
+    viewed_at timestamp with time zone DEFAULT now() NOT NULL,
+    scope text NOT NULL
 );
 
 CREATE TABLE diff_tour_entitlement_usage (
@@ -3737,6 +4741,123 @@ CREATE SEQUENCE event_logs_scrape_state_own_id_seq
 
 ALTER SEQUENCE event_logs_scrape_state_own_id_seq OWNED BY event_logs_scrape_state_own.id;
 
+CREATE TABLE execd_credentials (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    sourcegraph_credential text NOT NULL,
+    sourcegraph_credential_encryption_key_id text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_enrolled_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_enrolled_key_id text NOT NULL
+);
+
+CREATE SEQUENCE execd_credentials_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE execd_credentials_id_seq OWNED BY execd_credentials.id;
+
+CREATE TABLE execd_job_sessions (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    job_id bigint NOT NULL,
+    queue text NOT NULL,
+    session_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE execd_job_sessions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE execd_job_sessions_id_seq OWNED BY execd_job_sessions.id;
+
+CREATE TABLE execd_session_events (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    session_id bigint NOT NULL,
+    execution_id bigint,
+    kind text NOT NULL,
+    from_state text,
+    to_state text,
+    details jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE execd_session_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE execd_session_events_id_seq OWNED BY execd_session_events.id;
+
+CREATE TABLE execd_session_executions (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    session_id bigint NOT NULL,
+    command_key text NOT NULL,
+    attempt integer NOT NULL,
+    command text NOT NULL,
+    args text[] DEFAULT '{}'::text[] NOT NULL,
+    spec jsonb DEFAULT '{}'::jsonb NOT NULL,
+    state text DEFAULT 'requested'::text NOT NULL,
+    process_id integer,
+    exit_code integer,
+    failure_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_transitioned_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON COLUMN execd_session_executions.command_key IS 'Caller-chosen identity of the command within its session, such as a step name. Executions with the same key are attempts of the same command.';
+
+COMMENT ON COLUMN execd_session_executions.command IS 'Program to run, resolved by the executor rather than a shell.';
+
+COMMENT ON COLUMN execd_session_executions.spec IS 'Remaining process spec, such as working directory, image, and environment references. Never contains secret values.';
+
+COMMENT ON COLUMN execd_session_executions.process_id IS 'Process ID reported by the executor once the execution started.';
+
+CREATE SEQUENCE execd_session_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE execd_session_executions_id_seq OWNED BY execd_session_executions.id;
+
+CREATE TABLE execd_sessions (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    request_id text NOT NULL,
+    manager_session_id text,
+    state text DEFAULT 'creating'::text NOT NULL,
+    failure_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_transitioned_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON COLUMN execd_sessions.request_id IS 'Backend-generated idempotency key sent to the session manager when creating the session.';
+
+COMMENT ON COLUMN execd_sessions.manager_session_id IS 'Session identifier assigned by the session manager.';
+
+CREATE SEQUENCE execd_sessions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE execd_sessions_id_seq OWNED BY execd_sessions.id;
+
 CREATE TABLE executor_artifacts (
     id bigint NOT NULL,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
@@ -3888,7 +5009,7 @@ ALTER SEQUENCE executor_secrets_id_seq OWNED BY executor_secrets.id;
 CREATE TABLE exhaustive_search_jobs (
     id integer NOT NULL,
     state text DEFAULT 'queued'::text,
-    initiator_id integer NOT NULL,
+    initiator_id integer,
     query text NOT NULL,
     failure_message text,
     started_at timestamp with time zone,
@@ -4069,7 +5190,7 @@ COMMENT ON COLUMN external_service_sync_jobs.repos_modified IS 'The number of ex
 
 COMMENT ON COLUMN external_service_sync_jobs.repos_unmodified IS 'The number of existing repos whose metadata did not change during this sync job.';
 
-COMMENT ON COLUMN external_service_sync_jobs.repos_by_method IS 'Per-method repository counters: a list of {option, value, errors, added, modified, unmodified} objects, one per code host connection config option (e.g. "orgs") and value (e.g. the org name) that listed repositories.';
+COMMENT ON COLUMN external_service_sync_jobs.repos_by_method IS 'Per-method repository counters: a list of {option, value, found, excluded, overlap, errors, added, modified, unmodified} objects, one per code host connection config option (e.g. "orgs") and value (e.g. the org name) that the sync listed, including those that found no repositories.';
 
 CREATE TABLE external_services (
     id bigint NOT NULL,
@@ -4213,6 +5334,31 @@ CREATE SEQUENCE github_apps_id_seq
     CACHE 1;
 
 ALTER SEQUENCE github_apps_id_seq OWNED BY github_apps.id;
+
+CREATE TABLE gitserver_continuity_manifests (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    repo_id integer NOT NULL,
+    generation bigint NOT NULL,
+    manifest_digest text NOT NULL,
+    manifest_key text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    active_generation bigint,
+    active_manifest_digest text,
+    active_manifest_key text,
+    activation_readiness jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT gitserver_continuity_manifests_active_check CHECK ((((active_generation IS NULL) AND (active_manifest_digest IS NULL) AND (active_manifest_key IS NULL)) OR ((active_generation IS NOT NULL) AND (active_generation > 0) AND (active_generation <= generation) AND (active_manifest_digest IS NOT NULL) AND (active_manifest_key IS NOT NULL)))),
+    CONSTRAINT gitserver_continuity_manifests_generation_check CHECK ((generation > 0)),
+    CONSTRAINT gitserver_continuity_manifests_readiness_check CHECK ((jsonb_typeof(activation_readiness) = 'object'::text))
+);
+
+CREATE TABLE gitserver_continuity_replica_sessions (
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    shard text NOT NULL,
+    incarnation text NOT NULL,
+    registered_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT gitserver_continuity_replica_sessions_incarnation_check CHECK ((incarnation <> ''::text)),
+    CONSTRAINT gitserver_continuity_replica_sessions_shard_check CHECK ((shard <> ''::text))
+);
 
 CREATE TABLE gitserver_repos (
     repo_id integer NOT NULL,
@@ -4981,6 +6127,34 @@ CREATE SEQUENCE lsif_index_configuration_id_seq
 
 ALTER SEQUENCE lsif_index_configuration_id_seq OWNED BY lsif_index_configuration.id;
 
+CREATE TABLE lsif_index_execution_logs (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    index_id bigint NOT NULL,
+    key text NOT NULL,
+    command text[] DEFAULT '{}'::text[] NOT NULL,
+    start_time timestamp with time zone NOT NULL,
+    exit_code integer,
+    "out" text DEFAULT ''::text NOT NULL,
+    duration_ms integer,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE lsif_index_execution_logs IS 'Executor log entries for auto-indexing jobs (lsif_indexes), one row per executed step. Rows are written by the executor queue while the job runs and deleted when the job is dequeued again. Entries recorded before this table existed remain in lsif_indexes.execution_logs.';
+
+COMMENT ON COLUMN lsif_index_execution_logs.key IS 'The executor step key, such as setup.git.init or step.docker.indexer.';
+
+COMMENT ON COLUMN lsif_index_execution_logs."out" IS 'The combined stdout and stderr of the step. Replaced wholesale on every update while the step is running.';
+
+CREATE SEQUENCE lsif_index_execution_logs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE lsif_index_execution_logs_id_seq OWNED BY lsif_index_execution_logs.id;
+
 CREATE TABLE lsif_indexes (
     id bigint NOT NULL,
     commit text NOT NULL,
@@ -5436,6 +6610,23 @@ CREATE TABLE metering_events_export_queue (
     CONSTRAINT metering_events_export_queue_count_check CHECK ((count > 0))
 );
 
+CREATE TABLE monthly_active_users (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    user_id integer NOT NULL,
+    month date NOT NULL,
+    first_active_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE monthly_active_users_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE monthly_active_users_id_seq OWNED BY monthly_active_users.id;
+
 CREATE TABLE names (
     name citext NOT NULL,
     user_id integer,
@@ -5498,6 +6689,39 @@ CREATE SEQUENCE notebooks_id_seq
     CACHE 1;
 
 ALTER SEQUENCE notebooks_id_seq OWNED BY notebooks.id;
+
+CREATE TABLE notification_email_jobs (
+    id bigint NOT NULL,
+    notification_id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    title text NOT NULL,
+    message text NOT NULL,
+    href text,
+    state text DEFAULT 'queued'::text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    process_after timestamp with time zone,
+    num_resets integer DEFAULT 0 NOT NULL,
+    num_failures integer DEFAULT 0 NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    execution_logs json[],
+    worker_hostname text DEFAULT ''::text NOT NULL,
+    failure_message text,
+    cancel boolean DEFAULT false NOT NULL,
+    user_id integer NOT NULL
+);
+
+COMMENT ON COLUMN notification_email_jobs.user_id IS 'Recipient of the email.';
+
+CREATE SEQUENCE notification_email_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE notification_email_jobs_id_seq OWNED BY notification_email_jobs.id;
 
 CREATE TABLE notifications (
     id bigint NOT NULL,
@@ -5875,7 +7099,7 @@ ALTER SEQUENCE package_repo_versions_id_seq OWNED BY package_repo_versions.id;
 CREATE TABLE pending_repo_permissions (
     id bigint NOT NULL,
     bind_id text NOT NULL,
-    permission text NOT NULL,
+    permission text DEFAULT 'read'::text NOT NULL,
     service_type text NOT NULL,
     service_id text NOT NULL,
     repo_id integer NOT NULL,
@@ -6123,6 +7347,7 @@ CREATE VIEW reconciler_changesets WITH (security_invoker='true') AS
     c.sync_state,
     c.current_spec_id,
     c.previous_spec_id,
+    c.last_pushed_spec_id,
     c.publication_state,
     c.owned_by_batch_change_id,
     c.reconciler_state,
@@ -6148,7 +7373,11 @@ CREATE VIEW reconciler_changesets WITH (security_invoker='true') AS
     c.tenant_id,
     c.auto_merge_method,
     c.sync_skip_reason,
-    c.publish_entitlement_window_started_at
+    c.publish_entitlement_window_started_at,
+    c.publish_entitlement_user_id,
+    c.expected_head_sha,
+    c.failure_code,
+    c.pushed_commit_sha
    FROM (changesets c
      JOIN repo r ON ((r.id = c.repo_id)))
   WHERE ((r.deleted_at IS NULL) AND (EXISTS ( SELECT 1
@@ -6448,6 +7677,29 @@ CREATE SEQUENCE repo_update_jobs_id_seq
 
 ALTER SEQUENCE repo_update_jobs_id_seq OWNED BY repo_update_jobs.id;
 
+CREATE TABLE repository_blocks (
+    id bigint NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    repository text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    external_repos jsonb DEFAULT '[]'::jsonb NOT NULL,
+    repository_locations text[] DEFAULT '{}'::text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_user_id integer,
+    CONSTRAINT repository_blocks_external_repos_array CHECK ((jsonb_typeof(external_repos) = 'array'::text)),
+    CONSTRAINT repository_blocks_repository_nonempty CHECK ((repository <> ''::text))
+);
+
+CREATE SEQUENCE repository_blocks_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE repository_blocks_id_seq OWNED BY repository_blocks.id;
+
 CREATE TABLE repository_fetch_history (
     id bigint NOT NULL,
     repository_id integer NOT NULL,
@@ -6463,6 +7715,9 @@ CREATE TABLE repository_fetch_history (
     commit_discovery_duration_ms bigint,
     commit_discovery_rejection_reason text,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    external_service_id bigint,
+    external_connectivity_error boolean DEFAULT false NOT NULL,
+    telemetry_exported_at timestamp with time zone,
     CONSTRAINT repository_fetch_history_one_discovery_result CHECK (((commit_discovery_duration_ms IS NULL) <> (commit_discovery_rejection_reason IS NULL))),
     CONSTRAINT repository_fetch_history_valid_discovery_duration CHECK (((commit_discovery_duration_ms IS NULL) OR (commit_discovery_duration_ms >= 0))),
     CONSTRAINT repository_fetch_history_valid_failure_message CHECK (((success AND (failure_message IS NULL)) OR ((NOT success) AND (failure_message IS NOT NULL)))),
@@ -6477,6 +7732,25 @@ CREATE SEQUENCE repository_fetch_history_id_seq
     CACHE 1;
 
 ALTER SEQUENCE repository_fetch_history_id_seq OWNED BY repository_fetch_history.id;
+
+CREATE TABLE review_description_link_rules (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    key_prefix text NOT NULL,
+    url_template text NOT NULL,
+    alphanumeric boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE review_description_link_rules_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE review_description_link_rules_id_seq OWNED BY review_description_link_rules.id;
 
 CREATE TABLE review_repository_sync_jobs (
     id bigint NOT NULL,
@@ -6508,6 +7782,29 @@ CREATE SEQUENCE review_repository_sync_jobs_id_seq
     CACHE 1;
 
 ALTER SEQUENCE review_repository_sync_jobs_id_seq OWNED BY review_repository_sync_jobs.id;
+
+CREATE TABLE review_semgrep_connections (
+    id integer NOT NULL,
+    tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
+    base_url text NOT NULL,
+    deployment_id bigint NOT NULL,
+    deployment_slug text NOT NULL,
+    deployment_name text NOT NULL,
+    token text NOT NULL,
+    encryption_key_id text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE review_semgrep_connections_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE review_semgrep_connections_id_seq OWNED BY review_semgrep_connections.id;
 
 CREATE TABLE role_permissions (
     role_id integer NOT NULL,
@@ -7411,8 +8708,14 @@ CREATE TABLE zoekt_repos (
     last_indexed_at timestamp with time zone,
     tenant_id integer DEFAULT (current_setting('app.current_tenant'::text))::integer NOT NULL,
     last_index_status text,
-    last_index_failure_message text
+    last_index_failure_message text,
+    skipped_files jsonb,
+    skipped_files_total bigint
 );
+
+COMMENT ON COLUMN zoekt_repos.skipped_files IS 'Counts of files Zoekt skipped at index time, per skip reason, from the last index that reported them. NULL if never reported.';
+
+COMMENT ON COLUMN zoekt_repos.skipped_files_total IS 'Number of distinct files Zoekt skipped at index time, summed over all skip reasons in skipped_files. NULL if never reported.';
 
 ALTER TABLE ONLY abc_executor_tasks ALTER COLUMN id SET DEFAULT nextval('abc_executor_tasks_id_seq'::regclass);
 
@@ -7428,11 +8731,17 @@ ALTER TABLE ONLY access_requests ALTER COLUMN id SET DEFAULT nextval('access_req
 
 ALTER TABLE ONLY access_tokens ALTER COLUMN id SET DEFAULT nextval('access_tokens_id_seq'::regclass);
 
+ALTER TABLE ONLY agent_handoff_connections ALTER COLUMN id SET DEFAULT nextval('agent_handoff_connections_id_seq'::regclass);
+
+ALTER TABLE ONLY agent_handoffs ALTER COLUMN id SET DEFAULT nextval('agent_handoffs_id_seq'::regclass);
+
 ALTER TABLE ONLY assigned_owners ALTER COLUMN id SET DEFAULT nextval('assigned_owners_id_seq'::regclass);
 
 ALTER TABLE ONLY assigned_teams ALTER COLUMN id SET DEFAULT nextval('assigned_teams_id_seq'::regclass);
 
 ALTER TABLE ONLY auth_provider_wizard_drafts ALTER COLUMN id SET DEFAULT nextval('auth_provider_wizard_drafts_id_seq'::regclass);
+
+ALTER TABLE ONLY batch_change_agent_access_grants ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_access_grants_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_change_agent_action_receipts ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_action_receipts_id_seq'::regclass);
 
@@ -7445,6 +8754,10 @@ ALTER TABLE ONLY batch_change_agent_inbox_items ALTER COLUMN id SET DEFAULT next
 ALTER TABLE ONLY batch_change_agent_jobs ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_change_agent_metered_changesets ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_metered_changesets_id_seq'::regclass);
+
+ALTER TABLE ONLY batch_change_agent_publication_grants ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_publication_grants_id_seq'::regclass);
+
+ALTER TABLE ONLY batch_change_agent_refusals ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_refusals_id_seq'::regclass);
 
 ALTER TABLE ONLY batch_change_agent_secret_grants ALTER COLUMN id SET DEFAULT nextval('batch_change_agent_secret_grants_id_seq'::regclass);
 
@@ -7490,7 +8803,23 @@ ALTER TABLE ONLY cached_available_indexers ALTER COLUMN id SET DEFAULT nextval('
 
 ALTER TABLE ONLY change_request_analysis_jobs ALTER COLUMN id SET DEFAULT nextval('change_request_analysis_jobs_id_seq'::regclass);
 
-ALTER TABLE ONLY change_request_team_members ALTER COLUMN id SET DEFAULT nextval('change_request_team_members_id_seq'::regclass);
+ALTER TABLE ONLY change_request_chat_messages ALTER COLUMN id SET DEFAULT nextval('change_request_chat_messages_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_deepsearch_conversations ALTER COLUMN id SET DEFAULT nextval('change_request_deepsearch_conversations_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_reports ALTER COLUMN id SET DEFAULT nextval('change_request_reports_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_review_notification_jobs ALTER COLUMN id SET DEFAULT nextval('change_request_review_notification_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_search_queue ALTER COLUMN id SET DEFAULT nextval('change_request_search_queue_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_signals ALTER COLUMN id SET DEFAULT nextval('change_request_signals_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_slack_accounts ALTER COLUMN id SET DEFAULT nextval('change_request_slack_accounts_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_team_memberships ALTER COLUMN id SET DEFAULT nextval('change_request_team_memberships_id_seq'::regclass);
+
+ALTER TABLE ONLY change_request_teams ALTER COLUMN id SET DEFAULT nextval('change_request_teams_id_seq'::regclass);
 
 ALTER TABLE ONLY change_requests ALTER COLUMN id SET DEFAULT nextval('change_requests_id_seq'::regclass);
 
@@ -7522,6 +8851,14 @@ ALTER TABLE ONLY cm_queries ALTER COLUMN id SET DEFAULT nextval('cm_queries_id_s
 
 ALTER TABLE ONLY cm_recipients ALTER COLUMN id SET DEFAULT nextval('cm_recipients_id_seq'::regclass);
 
+ALTER TABLE ONLY cm_rule_deliveries ALTER COLUMN id SET DEFAULT nextval('cm_rule_deliveries_id_seq'::regclass);
+
+ALTER TABLE ONLY cm_rule_findings ALTER COLUMN id SET DEFAULT nextval('cm_rule_findings_id_seq'::regclass);
+
+ALTER TABLE ONLY cm_rule_runs ALTER COLUMN id SET DEFAULT nextval('cm_rule_runs_id_seq'::regclass);
+
+ALTER TABLE ONLY cm_rules ALTER COLUMN id SET DEFAULT nextval('cm_rules_id_seq'::regclass);
+
 ALTER TABLE ONLY cm_slack_webhooks ALTER COLUMN id SET DEFAULT nextval('cm_slack_webhooks_id_seq'::regclass);
 
 ALTER TABLE ONLY cm_trigger_jobs ALTER COLUMN id SET DEFAULT nextval('cm_trigger_jobs_id_seq'::regclass);
@@ -7538,6 +8875,8 @@ ALTER TABLE ONLY codeintel_destination_backfill_jobs ALTER COLUMN id SET DEFAULT
 
 ALTER TABLE ONLY codeintel_destination_backfill_rounds ALTER COLUMN id SET DEFAULT nextval('codeintel_destination_backfill_rounds_id_seq'::regclass);
 
+ALTER TABLE ONLY codeintel_destination_write_history ALTER COLUMN id SET DEFAULT nextval('codeintel_destination_write_history_id_seq'::regclass);
+
 ALTER TABLE ONLY codeintel_destination_write_jobs ALTER COLUMN id SET DEFAULT nextval('codeintel_destination_write_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY codeintel_inference_scripts ALTER COLUMN id SET DEFAULT nextval('codeintel_inference_scripts_id_seq'::regclass);
@@ -7552,9 +8891,29 @@ ALTER TABLE ONLY cody_audit_log ALTER COLUMN id SET DEFAULT nextval('cody_audit_
 
 ALTER TABLE ONLY commit_authors ALTER COLUMN id SET DEFAULT nextval('commit_authors_id_seq'::regclass);
 
+ALTER TABLE ONLY compendia ALTER COLUMN id SET DEFAULT nextval('compendia_id_seq'::regclass);
+
+ALTER TABLE ONLY compendium_citations ALTER COLUMN id SET DEFAULT nextval('compendium_citations_id_seq'::regclass);
+
+ALTER TABLE ONLY compendium_diagrams ALTER COLUMN id SET DEFAULT nextval('compendium_diagrams_id_seq'::regclass);
+
+ALTER TABLE ONLY compendium_editions ALTER COLUMN id SET DEFAULT nextval('compendium_editions_id_seq'::regclass);
+
+ALTER TABLE ONLY compendium_links ALTER COLUMN id SET DEFAULT nextval('compendium_links_id_seq'::regclass);
+
+ALTER TABLE ONLY compendium_notes ALTER COLUMN id SET DEFAULT nextval('compendium_notes_id_seq'::regclass);
+
+ALTER TABLE ONLY compendium_threads ALTER COLUMN id SET DEFAULT nextval('compendium_threads_id_seq'::regclass);
+
 ALTER TABLE ONLY configuration_policies_audit_logs ALTER COLUMN sequence SET DEFAULT nextval('configuration_policies_audit_logs_seq'::regclass);
 
 ALTER TABLE ONLY configuration_policies_audit_logs ALTER COLUMN id SET DEFAULT nextval('configuration_policies_audit_logs_id_seq'::regclass);
+
+ALTER TABLE ONLY connector_user_settings ALTER COLUMN id SET DEFAULT nextval('connector_user_settings_id_seq'::regclass);
+
+ALTER TABLE ONLY connector_user_tokens ALTER COLUMN id SET DEFAULT nextval('connector_user_tokens_id_seq'::regclass);
+
+ALTER TABLE ONLY connectors ALTER COLUMN id SET DEFAULT nextval('connectors_id_seq'::regclass);
 
 ALTER TABLE ONLY container_registry_manifests ALTER COLUMN id SET DEFAULT nextval('container_registry_manifests_id_seq'::regclass);
 
@@ -7591,6 +8950,16 @@ ALTER TABLE ONLY event_logs ALTER COLUMN id SET DEFAULT nextval('event_logs_id_s
 ALTER TABLE ONLY event_logs_scrape_state ALTER COLUMN id SET DEFAULT nextval('event_logs_scrape_state_id_seq'::regclass);
 
 ALTER TABLE ONLY event_logs_scrape_state_own ALTER COLUMN id SET DEFAULT nextval('event_logs_scrape_state_own_id_seq'::regclass);
+
+ALTER TABLE ONLY execd_credentials ALTER COLUMN id SET DEFAULT nextval('execd_credentials_id_seq'::regclass);
+
+ALTER TABLE ONLY execd_job_sessions ALTER COLUMN id SET DEFAULT nextval('execd_job_sessions_id_seq'::regclass);
+
+ALTER TABLE ONLY execd_session_events ALTER COLUMN id SET DEFAULT nextval('execd_session_events_id_seq'::regclass);
+
+ALTER TABLE ONLY execd_session_executions ALTER COLUMN id SET DEFAULT nextval('execd_session_executions_id_seq'::regclass);
+
+ALTER TABLE ONLY execd_sessions ALTER COLUMN id SET DEFAULT nextval('execd_sessions_id_seq'::regclass);
 
 ALTER TABLE ONLY executor_artifacts ALTER COLUMN id SET DEFAULT nextval('executor_artifacts_id_seq'::regclass);
 
@@ -7666,6 +9035,8 @@ ALTER TABLE ONLY lsif_dependency_syncing_jobs ALTER COLUMN id SET DEFAULT nextva
 
 ALTER TABLE ONLY lsif_index_configuration ALTER COLUMN id SET DEFAULT nextval('lsif_index_configuration_id_seq'::regclass);
 
+ALTER TABLE ONLY lsif_index_execution_logs ALTER COLUMN id SET DEFAULT nextval('lsif_index_execution_logs_id_seq'::regclass);
+
 ALTER TABLE ONLY lsif_indexes ALTER COLUMN id SET DEFAULT nextval('lsif_indexes_id_seq'::regclass);
 
 ALTER TABLE ONLY lsif_packages ALTER COLUMN id SET DEFAULT nextval('lsif_packages_id_seq'::regclass);
@@ -7676,9 +9047,13 @@ ALTER TABLE ONLY lsif_retention_configuration ALTER COLUMN id SET DEFAULT nextva
 
 ALTER TABLE ONLY mcp_code_finder_entitlement_usage ALTER COLUMN id SET DEFAULT nextval('mcp_code_finder_entitlement_usage_id_seq'::regclass);
 
+ALTER TABLE ONLY monthly_active_users ALTER COLUMN id SET DEFAULT nextval('monthly_active_users_id_seq'::regclass);
+
 ALTER TABLE ONLY namespace_permissions ALTER COLUMN id SET DEFAULT nextval('namespace_permissions_id_seq'::regclass);
 
 ALTER TABLE ONLY notebooks ALTER COLUMN id SET DEFAULT nextval('notebooks_id_seq'::regclass);
+
+ALTER TABLE ONLY notification_email_jobs ALTER COLUMN id SET DEFAULT nextval('notification_email_jobs_id_seq'::regclass);
 
 ALTER TABLE ONLY notifications ALTER COLUMN id SET DEFAULT nextval('notifications_id_seq'::regclass);
 
@@ -7736,9 +9111,15 @@ ALTER TABLE ONLY repo_statistics ALTER COLUMN id SET DEFAULT nextval('repo_stati
 
 ALTER TABLE ONLY repo_update_jobs ALTER COLUMN id SET DEFAULT nextval('repo_update_jobs_id_seq'::regclass);
 
+ALTER TABLE ONLY repository_blocks ALTER COLUMN id SET DEFAULT nextval('repository_blocks_id_seq'::regclass);
+
 ALTER TABLE ONLY repository_fetch_history ALTER COLUMN id SET DEFAULT nextval('repository_fetch_history_id_seq'::regclass);
 
+ALTER TABLE ONLY review_description_link_rules ALTER COLUMN id SET DEFAULT nextval('review_description_link_rules_id_seq'::regclass);
+
 ALTER TABLE ONLY review_repository_sync_jobs ALTER COLUMN id SET DEFAULT nextval('review_repository_sync_jobs_id_seq'::regclass);
+
+ALTER TABLE ONLY review_semgrep_connections ALTER COLUMN id SET DEFAULT nextval('review_semgrep_connections_id_seq'::regclass);
 
 ALTER TABLE ONLY roles ALTER COLUMN id SET DEFAULT nextval('roles_id_seq'::regclass);
 
@@ -7829,6 +9210,18 @@ ALTER TABLE ONLY access_tokens
 ALTER TABLE ONLY access_tokens
     ADD CONSTRAINT access_tokens_value_sha256_key UNIQUE (value_sha256, tenant_id);
 
+ALTER TABLE ONLY agent_handoff_connections
+    ADD CONSTRAINT agent_handoff_connections_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY agent_handoff_connections
+    ADD CONSTRAINT agent_handoff_connections_tenant_id_user_id_provider_target_key UNIQUE (tenant_id, user_id, provider, target);
+
+ALTER TABLE ONLY agent_handoffs
+    ADD CONSTRAINT agent_handoffs_idempotency_key UNIQUE (tenant_id, connection_id, idempotency_key);
+
+ALTER TABLE ONLY agent_handoffs
+    ADD CONSTRAINT agent_handoffs_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY aggregated_user_statistics
     ADD CONSTRAINT aggregated_user_statistics_pkey PRIMARY KEY (user_id);
 
@@ -7840,6 +9233,9 @@ ALTER TABLE ONLY assigned_teams
 
 ALTER TABLE ONLY auth_provider_wizard_drafts
     ADD CONSTRAINT auth_provider_wizard_drafts_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_change_agent_access_grants
+    ADD CONSTRAINT batch_change_agent_access_grants_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY batch_change_agent_action_receipts
     ADD CONSTRAINT batch_change_agent_action_receipts_pkey PRIMARY KEY (id);
@@ -7870,6 +9266,12 @@ ALTER TABLE ONLY batch_change_agent_metered_changesets
 
 ALTER TABLE ONLY batch_change_agent_metered_changesets
     ADD CONSTRAINT batch_change_agent_metered_changesets_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_change_agent_publication_grants
+    ADD CONSTRAINT batch_change_agent_publication_grants_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY batch_change_agent_refusals
+    ADD CONSTRAINT batch_change_agent_refusals_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY batch_change_agent_secret_grants
     ADD CONSTRAINT batch_change_agent_secret_grants_pkey PRIMARY KEY (id);
@@ -7964,14 +9366,68 @@ ALTER TABLE ONLY cached_available_indexers
 ALTER TABLE ONLY change_request_analysis_jobs
     ADD CONSTRAINT change_request_analysis_jobs_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY change_request_chat_messages
+    ADD CONSTRAINT change_request_chat_messages_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_ci
+    ADD CONSTRAINT change_request_ci_pkey PRIMARY KEY (tenant_id, change_request_id);
+
+ALTER TABLE ONLY change_request_deepsearch_conversations
+    ADD CONSTRAINT change_request_deepsearch_conversations_conversation_unique UNIQUE (tenant_id, deepsearch_conversation_id);
+
+ALTER TABLE ONLY change_request_deepsearch_conversations
+    ADD CONSTRAINT change_request_deepsearch_conversations_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY change_request_file_groupings
     ADD CONSTRAINT change_request_file_groupings_pkey PRIMARY KEY (tenant_id, change_request_id, diff_base_oid, head_oid);
 
-ALTER TABLE ONLY change_request_team_members
-    ADD CONSTRAINT change_request_team_members_key UNIQUE (tenant_id, github_app_installation_id, team_slug, member_id);
+ALTER TABLE ONLY change_request_reports
+    ADD CONSTRAINT change_request_reports_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY change_request_team_members
-    ADD CONSTRAINT change_request_team_members_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY change_request_requested_teams
+    ADD CONSTRAINT change_request_requested_teams_pkey PRIMARY KEY (tenant_id, change_request_id, team_id);
+
+ALTER TABLE ONLY change_request_review_notification_jobs
+    ADD CONSTRAINT change_request_review_notification_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_review_threads
+    ADD CONSTRAINT change_request_review_threads_pkey PRIMARY KEY (tenant_id, change_request_id, external_id);
+
+ALTER TABLE ONLY change_request_search_index
+    ADD CONSTRAINT change_request_search_index_pkey PRIMARY KEY (tenant_id, change_request_id);
+
+ALTER TABLE ONLY change_request_search_queue
+    ADD CONSTRAINT change_request_search_queue_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_search_queue
+    ADD CONSTRAINT change_request_search_queue_tenant_id_change_request_id_key UNIQUE (tenant_id, change_request_id);
+
+ALTER TABLE ONLY change_request_signals
+    ADD CONSTRAINT change_request_signals_key UNIQUE (tenant_id, change_request_id, head_oid, kind);
+
+ALTER TABLE ONLY change_request_signals
+    ADD CONSTRAINT change_request_signals_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_slack_accounts
+    ADD CONSTRAINT change_request_slack_accounts_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_slack_accounts
+    ADD CONSTRAINT change_request_slack_accounts_slack_user_key UNIQUE (tenant_id, slack_configuration_id, slack_user_id);
+
+ALTER TABLE ONLY change_request_slack_accounts
+    ADD CONSTRAINT change_request_slack_accounts_user_key UNIQUE (tenant_id, user_id);
+
+ALTER TABLE ONLY change_request_team_memberships
+    ADD CONSTRAINT change_request_team_memberships_key UNIQUE (tenant_id, github_app_installation_id, team_id, member_external_id);
+
+ALTER TABLE ONLY change_request_team_memberships
+    ADD CONSTRAINT change_request_team_memberships_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY change_request_teams
+    ADD CONSTRAINT change_request_teams_key UNIQUE (tenant_id, external_service_type, code_host_url, external_id);
+
+ALTER TABLE ONLY change_request_teams
+    ADD CONSTRAINT change_request_teams_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY change_requests
     ADD CONSTRAINT change_requests_key UNIQUE (tenant_id, external_service_type, code_host_url, external_repository_id, number);
@@ -8033,6 +9489,27 @@ ALTER TABLE ONLY cm_queries
 ALTER TABLE ONLY cm_recipients
     ADD CONSTRAINT cm_recipients_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY cm_rule_deliveries
+    ADD CONSTRAINT cm_rule_deliveries_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY cm_rule_findings
+    ADD CONSTRAINT cm_rule_findings_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY cm_rule_findings
+    ADD CONSTRAINT cm_rule_findings_tenant_id_monitor_id_repo_id_commit_id_key UNIQUE (tenant_id, monitor_id, repo_id, commit_id);
+
+ALTER TABLE ONLY cm_rule_runs
+    ADD CONSTRAINT cm_rule_runs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY cm_rule_runs
+    ADD CONSTRAINT cm_rule_runs_tenant_id_trigger_id_key UNIQUE (tenant_id, trigger_id);
+
+ALTER TABLE ONLY cm_rules
+    ADD CONSTRAINT cm_rules_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY cm_rules
+    ADD CONSTRAINT cm_rules_tenant_id_monitor_id_key UNIQUE (tenant_id, monitor_id);
+
 ALTER TABLE ONLY cm_slack_webhooks
     ADD CONSTRAINT cm_slack_webhooks_pkey PRIMARY KEY (id);
 
@@ -8072,6 +9549,9 @@ ALTER TABLE ONLY codeintel_destination_backfill_rounds
 ALTER TABLE ONLY codeintel_destination_backfill_rounds
     ADD CONSTRAINT codeintel_destination_backfill_rounds_tenant_id_key UNIQUE (tenant_id);
 
+ALTER TABLE ONLY codeintel_destination_write_history
+    ADD CONSTRAINT codeintel_destination_write_history_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY codeintel_destination_write_jobs
     ADD CONSTRAINT codeintel_destination_write_jobs_pkey PRIMARY KEY (id);
 
@@ -8105,8 +9585,53 @@ ALTER TABLE ONLY commit_authors
 ALTER TABLE ONLY commit_authors
     ADD CONSTRAINT commit_authors_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY compendia
+    ADD CONSTRAINT compendia_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY compendium_citations
+    ADD CONSTRAINT compendium_citations_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY compendium_citations
+    ADD CONSTRAINT compendium_citations_unique UNIQUE (tenant_id, compendium_id, repo_name, path);
+
+ALTER TABLE ONLY compendium_diagrams
+    ADD CONSTRAINT compendium_diagrams_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY compendium_editions
+    ADD CONSTRAINT compendium_editions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY compendium_links
+    ADD CONSTRAINT compendium_links_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY compendium_links
+    ADD CONSTRAINT compendium_links_unique UNIQUE (tenant_id, compendium_id, target_public_id);
+
+ALTER TABLE ONLY compendium_notes
+    ADD CONSTRAINT compendium_notes_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY compendium_threads
+    ADD CONSTRAINT compendium_threads_conversation_unique UNIQUE (tenant_id, deepsearch_conversation_id);
+
+ALTER TABLE ONLY compendium_threads
+    ADD CONSTRAINT compendium_threads_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY configuration_policies_audit_logs
     ADD CONSTRAINT configuration_policies_audit_logs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY connector_user_settings
+    ADD CONSTRAINT connector_user_settings_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY connector_user_settings
+    ADD CONSTRAINT connector_user_settings_unique_tenant_connector_user UNIQUE (tenant_id, connector_id, user_id);
+
+ALTER TABLE ONLY connector_user_tokens
+    ADD CONSTRAINT connector_user_tokens_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY connector_user_tokens
+    ADD CONSTRAINT connector_user_tokens_unique_tenant_connector_user UNIQUE (tenant_id, connector_id, user_id);
+
+ALTER TABLE ONLY connectors
+    ADD CONSTRAINT connectors_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY container_registry_manifests
     ADD CONSTRAINT container_registry_manifests_pkey PRIMARY KEY (id);
@@ -8163,7 +9688,7 @@ ALTER TABLE ONLY diff_anchors
     ADD CONSTRAINT diff_anchors_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY diff_file_viewed_states
-    ADD CONSTRAINT diff_file_viewed_states_pkey PRIMARY KEY (tenant_id, user_id, repo_id, base_ref, head_ref, file_path);
+    ADD CONSTRAINT diff_file_viewed_states_pkey PRIMARY KEY (tenant_id, user_id, repo_id, scope, file_path);
 
 ALTER TABLE ONLY diff_tour_entitlement_usage
     ADD CONSTRAINT diff_tour_entitlement_usage_id_pkey PRIMARY KEY (id);
@@ -8206,6 +9731,36 @@ ALTER TABLE ONLY event_logs_scrape_state_own
 
 ALTER TABLE ONLY event_logs_scrape_state
     ADD CONSTRAINT event_logs_scrape_state_pk PRIMARY KEY (id);
+
+ALTER TABLE ONLY execd_credentials
+    ADD CONSTRAINT execd_credentials_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY execd_credentials
+    ADD CONSTRAINT execd_credentials_tenant_id_unique UNIQUE (tenant_id);
+
+ALTER TABLE ONLY execd_job_sessions
+    ADD CONSTRAINT execd_job_sessions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY execd_job_sessions
+    ADD CONSTRAINT execd_job_sessions_tenant_id_session_id_key UNIQUE (tenant_id, session_id);
+
+ALTER TABLE ONLY execd_session_events
+    ADD CONSTRAINT execd_session_events_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY execd_session_executions
+    ADD CONSTRAINT execd_session_executions_attempt_key UNIQUE (session_id, command_key, attempt);
+
+ALTER TABLE ONLY execd_session_executions
+    ADD CONSTRAINT execd_session_executions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY execd_session_executions
+    ADD CONSTRAINT execd_session_executions_session_id_id_key UNIQUE (session_id, id);
+
+ALTER TABLE ONLY execd_sessions
+    ADD CONSTRAINT execd_sessions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY execd_sessions
+    ADD CONSTRAINT execd_sessions_request_id_key UNIQUE (tenant_id, request_id);
 
 ALTER TABLE ONLY executor_artifacts
     ADD CONSTRAINT executor_artifacts_pkey PRIMARY KEY (id);
@@ -8281,6 +9836,12 @@ ALTER TABLE ONLY github_apps
 
 ALTER TABLE ONLY github_apps
     ADD CONSTRAINT github_apps_unique UNIQUE (app_id, client_id, base_url, tenant_id);
+
+ALTER TABLE ONLY gitserver_continuity_manifests
+    ADD CONSTRAINT gitserver_continuity_manifests_pkey PRIMARY KEY (tenant_id, repo_id);
+
+ALTER TABLE ONLY gitserver_continuity_replica_sessions
+    ADD CONSTRAINT gitserver_continuity_replica_sessions_pkey PRIMARY KEY (tenant_id, shard);
 
 ALTER TABLE ONLY gitserver_repos
     ADD CONSTRAINT gitserver_repos_pkey PRIMARY KEY (repo_id);
@@ -8420,6 +9981,9 @@ ALTER TABLE ONLY lsif_index_configuration
 ALTER TABLE ONLY lsif_index_configuration
     ADD CONSTRAINT lsif_index_configuration_repository_id_key UNIQUE (repository_id);
 
+ALTER TABLE ONLY lsif_index_execution_logs
+    ADD CONSTRAINT lsif_index_execution_logs_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY lsif_indexes
     ADD CONSTRAINT lsif_indexes_pkey PRIMARY KEY (id);
 
@@ -8450,6 +10014,12 @@ ALTER TABLE ONLY mcp_code_finder_entitlement_usage
 ALTER TABLE ONLY metering_events_export_queue
     ADD CONSTRAINT metering_events_export_queue_pkey PRIMARY KEY (tenant_id, id);
 
+ALTER TABLE ONLY monthly_active_users
+    ADD CONSTRAINT monthly_active_users_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY monthly_active_users
+    ADD CONSTRAINT monthly_active_users_tenant_month_user_key UNIQUE (tenant_id, month, user_id);
+
 ALTER TABLE ONLY names
     ADD CONSTRAINT names_pkey PRIMARY KEY (name, tenant_id);
 
@@ -8461,6 +10031,9 @@ ALTER TABLE ONLY notebook_stars
 
 ALTER TABLE ONLY notebooks
     ADD CONSTRAINT notebooks_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY notification_email_jobs
+    ADD CONSTRAINT notification_email_jobs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY notifications
     ADD CONSTRAINT notifications_pkey PRIMARY KEY (id);
@@ -8600,11 +10173,29 @@ ALTER TABLE ONLY repo_statistics
 ALTER TABLE ONLY repo_update_jobs
     ADD CONSTRAINT repo_update_jobs_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY repository_blocks
+    ADD CONSTRAINT repository_blocks_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY repository_blocks
+    ADD CONSTRAINT repository_blocks_tenant_repository_unique UNIQUE (tenant_id, repository);
+
 ALTER TABLE ONLY repository_fetch_history
     ADD CONSTRAINT repository_fetch_history_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY review_description_link_rules
+    ADD CONSTRAINT review_description_link_rules_key_prefix_key UNIQUE (tenant_id, key_prefix);
+
+ALTER TABLE ONLY review_description_link_rules
+    ADD CONSTRAINT review_description_link_rules_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY review_repository_sync_jobs
     ADD CONSTRAINT review_repository_sync_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY review_semgrep_connections
+    ADD CONSTRAINT review_semgrep_connections_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY review_semgrep_connections
+    ADD CONSTRAINT review_semgrep_connections_tenant_key UNIQUE (tenant_id);
 
 ALTER TABLE ONLY role_permissions
     ADD CONSTRAINT role_permissions_pkey PRIMARY KEY (permission_id, role_id);
@@ -8821,6 +10412,14 @@ CREATE INDEX access_tokens_lookup ON access_tokens USING hash (value_sha256) WHE
 
 CREATE INDEX access_tokens_lookup_double_hash ON access_tokens USING hash (digest(value_sha256, 'sha256'::text)) WHERE (deleted_at IS NULL);
 
+CREATE INDEX agent_handoff_connections_credential_id ON agent_handoff_connections USING btree (credential_id);
+
+CREATE INDEX agent_handoffs_connection_id_id ON agent_handoffs USING btree (connection_id, id DESC);
+
+CREATE INDEX agent_handoffs_source_id ON agent_handoffs USING btree (tenant_id, ((source ->> 'kind'::text)), ((source ->> 'id'::text)), id DESC);
+
+CREATE INDEX agent_handoffs_stale_submissions ON agent_handoffs USING btree (tenant_id, updated_at) WHERE (status = 'submitting'::text);
+
 CREATE INDEX app_id_idx ON github_app_installs USING btree (app_id);
 
 CREATE UNIQUE INDEX assigned_owners_file_path_owner ON assigned_owners USING btree (file_path_id, owner_user_id);
@@ -8830,6 +10429,12 @@ CREATE UNIQUE INDEX assigned_teams_file_path_owner ON assigned_teams USING btree
 CREATE INDEX auth_provider_wizard_drafts_tenant_user_idx ON auth_provider_wizard_drafts USING btree (tenant_id, created_by_user_id);
 
 CREATE INDEX auth_provider_wizard_drafts_updated_at_idx ON auth_provider_wizard_drafts USING btree (tenant_id, updated_at DESC);
+
+CREATE INDEX batch_change_agent_access_grants_active_by_user_idx ON batch_change_agent_access_grants USING btree (tenant_id, user_id) WHERE (revoked_at IS NULL);
+
+CREATE UNIQUE INDEX batch_change_agent_access_grants_active_owner_idx ON batch_change_agent_access_grants USING btree (tenant_id, agent_id) WHERE ((relation = 'owner'::text) AND (revoked_at IS NULL));
+
+CREATE UNIQUE INDEX batch_change_agent_access_grants_active_user_idx ON batch_change_agent_access_grants USING btree (tenant_id, agent_id, user_id, relation) WHERE (revoked_at IS NULL);
 
 CREATE INDEX batch_change_agent_deepsearch_mappings_agent_idx ON batch_change_agent_deepsearch_conversation_mappings USING btree (tenant_id, batch_change_agent_id, created_at DESC);
 
@@ -8848,6 +10453,14 @@ CREATE INDEX batch_change_agent_jobs_thread_id_idx ON batch_change_agent_jobs US
 CREATE INDEX batch_change_agent_jobs_trigger_entry_id_idx ON batch_change_agent_jobs USING btree (trigger_entry_id, tenant_id);
 
 CREATE UNIQUE INDEX batch_change_agent_metered_changesets_sequence_idx ON batch_change_agent_metered_changesets USING btree (tenant_id, batch_change_id, merge_sequence);
+
+CREATE INDEX batch_change_agent_publication_grants_agent_scope_idx ON batch_change_agent_publication_grants USING btree (tenant_id, user_id, agent_id) WHERE (agent_id IS NOT NULL);
+
+CREATE INDEX batch_change_agent_publication_grants_tool_approval_id_idx ON batch_change_agent_publication_grants USING btree (tool_approval_id) WHERE (tool_approval_id IS NOT NULL);
+
+CREATE UNIQUE INDEX batch_change_agent_publication_grants_user_scope_idx ON batch_change_agent_publication_grants USING btree (tenant_id, user_id) WHERE (agent_id IS NULL);
+
+CREATE INDEX batch_change_agent_refusals_entry_tool_idx ON batch_change_agent_refusals USING btree (tenant_id, thread_entry_id, tool_name);
 
 CREATE UNIQUE INDEX batch_change_agent_secret_grants_agent_scope_idx ON batch_change_agent_secret_grants USING btree (tenant_id, user_id, agent_id, executor_secret_id) WHERE (agent_id IS NOT NULL);
 
@@ -8876,6 +10489,8 @@ CREATE INDEX batch_change_agent_wake_jobs_dequeue_filter_idx ON batch_change_age
 CREATE INDEX batch_change_agent_wake_jobs_dequeue_order_idx ON batch_change_agent_wake_jobs USING btree (queued_at, id) INCLUDE (state, process_after, finished_at) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
 CREATE INDEX batch_change_agent_wake_jobs_thread_id_idx ON batch_change_agent_wake_jobs USING btree (thread_id, tenant_id);
+
+CREATE UNIQUE INDEX batch_change_agents_creator_start_request_id_idx ON batch_change_agents USING btree (tenant_id, start_request_user_id, start_request_id) WHERE (start_request_id IS NOT NULL);
 
 CREATE INDEX batch_change_agents_owner_created_idx ON batch_change_agents USING btree (owner_user_id, created_at DESC, id DESC, tenant_id);
 
@@ -8943,6 +10558,30 @@ CREATE INDEX change_request_analysis_jobs_history_idx ON change_request_analysis
 
 CREATE INDEX change_request_analysis_jobs_snapshot_idx ON change_request_analysis_jobs USING btree (tenant_id, change_request_id, base_oid, head_oid, id DESC);
 
+CREATE INDEX change_request_chat_messages_change_request_idx ON change_request_chat_messages USING btree (tenant_id, change_request_id, id);
+
+CREATE INDEX change_request_deepsearch_conversations_change_request_idx ON change_request_deepsearch_conversations USING btree (tenant_id, change_request_id);
+
+CREATE INDEX change_request_reports_creator_idx ON change_request_reports USING btree (tenant_id, change_request_id, user_id, id DESC);
+
+CREATE INDEX change_request_reports_dequeue_idx ON change_request_reports USING btree (state, process_after, queued_at, id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX change_request_requested_teams_team_idx ON change_request_requested_teams USING btree (tenant_id, team_id, change_request_id);
+
+CREATE INDEX change_request_review_notification_jobs_change_request_idx ON change_request_review_notification_jobs USING btree (change_request_id, queued_at);
+
+CREATE INDEX change_request_review_notification_jobs_dequeue_idx ON change_request_review_notification_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX change_request_review_threads_chronological ON change_request_review_threads USING btree (tenant_id, change_request_id, created_at, external_id);
+
+CREATE INDEX change_request_search_index_search_text_trgm_idx ON change_request_search_index USING gin (search_text gin_trgm_ops);
+
+CREATE INDEX change_request_search_queue_dequeue_idx ON change_request_search_queue USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX change_request_signals_pending_idx ON change_request_signals USING btree (tenant_id, kind, updated_at) WHERE (state = 'pending'::text);
+
+CREATE INDEX change_request_team_memberships_member_idx ON change_request_team_memberships USING btree (tenant_id, member_external_id, team_id);
+
 CREATE INDEX change_requests_author_email_idx ON change_requests USING btree (tenant_id, external_service_type, author_email);
 
 CREATE INDEX change_requests_author_external_id_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, author_external_id);
@@ -8953,9 +10592,9 @@ CREATE INDEX change_requests_created_at_idx ON change_requests USING btree (tena
 
 CREATE INDEX change_requests_head_sha_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, external_repository_id, head_sha);
 
-CREATE INDEX change_requests_requested_reviewers_idx ON change_requests USING gin (requested_reviewers);
+CREATE INDEX change_requests_repo_id_idx ON change_requests USING btree (repo_id);
 
-CREATE INDEX change_requests_requested_teams_idx ON change_requests USING gin (requested_teams);
+CREATE INDEX change_requests_requested_reviewers_idx ON change_requests USING gin (requested_reviewers);
 
 CREATE INDEX change_requests_stack_idx ON change_requests USING btree (tenant_id, external_service_type, code_host_url, external_repository_id, stack_id) WHERE (stack_id IS NOT NULL);
 
@@ -8989,7 +10628,11 @@ CREATE INDEX changeset_hook_jobs_dequeue_order_idx ON changeset_hook_jobs USING 
 
 CREATE INDEX changeset_jobs_bulk_group_idx ON changeset_jobs USING btree (bulk_group);
 
+CREATE INDEX changeset_jobs_changeset_id_idx ON changeset_jobs USING btree (tenant_id, changeset_id, id DESC);
+
 CREATE INDEX changeset_jobs_dequeue_order_idx ON changeset_jobs USING btree (((state = 'errored'::text)), updated_at DESC, id) INCLUDE (process_after, finished_at) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX changeset_jobs_pending_publication_batch_change ON changeset_jobs USING btree (tenant_id, batch_change_id) WHERE (publication_outcome_state = ANY (ARRAY['pending'::text, 'reconciling'::text]));
 
 CREATE UNIQUE INDEX changeset_jobs_reconciling_publication_outcome ON changeset_jobs USING btree (tenant_id, changeset_id) WHERE (publication_outcome_state = 'reconciling'::text);
 
@@ -9015,6 +10658,8 @@ CREATE INDEX changeset_sync_jobs_dequeue_unfiltered_order_idx ON changeset_sync_
 
 CREATE UNIQUE INDEX changeset_sync_jobs_one_concurrent_per_changeset ON changeset_sync_jobs USING btree (changeset_id, tenant_id) WHERE (state = ANY (ARRAY['queued'::text, 'processing'::text, 'errored'::text]));
 
+CREATE INDEX changesets_agent_push_pending_batch_change ON changesets USING btree (tenant_id, owned_by_batch_change_id) WHERE agent_push_pending;
+
 CREATE INDEX changesets_batch_change_ids ON changesets USING gin (batch_change_ids);
 
 CREATE INDEX changesets_bitbucket_cloud_metadata_source_commit_idx ON changesets USING btree (((((metadata -> 'source'::text) -> 'commit'::text) ->> 'hash'::text)));
@@ -9029,7 +10674,11 @@ CREATE INDEX changesets_external_state_idx ON changesets USING btree (external_s
 
 CREATE INDEX changesets_external_title_idx ON changesets USING btree (external_title);
 
+CREATE INDEX changesets_last_pushed_spec_id ON changesets USING btree (last_pushed_spec_id) WHERE (last_pushed_spec_id IS NOT NULL);
+
 CREATE INDEX changesets_owned_by_batch_change_id ON changesets USING btree (tenant_id, owned_by_batch_change_id) WHERE (owned_by_batch_change_id IS NOT NULL);
+
+CREATE INDEX changesets_previous_spec_id ON changesets USING btree (previous_spec_id) WHERE (previous_spec_id IS NOT NULL);
 
 CREATE INDEX changesets_publication_state_idx ON changesets USING btree (publication_state);
 
@@ -9040,6 +10689,22 @@ CREATE INDEX cm_action_jobs_dequeue_order_idx ON cm_action_jobs USING btree (id)
 CREATE INDEX cm_action_jobs_state_idx ON cm_action_jobs USING btree (state);
 
 CREATE INDEX cm_action_jobs_trigger_event ON cm_action_jobs USING btree (trigger_event);
+
+CREATE INDEX cm_rule_deliveries_dequeue_idx ON cm_rule_deliveries USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX cm_rule_deliveries_run_id ON cm_rule_deliveries USING btree (run_id);
+
+CREATE INDEX cm_rule_findings_monitor_id ON cm_rule_findings USING btree (monitor_id, id DESC);
+
+CREATE INDEX cm_rule_findings_repo_id ON cm_rule_findings USING btree (repo_id);
+
+CREATE INDEX cm_rule_findings_run_id ON cm_rule_findings USING btree (run_id);
+
+CREATE INDEX cm_rule_findings_seen_by ON cm_rule_findings USING btree (seen_by) WHERE (seen_by IS NOT NULL);
+
+CREATE INDEX cm_rule_runs_dequeue_idx ON cm_rule_runs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX cm_rule_runs_trigger_id ON cm_rule_runs USING btree (trigger_id);
 
 CREATE INDEX cm_slack_webhooks_monitor ON cm_slack_webhooks USING btree (monitor);
 
@@ -9055,15 +10720,53 @@ CREATE UNIQUE INDEX codeintel_autoindex_queue_repository_id_commit ON codeintel_
 
 CREATE INDEX codeintel_destination_backfill_jobs_dequeue ON codeintel_destination_backfill_jobs USING btree (state, process_after, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
+CREATE INDEX codeintel_destination_write_history_finished_at ON codeintel_destination_write_history USING btree (tenant_id, finished_at);
+
+CREATE INDEX codeintel_destination_write_history_upload_id ON codeintel_destination_write_history USING btree (tenant_id, upload_id, id);
+
 CREATE INDEX codeintel_destination_write_jobs_dequeue ON codeintel_destination_write_jobs USING btree (tenant_id, process_after, id) WHERE (state = 'queued'::text);
 
 CREATE UNIQUE INDEX codeintel_langugage_support_requests_user_id_language ON codeintel_langugage_support_requests USING btree (user_id, language_id, tenant_id);
 
 CREATE INDEX codeowners_owners_reference ON codeowners_owners USING btree (reference);
 
+CREATE INDEX compendia_created_at_idx ON compendia USING btree (tenant_id, created_at DESC);
+
+CREATE INDEX compendia_dequeue_idx ON compendia USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX compendia_freshness_checked_at_idx ON compendia USING btree (tenant_id, freshness_checked_at) WHERE (compendium IS NOT NULL);
+
+CREATE UNIQUE INDEX compendia_rand_id_unique ON compendia USING btree (tenant_id, rand_id);
+
+CREATE INDEX compendia_search_idx ON compendia USING gin (search);
+
+CREATE INDEX compendia_search_text_trgm_idx ON compendia USING gin (search_text gin_trgm_ops);
+
+CREATE UNIQUE INDEX compendia_slug_unique ON compendia USING btree (tenant_id, slug);
+
+CREATE INDEX compendium_citations_repo_path_idx ON compendium_citations USING btree (tenant_id, repo_name, path text_pattern_ops);
+
+CREATE INDEX compendium_diagrams_compendium_id_idx ON compendium_diagrams USING btree (tenant_id, compendium_id);
+
+CREATE INDEX compendium_diagrams_dequeue_idx ON compendium_diagrams USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX compendium_editions_compendium_id_idx ON compendium_editions USING btree (tenant_id, compendium_id, id DESC);
+
+CREATE INDEX compendium_links_target_idx ON compendium_links USING btree (tenant_id, target_public_id, compendium_id DESC);
+
+CREATE INDEX compendium_notes_compendium_id_idx ON compendium_notes USING btree (tenant_id, compendium_id);
+
+CREATE INDEX compendium_threads_compendium_id_idx ON compendium_threads USING btree (tenant_id, compendium_id);
+
 CREATE INDEX configuration_policies_audit_logs_policy_id ON configuration_policies_audit_logs USING btree (policy_id);
 
 CREATE INDEX configuration_policies_audit_logs_timestamp ON configuration_policies_audit_logs USING brin (log_timestamp);
+
+CREATE INDEX connector_user_tokens_user_id ON connector_user_tokens USING btree (user_id);
+
+CREATE UNIQUE INDEX connectors_unique_tenant_owner_slug ON connectors USING btree (tenant_id, owner_user_id, slug) WHERE (owner_user_id IS NOT NULL);
+
+CREATE UNIQUE INDEX connectors_unique_tenant_slug ON connectors USING btree (tenant_id, slug) WHERE (owner_user_id IS NULL);
 
 CREATE INDEX contributor_data_author_name_idx ON contributor_data USING btree (author_name);
 
@@ -9135,6 +10838,18 @@ CREATE INDEX event_logs_user_id_name ON event_logs USING btree (user_id, name);
 
 CREATE INDEX event_logs_user_id_timestamp ON event_logs USING btree (user_id, "timestamp");
 
+CREATE INDEX execd_job_sessions_job ON execd_job_sessions USING btree (tenant_id, queue, job_id);
+
+CREATE INDEX execd_session_events_execution_id_idx ON execd_session_events USING btree (execution_id) WHERE (execution_id IS NOT NULL);
+
+CREATE INDEX execd_session_events_session_id_idx ON execd_session_events USING btree (session_id, id);
+
+CREATE UNIQUE INDEX execd_sessions_manager_session_id_key ON execd_sessions USING btree (tenant_id, manager_session_id) WHERE (manager_session_id IS NOT NULL);
+
+CREATE INDEX execd_sessions_prunable_idx ON execd_sessions USING btree (last_transitioned_at) WHERE (state = ANY (ARRAY['failed'::text, 'deleted'::text]));
+
+CREATE INDEX execd_sessions_state_idx ON execd_sessions USING btree (state, id);
+
 CREATE UNIQUE INDEX executor_secrets_unique_key_global ON executor_secrets USING btree (key, scope, tenant_id) WHERE ((namespace_user_id IS NULL) AND (namespace_org_id IS NULL));
 
 CREATE UNIQUE INDEX executor_secrets_unique_key_namespace_org ON executor_secrets USING btree (key, namespace_org_id, scope) WHERE (namespace_org_id IS NOT NULL);
@@ -9180,6 +10895,8 @@ CREATE INDEX feature_flag_overrides_user_id ON feature_flag_overrides USING btre
 CREATE INDEX finished_at_insights_query_runner_jobs_idx ON insights_query_runner_jobs USING btree (finished_at);
 
 CREATE INDEX github_app_installs_account_login ON github_app_installs USING btree (account_login);
+
+CREATE INDEX gitserver_continuity_manifests_pending ON gitserver_continuity_manifests USING btree (tenant_id) WHERE (active_generation IS DISTINCT FROM generation);
 
 CREATE INDEX gitserver_repo_size_bytes ON gitserver_repos USING btree (repo_size_bytes);
 
@@ -9301,6 +11018,8 @@ CREATE UNIQUE INDEX lsif_dependency_repos_unique_scheme_name ON lsif_dependency_
 
 CREATE INDEX lsif_dependency_syncing_jobs_state ON lsif_dependency_syncing_jobs USING btree (state);
 
+CREATE INDEX lsif_index_execution_logs_index_id ON lsif_index_execution_logs USING btree (tenant_id, index_id);
+
 CREATE INDEX lsif_indexes_commit_last_checked_at ON lsif_indexes USING btree (commit_last_checked_at) WHERE (state <> 'deleted'::text);
 
 CREATE INDEX lsif_indexes_dequeue_order_idx ON lsif_indexes USING btree (((enqueuer_user_id > 0)) DESC, queued_at DESC, id) WHERE ((state = 'queued'::text) OR (state = 'errored'::text));
@@ -9347,6 +11066,10 @@ CREATE INDEX notebooks_namespace_user_id_idx ON notebooks USING btree (namespace
 
 CREATE INDEX notebooks_title_trgm_idx ON notebooks USING gin (title gin_trgm_ops);
 
+CREATE INDEX notification_email_jobs_dequeue_idx ON notification_email_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
+
+CREATE INDEX notification_email_jobs_notification_id_idx ON notification_email_jobs USING btree (notification_id, tenant_id);
+
 CREATE INDEX notifications_tenant_active_idx ON notifications USING btree (tenant_id) WHERE (dismissed_at IS NULL);
 
 CREATE INDEX notifications_tenant_kind_idx ON notifications USING btree (tenant_id, kind) WHERE (kind <> ''::text);
@@ -9356,6 +11079,8 @@ CREATE INDEX notifications_tenant_severity_idx ON notifications USING btree (ten
 CREATE INDEX notifications_tenant_user_active_idx ON notifications USING btree (tenant_id, user_id, id DESC) WHERE ((dismissed_at IS NULL) AND (user_id IS NOT NULL));
 
 CREATE INDEX notifications_tenant_user_severity_idx ON notifications USING btree (tenant_id, user_id, severity) WHERE (user_id IS NOT NULL);
+
+CREATE INDEX notifications_user_key_prefix_idx ON notifications USING btree (tenant_id, user_id, key text_pattern_ops) WHERE (user_id IS NOT NULL);
 
 CREATE INDEX org_invitations_org_id ON org_invitations USING btree (org_id) WHERE (deleted_at IS NULL);
 
@@ -9382,6 +11107,8 @@ CREATE INDEX package_repo_versions_last_checked_at ON package_repo_versions USIN
 CREATE UNIQUE INDEX package_repo_versions_unique_version_per_package ON package_repo_versions USING btree (package_id, version);
 
 CREATE INDEX pending_repo_permissions_service_bind ON pending_repo_permissions USING btree (service_type, service_id, bind_id);
+
+CREATE UNIQUE INDEX pending_repo_permissions_service_object_unique ON pending_repo_permissions USING btree (service_type, service_id, repo_id, tenant_id, bind_id);
 
 CREATE INDEX permission_sync_jobs_process_after ON permission_sync_jobs USING btree (process_after);
 
@@ -9501,11 +11228,17 @@ CREATE INDEX repo_update_jobs_repository_id ON repo_update_jobs USING btree (rep
 
 CREATE INDEX repo_uri_idx ON repo USING btree (uri);
 
+CREATE INDEX repository_blocks_external_repos_idx ON repository_blocks USING gin (external_repos jsonb_path_ops);
+
+CREATE INDEX repository_blocks_locations_idx ON repository_blocks USING gin (repository_locations);
+
 CREATE UNIQUE INDEX repository_fetch_history_repo_update_job_id ON repository_fetch_history USING btree (tenant_id, repo_update_job_id) WHERE (repo_update_job_id IS NOT NULL);
 
 CREATE INDEX repository_fetch_history_repository_id ON repository_fetch_history USING btree (tenant_id, repository_id, started_at DESC, id DESC);
 
 CREATE INDEX repository_fetch_history_started_at ON repository_fetch_history USING btree (tenant_id, started_at DESC, id DESC);
+
+CREATE INDEX repository_fetch_history_telemetry_unexported ON repository_fetch_history USING btree (tenant_id, id) WHERE (telemetry_exported_at IS NULL);
 
 CREATE INDEX review_repository_sync_jobs_dequeue_idx ON review_repository_sync_jobs USING btree (tenant_id, state, process_after, queued_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'errored'::text]));
 
@@ -9533,7 +11266,11 @@ CREATE INDEX scip_uploads_commit_last_checked_at ON scip_uploads USING btree (co
 
 CREATE INDEX scip_uploads_committed_at ON scip_uploads USING btree (committed_at) WHERE (state = 'completed'::text);
 
+CREATE INDEX scip_uploads_finished_at ON scip_uploads USING btree (finished_at) WHERE (state = 'completed'::text);
+
 CREATE INDEX scip_uploads_last_reconcile_at ON scip_uploads USING btree (last_reconcile_at, id) WHERE (state = 'completed'::text);
+
+CREATE INDEX scip_uploads_last_referenced_scan_at ON scip_uploads USING btree (last_referenced_scan_at NULLS FIRST, finished_at, id) WHERE ((state = 'completed'::text) AND expired);
 
 CREATE INDEX scip_uploads_repository_id_commit ON scip_uploads USING btree (repository_id, commit);
 
@@ -9615,7 +11352,7 @@ CREATE INDEX user_repo_permissions_repo_id_user_id_idx ON user_repo_permissions 
 
 CREATE INDEX user_repo_permissions_source_idx ON user_repo_permissions USING btree (source);
 
-CREATE INDEX user_repo_permissions_updated_at_idx ON user_repo_permissions USING btree (updated_at);
+CREATE UNIQUE INDEX user_repo_permissions_unrestricted_unique_idx ON user_repo_permissions USING btree (repo_id) WHERE (user_id IS NULL);
 
 CREATE INDEX user_repo_permissions_user_external_account_id_idx ON user_repo_permissions USING btree (user_external_account_id);
 
@@ -9645,19 +11382,27 @@ CREATE INDEX webhook_logs_status_code_idx ON webhook_logs USING btree (status_co
 
 CREATE INDEX zoekt_repos_index_status ON zoekt_repos USING btree (index_status);
 
+CREATE INDEX zoekt_repos_skipped_files_total_repo_id ON zoekt_repos USING btree (skipped_files_total, repo_id) WHERE (skipped_files_total > 0);
+
 CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_insert AFTER INSERT ON batch_spec_workspace_execution_jobs REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert();
 
 CREATE TRIGGER batch_spec_workspace_execution_last_dequeues_update AFTER UPDATE ON batch_spec_workspace_execution_jobs REFERENCING NEW TABLE AS newtab FOR EACH STATEMENT EXECUTE FUNCTION batch_spec_workspace_execution_last_dequeues_upsert();
 
 CREATE TRIGGER change_request_analysis_enqueue AFTER INSERT OR UPDATE OF base_sha, head_sha ON change_requests FOR EACH ROW EXECUTE FUNCTION enqueue_change_request_analysis();
 
+CREATE TRIGGER change_request_search_index_enqueue AFTER INSERT OR UPDATE OF title, body, repository_name, author, head_ref ON change_requests FOR EACH ROW EXECUTE FUNCTION enqueue_change_request_search_index();
+
 CREATE TRIGGER changeset_specs_set_diff_sha256 BEFORE INSERT OR UPDATE OF diff ON changeset_specs FOR EACH ROW EXECUTE FUNCTION set_changeset_spec_diff_sha256();
+
+CREATE TRIGGER changesets_invalidate_last_pushed_spec_on_claim BEFORE UPDATE OF reconciler_state ON changesets FOR EACH ROW EXECUTE FUNCTION invalidate_changeset_last_pushed_spec_on_claim();
 
 CREATE TRIGGER changesets_update_computed_state BEFORE INSERT OR UPDATE ON changesets FOR EACH ROW EXECUTE FUNCTION changesets_computed_state_ensure();
 
 CREATE TRIGGER deepsearch_conversations_title_search_queue_trg AFTER UPDATE OF title ON deepsearch_conversations FOR EACH ROW WHEN ((old.title IS DISTINCT FROM new.title)) EXECUTE FUNCTION deepsearch_enqueue_conversation_for_search();
 
 CREATE TRIGGER deepsearch_questions_search_queue_trg AFTER INSERT OR UPDATE ON deepsearch_questions FOR EACH ROW EXECUTE FUNCTION deepsearch_enqueue_question_for_search();
+
+CREATE TRIGGER diff_file_viewed_states_default_scope BEFORE INSERT ON diff_file_viewed_states FOR EACH ROW EXECUTE FUNCTION diff_file_viewed_states_default_scope();
 
 CREATE TRIGGER enforce_single_entitlement_grant_type_per_user BEFORE INSERT OR UPDATE ON entitlement_grants FOR EACH ROW EXECUTE FUNCTION check_user_entitlement_grant_type();
 
@@ -9685,7 +11430,7 @@ CREATE TRIGGER trig_recalc_repo_statistics_on_repo_update AFTER UPDATE ON repo R
 
 CREATE TRIGGER trigger_codeintel_destination_deleted_uploads AFTER DELETE ON scip_uploads REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_codeintel_destination_deleted_uploads();
 
-CREATE TRIGGER trigger_codeintel_destination_retired_upload AFTER UPDATE OF state ON scip_uploads FOR EACH ROW WHEN (((new.state = ANY (ARRAY['deleting'::text, 'deleted'::text, 'failed'::text, 'superseded'::text, 'canceled'::text])) AND (old.state <> ALL (ARRAY['deleting'::text, 'deleted'::text, 'failed'::text, 'superseded'::text, 'canceled'::text])))) EXECUTE FUNCTION func_codeintel_destination_retired_upload();
+CREATE TRIGGER trigger_codeintel_destination_retired_upload AFTER UPDATE OF state ON scip_uploads FOR EACH ROW WHEN (((new.state = ANY (ARRAY['deleted'::text, 'failed'::text, 'superseded'::text, 'canceled'::text])) AND (old.state <> ALL (ARRAY['deleted'::text, 'failed'::text, 'superseded'::text, 'canceled'::text])))) EXECUTE FUNCTION func_codeintel_destination_retired_upload();
 
 CREATE TRIGGER trigger_configuration_policies_delete AFTER DELETE ON lsif_configuration_policies REFERENCING OLD TABLE AS old FOR EACH STATEMENT EXECUTE FUNCTION func_configuration_policies_delete();
 
@@ -9744,6 +11489,15 @@ ALTER TABLE ONLY access_tokens
 ALTER TABLE ONLY access_tokens
     ADD CONSTRAINT access_tokens_subject_user_id_fkey FOREIGN KEY (subject_user_id) REFERENCES users(id);
 
+ALTER TABLE ONLY agent_handoff_connections
+    ADD CONSTRAINT agent_handoff_connections_credential_id_fkey FOREIGN KEY (credential_id) REFERENCES user_credentials(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY agent_handoff_connections
+    ADD CONSTRAINT agent_handoff_connections_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY agent_handoffs
+    ADD CONSTRAINT agent_handoffs_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES agent_handoff_connections(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY aggregated_user_statistics
     ADD CONSTRAINT aggregated_user_statistics_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
@@ -9767,6 +11521,18 @@ ALTER TABLE ONLY assigned_teams
 
 ALTER TABLE ONLY auth_provider_wizard_drafts
     ADD CONSTRAINT auth_provider_wizard_drafts_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_access_grants
+    ADD CONSTRAINT batch_change_agent_access_grants_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_access_grants
+    ADD CONSTRAINT batch_change_agent_access_grants_granted_by_user_id_fkey FOREIGN KEY (granted_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY batch_change_agent_access_grants
+    ADD CONSTRAINT batch_change_agent_access_grants_revoked_by_user_id_fkey FOREIGN KEY (revoked_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY batch_change_agent_access_grants
+    ADD CONSTRAINT batch_change_agent_access_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY batch_change_agent_action_receipts
     ADD CONSTRAINT batch_change_agent_action_receipts_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
@@ -9794,6 +11560,18 @@ ALTER TABLE ONLY batch_change_agent_jobs
 
 ALTER TABLE ONLY batch_change_agent_jobs
     ADD CONSTRAINT batch_change_agent_jobs_trigger_entry_id_fkey FOREIGN KEY (trigger_entry_id) REFERENCES batch_change_agent_thread_entries(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_publication_grants
+    ADD CONSTRAINT batch_change_agent_publication_grants_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_publication_grants
+    ADD CONSTRAINT batch_change_agent_publication_grants_tool_approval_id_fkey FOREIGN KEY (tool_approval_id) REFERENCES batch_change_agent_tool_approvals(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY batch_change_agent_publication_grants
+    ADD CONSTRAINT batch_change_agent_publication_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agent_refusals
+    ADD CONSTRAINT batch_change_agent_refusals_thread_entry_id_fkey FOREIGN KEY (thread_entry_id) REFERENCES batch_change_agent_thread_entries(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY batch_change_agent_secret_grants
     ADD CONSTRAINT batch_change_agent_secret_grants_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
@@ -9835,6 +11613,9 @@ ALTER TABLE ONLY batch_change_agent_threads
     ADD CONSTRAINT batch_change_agent_threads_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY batch_change_agent_tool_approvals
+    ADD CONSTRAINT batch_change_agent_tool_approval_publication_batch_spec_id_fkey FOREIGN KEY (publication_batch_spec_id) REFERENCES batch_specs(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY batch_change_agent_tool_approvals
     ADD CONSTRAINT batch_change_agent_tool_approvals_decided_by_user_id_fkey FOREIGN KEY (decided_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY batch_change_agent_tool_approvals
@@ -9848,6 +11629,9 @@ ALTER TABLE ONLY batch_change_agent_wake_jobs
 
 ALTER TABLE ONLY batch_change_agents
     ADD CONSTRAINT batch_change_agents_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY batch_change_agents
+    ADD CONSTRAINT batch_change_agents_start_request_user_id_fkey FOREIGN KEY (start_request_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY batch_changes
     ADD CONSTRAINT batch_changes_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES batch_change_agents(id) ON DELETE CASCADE;
@@ -9927,11 +11711,74 @@ ALTER TABLE ONLY batch_specs
 ALTER TABLE ONLY change_request_analysis_jobs
     ADD CONSTRAINT change_request_analysis_jobs_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY change_request_chat_messages
+    ADD CONSTRAINT change_request_chat_messages_author_user_id_fkey FOREIGN KEY (author_user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY change_request_chat_messages
+    ADD CONSTRAINT change_request_chat_messages_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_ci
+    ADD CONSTRAINT change_request_ci_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_deepsearch_conversations
+    ADD CONSTRAINT change_request_deepsearch_conve_deepsearch_conversation_id_fkey FOREIGN KEY (deepsearch_conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_deepsearch_conversations
+    ADD CONSTRAINT change_request_deepsearch_conversations_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY change_request_file_groupings
     ADD CONSTRAINT change_request_file_groupings_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY change_request_team_members
-    ADD CONSTRAINT change_request_team_members_github_app_installation_id_fkey FOREIGN KEY (github_app_installation_id) REFERENCES github_app_installs(id) ON DELETE CASCADE;
+ALTER TABLE ONLY change_request_reports
+    ADD CONSTRAINT change_request_reports_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_reports
+    ADD CONSTRAINT change_request_reports_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY change_request_requested_teams
+    ADD CONSTRAINT change_request_requested_teams_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_requested_teams
+    ADD CONSTRAINT change_request_requested_teams_team_id_fkey FOREIGN KEY (team_id) REFERENCES change_request_teams(id);
+
+ALTER TABLE ONLY change_request_review_notification_jobs
+    ADD CONSTRAINT change_request_review_notification__slack_configuration_id_fkey FOREIGN KEY (slack_configuration_id) REFERENCES slack_configurations(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY change_request_review_notification_jobs
+    ADD CONSTRAINT change_request_review_notification_jobs_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_review_notification_jobs
+    ADD CONSTRAINT change_request_review_notification_jobs_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY change_request_review_notification_jobs
+    ADD CONSTRAINT change_request_review_notification_jobs_team_id_fkey FOREIGN KEY (team_id) REFERENCES change_request_teams(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_review_threads
+    ADD CONSTRAINT change_request_review_threads_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_search_index
+    ADD CONSTRAINT change_request_search_index_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_search_queue
+    ADD CONSTRAINT change_request_search_queue_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_signals
+    ADD CONSTRAINT change_request_signals_change_request_id_fkey FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_slack_accounts
+    ADD CONSTRAINT change_request_slack_accounts_slack_configuration_id_fkey FOREIGN KEY (slack_configuration_id) REFERENCES slack_configurations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_slack_accounts
+    ADD CONSTRAINT change_request_slack_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_team_memberships
+    ADD CONSTRAINT change_request_team_memberships_github_app_installation_id_fkey FOREIGN KEY (github_app_installation_id) REFERENCES github_app_installs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY change_request_team_memberships
+    ADD CONSTRAINT change_request_team_memberships_team_id_fkey FOREIGN KEY (team_id) REFERENCES change_request_teams(id);
+
+ALTER TABLE ONLY change_requests
+    ADD CONSTRAINT change_requests_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY changeset_events
     ADD CONSTRAINT changeset_events_changeset_id_fkey FOREIGN KEY (changeset_id) REFERENCES changesets(id) ON DELETE CASCADE DEFERRABLE;
@@ -9991,10 +11838,16 @@ ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_changeset_spec_id_fkey FOREIGN KEY (current_spec_id) REFERENCES changeset_specs(id) DEFERRABLE;
 
 ALTER TABLE ONLY changesets
+    ADD CONSTRAINT changesets_last_pushed_spec_id_fkey FOREIGN KEY (last_pushed_spec_id) REFERENCES changeset_specs(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_owned_by_batch_spec_id_fkey FOREIGN KEY (owned_by_batch_change_id) REFERENCES batch_changes(id) ON DELETE SET NULL DEFERRABLE;
 
 ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_previous_spec_id_fkey FOREIGN KEY (previous_spec_id) REFERENCES changeset_specs(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY changesets
+    ADD CONSTRAINT changesets_publish_entitlement_user_id_fkey FOREIGN KEY (publish_entitlement_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY changesets
     ADD CONSTRAINT changesets_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE DEFERRABLE;
@@ -10047,6 +11900,30 @@ ALTER TABLE ONLY cm_recipients
 ALTER TABLE ONLY cm_recipients
     ADD CONSTRAINT cm_recipients_user_id_fk FOREIGN KEY (namespace_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY cm_rule_deliveries
+    ADD CONSTRAINT cm_rule_deliveries_run_id_fkey FOREIGN KEY (run_id) REFERENCES cm_rule_runs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY cm_rule_findings
+    ADD CONSTRAINT cm_rule_findings_monitor_id_fkey FOREIGN KEY (monitor_id) REFERENCES cm_monitors(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY cm_rule_findings
+    ADD CONSTRAINT cm_rule_findings_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY cm_rule_findings
+    ADD CONSTRAINT cm_rule_findings_run_id_fkey FOREIGN KEY (run_id) REFERENCES cm_rule_runs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY cm_rule_findings
+    ADD CONSTRAINT cm_rule_findings_seen_by_fkey FOREIGN KEY (seen_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY cm_rule_runs
+    ADD CONSTRAINT cm_rule_runs_trigger_id_fkey FOREIGN KEY (trigger_id) REFERENCES cm_trigger_jobs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY cm_rules
+    ADD CONSTRAINT cm_rules_monitor_id_fkey FOREIGN KEY (monitor_id) REFERENCES cm_monitors(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY cm_rules
+    ADD CONSTRAINT cm_rules_owner_org_id_fkey FOREIGN KEY (owner_org_id) REFERENCES orgs(id) ON DELETE SET NULL;
+
 ALTER TABLE ONLY cm_slack_webhooks
     ADD CONSTRAINT cm_slack_webhooks_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE CASCADE;
 
@@ -10088,6 +11965,57 @@ ALTER TABLE ONLY codeowners_individual_stats
 
 ALTER TABLE ONLY codeowners
     ADD CONSTRAINT codeowners_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendia
+    ADD CONSTRAINT compendia_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY compendium_citations
+    ADD CONSTRAINT compendium_citations_compendium_id_fkey FOREIGN KEY (compendium_id) REFERENCES compendia(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_diagrams
+    ADD CONSTRAINT compendium_diagrams_compendium_id_fkey FOREIGN KEY (compendium_id) REFERENCES compendia(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_diagrams
+    ADD CONSTRAINT compendium_diagrams_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY compendium_editions
+    ADD CONSTRAINT compendium_editions_compendium_id_fkey FOREIGN KEY (compendium_id) REFERENCES compendia(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_editions
+    ADD CONSTRAINT compendium_editions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY compendium_links
+    ADD CONSTRAINT compendium_links_compendium_id_fkey FOREIGN KEY (compendium_id) REFERENCES compendia(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_notes
+    ADD CONSTRAINT compendium_notes_compendium_id_fkey FOREIGN KEY (compendium_id) REFERENCES compendia(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_notes
+    ADD CONSTRAINT compendium_notes_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY compendium_threads
+    ADD CONSTRAINT compendium_threads_compendium_id_fkey FOREIGN KEY (compendium_id) REFERENCES compendia(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_threads
+    ADD CONSTRAINT compendium_threads_deepsearch_conversation_id_fkey FOREIGN KEY (deepsearch_conversation_id) REFERENCES deepsearch_conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY compendium_threads
+    ADD CONSTRAINT compendium_threads_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY connector_user_settings
+    ADD CONSTRAINT connector_user_settings_connector_id_fkey FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY connector_user_settings
+    ADD CONSTRAINT connector_user_settings_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY connector_user_tokens
+    ADD CONSTRAINT connector_user_tokens_connector_id_fkey FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY connector_user_tokens
+    ADD CONSTRAINT connector_user_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY connectors
+    ADD CONSTRAINT connectors_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY contributor_data
     ADD CONSTRAINT contributor_data_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
@@ -10176,6 +12104,18 @@ ALTER TABLE ONLY entitlement_grants
 ALTER TABLE ONLY entitlement_usage_history
     ADD CONSTRAINT entitlement_usage_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY execd_job_sessions
+    ADD CONSTRAINT execd_job_sessions_session_id_fkey FOREIGN KEY (session_id) REFERENCES execd_sessions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY execd_session_events
+    ADD CONSTRAINT execd_session_events_session_id_execution_id_fkey FOREIGN KEY (session_id, execution_id) REFERENCES execd_session_executions(session_id, id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY execd_session_events
+    ADD CONSTRAINT execd_session_events_session_id_fkey FOREIGN KEY (session_id) REFERENCES execd_sessions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY execd_session_executions
+    ADD CONSTRAINT execd_session_executions_session_id_fkey FOREIGN KEY (session_id) REFERENCES execd_sessions(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY executor_queues_seen
     ADD CONSTRAINT executor_queues_seen_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
 
@@ -10195,7 +12135,7 @@ ALTER TABLE ONLY executor_secrets
     ADD CONSTRAINT executor_secrets_namespace_user_id_fkey FOREIGN KEY (namespace_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY exhaustive_search_jobs
-    ADD CONSTRAINT exhaustive_search_jobs_initiator_id_fkey FOREIGN KEY (initiator_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
+    ADD CONSTRAINT exhaustive_search_jobs_initiator_id_fkey FOREIGN KEY (initiator_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL DEFERRABLE;
 
 ALTER TABLE ONLY exhaustive_search_repo_jobs
     ADD CONSTRAINT exhaustive_search_repo_jobs_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
@@ -10260,6 +12200,9 @@ ALTER TABLE ONLY github_app_installs
 ALTER TABLE ONLY github_apps
     ADD CONSTRAINT github_apps_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE SET NULL;
 
+ALTER TABLE ONLY gitserver_continuity_manifests
+    ADD CONSTRAINT gitserver_continuity_manifests_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY gitserver_repos
     ADD CONSTRAINT gitserver_repos_repo_id_fkey FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE;
 
@@ -10280,6 +12223,9 @@ ALTER TABLE ONLY lsif_dependency_indexing_jobs
 
 ALTER TABLE ONLY lsif_index_configuration
     ADD CONSTRAINT lsif_index_configuration_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY lsif_index_execution_logs
+    ADD CONSTRAINT lsif_index_execution_logs_index_id_fkey FOREIGN KEY (index_id) REFERENCES lsif_indexes(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY lsif_indexes
     ADD CONSTRAINT lsif_indexes_matched_policy_id_fkey FOREIGN KEY (matched_policy_id) REFERENCES lsif_configuration_policies(id) ON DELETE RESTRICT;
@@ -10331,6 +12277,12 @@ ALTER TABLE ONLY notebooks
 
 ALTER TABLE ONLY notebooks
     ADD CONSTRAINT notebooks_updater_user_id_fkey FOREIGN KEY (updater_user_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE;
+
+ALTER TABLE ONLY notification_email_jobs
+    ADD CONSTRAINT notification_email_jobs_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY notification_email_jobs
+    ADD CONSTRAINT notification_email_jobs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY notifications
     ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
@@ -10460,6 +12412,9 @@ ALTER TABLE ONLY repo_paths
 
 ALTER TABLE ONLY repo_update_jobs
     ADD CONSTRAINT repo_update_jobs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY repository_blocks
+    ADD CONSTRAINT repository_blocks_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY repository_fetch_history
     ADD CONSTRAINT repository_fetch_history_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES repo(id) ON DELETE CASCADE;
@@ -10621,6 +12576,10 @@ ALTER TABLE access_requests ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE access_tokens ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE agent_handoff_connections ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_handoffs ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE aggregated_user_statistics ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE assigned_owners ENABLE ROW LEVEL SECURITY;
@@ -10628,6 +12587,8 @@ ALTER TABLE assigned_owners ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assigned_teams ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE auth_provider_wizard_drafts ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE batch_change_agent_access_grants ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_change_agent_action_receipts ENABLE ROW LEVEL SECURITY;
 
@@ -10640,6 +12601,10 @@ ALTER TABLE batch_change_agent_inbox_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE batch_change_agent_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_change_agent_metered_changesets ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE batch_change_agent_publication_grants ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE batch_change_agent_refusals ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE batch_change_agent_secret_grants ENABLE ROW LEVEL SECURITY;
 
@@ -10687,9 +12652,33 @@ ALTER TABLE cached_available_indexers ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE change_request_analysis_jobs ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE change_request_chat_messages ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_ci ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_deepsearch_conversations ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE change_request_file_groupings ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE change_request_team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE change_request_reports ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_requested_teams ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_review_notification_jobs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_review_threads ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_search_index ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_search_queue ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_signals ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_slack_accounts ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_team_memberships ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE change_request_teams ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE change_requests ENABLE ROW LEVEL SECURITY;
 
@@ -10723,6 +12712,14 @@ ALTER TABLE cm_queries ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE cm_recipients ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE cm_rule_deliveries ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE cm_rule_findings ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE cm_rule_runs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE cm_rules ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE cm_slack_webhooks ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE cm_trigger_jobs ENABLE ROW LEVEL SECURITY;
@@ -10741,6 +12738,8 @@ ALTER TABLE codeintel_destination_backfill_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE codeintel_destination_backfill_rounds ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE codeintel_destination_write_history ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE codeintel_destination_write_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE codeintel_inference_scripts ENABLE ROW LEVEL SECURITY;
@@ -10757,7 +12756,27 @@ ALTER TABLE cody_audit_log ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE commit_authors ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE compendia ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE compendium_citations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE compendium_diagrams ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE compendium_editions ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE compendium_links ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE compendium_notes ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE compendium_threads ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE configuration_policies_audit_logs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE connector_user_settings ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE connector_user_tokens ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE connectors ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE container_registry_manifests ENABLE ROW LEVEL SECURITY;
 
@@ -10805,6 +12824,16 @@ ALTER TABLE event_logs_scrape_state ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE event_logs_scrape_state_own ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE execd_credentials ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE execd_job_sessions ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE execd_session_events ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE execd_session_executions ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE execd_sessions ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE executor_artifacts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE executor_heartbeats ENABLE ROW LEVEL SECURITY;
@@ -10838,6 +12867,10 @@ ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE github_app_installs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE github_apps ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE gitserver_continuity_manifests ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE gitserver_continuity_replica_sessions ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE gitserver_repos ENABLE ROW LEVEL SECURITY;
 
@@ -10895,6 +12928,8 @@ ALTER TABLE lsif_dirty_repositories ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_index_configuration ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE lsif_index_execution_logs ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE lsif_indexes ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE lsif_last_index_scan ENABLE ROW LEVEL SECURITY;
@@ -10911,6 +12946,8 @@ ALTER TABLE mcp_code_finder_entitlement_usage ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE metering_events_export_queue ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE monthly_active_users ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE names ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE namespace_permissions ENABLE ROW LEVEL SECURITY;
@@ -10918,6 +12955,8 @@ ALTER TABLE namespace_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notebook_stars ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE notebooks ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE notification_email_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
@@ -10989,9 +13028,15 @@ ALTER TABLE repo_statistics ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE repo_update_jobs ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE repository_blocks ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE repository_fetch_history ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE review_description_link_rules ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE review_repository_sync_jobs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE review_semgrep_connections ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 
@@ -11065,6 +13110,10 @@ CREATE POLICY tenant_isolation_policy ON access_requests USING ((tenant_id = ( S
 
 CREATE POLICY tenant_isolation_policy ON access_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON agent_handoff_connections USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON agent_handoffs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON aggregated_user_statistics USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON assigned_owners USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -11072,6 +13121,8 @@ CREATE POLICY tenant_isolation_policy ON assigned_owners USING ((tenant_id = ( S
 CREATE POLICY tenant_isolation_policy ON assigned_teams USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON auth_provider_wizard_drafts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON batch_change_agent_access_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_action_receipts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -11084,6 +13135,10 @@ CREATE POLICY tenant_isolation_policy ON batch_change_agent_inbox_items USING ((
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_metered_changesets USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON batch_change_agent_publication_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON batch_change_agent_refusals USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON batch_change_agent_secret_grants USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -11131,9 +13186,33 @@ CREATE POLICY tenant_isolation_policy ON cached_available_indexers USING ((tenan
 
 CREATE POLICY tenant_isolation_policy ON change_request_analysis_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
+CREATE POLICY tenant_isolation_policy ON change_request_chat_messages USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_ci USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_deepsearch_conversations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON change_request_file_groupings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
-CREATE POLICY tenant_isolation_policy ON change_request_team_members USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+CREATE POLICY tenant_isolation_policy ON change_request_reports USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON change_request_requested_teams USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_review_notification_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON change_request_review_threads USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_search_index USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_search_queue USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON change_request_signals USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_slack_accounts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_team_memberships USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON change_request_teams USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON change_requests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -11167,6 +13246,14 @@ CREATE POLICY tenant_isolation_policy ON cm_queries USING ((tenant_id = ( SELECT
 
 CREATE POLICY tenant_isolation_policy ON cm_recipients USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON cm_rule_deliveries USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON cm_rule_findings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON cm_rule_runs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON cm_rules USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON cm_slack_webhooks USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON cm_trigger_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
@@ -11185,6 +13272,8 @@ CREATE POLICY tenant_isolation_policy ON codeintel_destination_backfill_jobs USI
 
 CREATE POLICY tenant_isolation_policy ON codeintel_destination_backfill_rounds USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON codeintel_destination_write_history USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON codeintel_destination_write_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON codeintel_inference_scripts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -11201,7 +13290,27 @@ CREATE POLICY tenant_isolation_policy ON cody_audit_log USING ((tenant_id = ( SE
 
 CREATE POLICY tenant_isolation_policy ON commit_authors USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON compendia USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON compendium_citations USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON compendium_diagrams USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON compendium_editions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON compendium_links USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON compendium_notes USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON compendium_threads USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON configuration_policies_audit_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON connector_user_settings USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON connector_user_tokens USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON connectors USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON container_registry_manifests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -11249,6 +13358,16 @@ CREATE POLICY tenant_isolation_policy ON event_logs_scrape_state USING ((tenant_
 
 CREATE POLICY tenant_isolation_policy ON event_logs_scrape_state_own USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON execd_credentials USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON execd_job_sessions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON execd_session_events USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON execd_session_executions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON execd_sessions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON executor_artifacts USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON executor_heartbeats USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -11282,6 +13401,10 @@ CREATE POLICY tenant_isolation_policy ON feature_flags USING ((tenant_id = ( SEL
 CREATE POLICY tenant_isolation_policy ON github_app_installs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON github_apps USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON gitserver_continuity_manifests USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON gitserver_continuity_replica_sessions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON gitserver_repos USING ((( SELECT (current_setting('app.current_tenant'::text) = 'zoekttenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'zoekttenant'::text))::integer AS current_tenant))));
 
@@ -11339,6 +13462,8 @@ CREATE POLICY tenant_isolation_policy ON lsif_dirty_repositories USING ((tenant_
 
 CREATE POLICY tenant_isolation_policy ON lsif_index_configuration USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON lsif_index_execution_logs USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON lsif_indexes USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON lsif_last_index_scan USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -11355,6 +13480,8 @@ CREATE POLICY tenant_isolation_policy ON mcp_code_finder_entitlement_usage USING
 
 CREATE POLICY tenant_isolation_policy ON metering_events_export_queue USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON monthly_active_users USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON names USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON namespace_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
@@ -11362,6 +13489,8 @@ CREATE POLICY tenant_isolation_policy ON namespace_permissions USING ((tenant_id
 CREATE POLICY tenant_isolation_policy ON notebook_stars USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON notebooks USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
+CREATE POLICY tenant_isolation_policy ON notification_email_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
 CREATE POLICY tenant_isolation_policy ON notifications USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
@@ -11433,9 +13562,15 @@ CREATE POLICY tenant_isolation_policy ON repo_statistics USING ((tenant_id = ( S
 
 CREATE POLICY tenant_isolation_policy ON repo_update_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
 
+CREATE POLICY tenant_isolation_policy ON repository_blocks USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON repository_fetch_history USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
+CREATE POLICY tenant_isolation_policy ON review_description_link_rules USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
+
 CREATE POLICY tenant_isolation_policy ON review_repository_sync_jobs USING ((( SELECT (current_setting('app.current_tenant'::text) = 'workertenant'::text)) OR (tenant_id = ( SELECT (NULLIF(current_setting('app.current_tenant'::text), 'workertenant'::text))::integer AS current_tenant))));
+
+CREATE POLICY tenant_isolation_policy ON review_semgrep_connections USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 
 CREATE POLICY tenant_isolation_policy ON role_permissions USING ((tenant_id = ( SELECT (current_setting('app.current_tenant'::text))::integer AS current_tenant)));
 

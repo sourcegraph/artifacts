@@ -1,0 +1,4 @@
+-- Processed uploads now wait in the state 'writing' until the destination
+-- writer has written them into the new code intelligence store and promotes
+-- them to 'completed'. scip_uploads.state is free text, so the new state needs
+-- no schema change; this migration exists for its down migration.

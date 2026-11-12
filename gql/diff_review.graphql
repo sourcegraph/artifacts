@@ -1,10 +1,23 @@
 extend type ChangedFile {
     """
     EXPERIMENTAL: Whether the viewing user has marked this file as reviewed
-    for the current (base, head) comparison. Automatically becomes false
-    again if the file's src or dst blob OID has changed since it was marked.
+    in the given scope. Automatically becomes false again if the file's src or
+    dst blob OID has changed since it was marked.
     """
-    viewerHasViewed: Boolean!
+    viewerHasViewed(
+        """
+        The scope the file was marked in, as passed to markChangedFilesAsViewed,
+        of at most 1024 bytes. Pages whose diff revisions change while the
+        review goes on, such as a changeset receiving new commits, pass a stable
+        identifier of the review. Comparison pages pass "<base>...<head>", with
+        "HEAD" for an omitted revision.
+
+        Clients must pass a scope. Omitting it reads the comparison's
+        "<base>...<head>" scope, which is only supported for clients loaded
+        before scopes existed, and will be removed in the next release.
+        """
+        scope: String
+    ): Boolean!
 }
 
 extend type RepositoryComparison {
@@ -51,35 +64,35 @@ type DiffAnchor {
     """
     newPath: String
     """
-    The resolved base commit at the time the question was asked.
+    The resolved base commit of the comparison containing the location.
     """
     baseOID: GitObjectID!
     """
-    The resolved head commit at the time the question was asked.
+    The resolved head commit of the comparison containing the location.
     """
     headOID: GitObjectID!
     """
-    The base-side blob at the time the question was asked.
+    The base-side blob of the file in the comparison, when known.
     """
     srcOID: GitObjectID
     """
-    The head-side blob at the time the question was asked.
+    The head-side blob of the file in the comparison, when known.
     """
     dstOID: GitObjectID
     """
-    The side containing the first selected line.
+    The side containing the first line.
     """
     startSide: DiffAnchorSide!
     """
-    The first selected line, inclusive.
+    The first line, inclusive.
     """
     startLine: Int!
     """
-    The last selected line, inclusive.
+    The last line, inclusive.
     """
     endLine: Int!
     """
-    The side containing the last selected line.
+    The side containing the last line.
     """
     endSide: DiffAnchorSide!
 }
@@ -94,9 +107,8 @@ enum DiffAnchorSide {
 
 """
 Input for batched mark/unmark-viewed mutations. All files in a single call
-target the same (repository, base, head) comparison. The server does not
-reload the comparison on write; a bogus input only affects the submitting
-user's own rows.
+target the same scope in the same repository. The server does not reload the
+comparison on write; a bogus input only affects the submitting user's own rows.
 """
 input MarkChangedFilesInput {
     """
@@ -104,17 +116,28 @@ input MarkChangedFilesInput {
     """
     repository: ID!
     """
-    The base symbolic ref of the comparison (e.g. "main"). If omitted, treated
-    as "HEAD" to match repository.comparison.
+    The scope to mark the files in, of at most 1024 bytes, which
+    ChangedFile.viewerHasViewed reads with the same argument.
+
+    Clients must pass a scope. Omitting it uses "<base>...<head>" of the
+    comparison given by base and head, which is only supported for clients
+    loaded before scopes existed, and will be removed in the next release.
+    """
+    scope: String
+    """
+    Deprecated: pass scope instead. The base symbolic ref of the comparison
+    (e.g. "main"). If omitted, treated as "HEAD" to match
+    repository.comparison. Ignored if scope is set.
     """
     base: String
     """
-    The head symbolic ref of the comparison (e.g. "feature"). If omitted,
-    treated as "HEAD" to match repository.comparison.
+    Deprecated: pass scope instead. The head symbolic ref of the comparison
+    (e.g. "feature"). If omitted, treated as "HEAD" to match
+    repository.comparison. Ignored if scope is set.
     """
     head: String
     """
-    The files to act on within this comparison.
+    The files to act on within this scope.
     """
     files: [ChangedFileViewedRef!]!
 }

@@ -1,0 +1,1 @@
+COMMENT ON COLUMN changeset_jobs.initiated_by IS 'Set iff a new job tracks a publication outcome: user or agent. NULL with a non-NULL publication_outcome_state identifies a UI job written by code that predates this column. NULL with no outcome state is untracked.';

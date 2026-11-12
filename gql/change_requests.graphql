@@ -1,14 +1,26 @@
 extend type Query {
     """
     EXPERIMENTAL: Lists synchronized code-host change requests, newest first
-    by creation time on the code host. Only site administrators can list change
-    requests, and only while the change-requests-page feature flag is enabled.
+    by creation time on the code host. Only signed-in users can list change
+    requests, and only while the bacon feature flag is enabled. The viewer only
+    sees change requests of repositories they can access on Sourcegraph; site
+    administrators also see those of repositories that aren't on Sourcegraph.
     """
     changeRequests(
         """
         Filters applied before pagination. Omit to list all change requests.
         """
         filter: ChangeRequestFilter
+        """
+        Search text. Matches change requests whose number (such as "#123"),
+        title, description, repository name, author login or head branch
+        contain each whitespace-separated word as a literal, case-insensitive
+        substring, in any order. Must contain a word of at least 3 characters.
+        Empty or omitted means unrestricted.
+        Changes are searchable a few seconds after they are synchronized, and
+        only the beginning of long descriptions is searched.
+        """
+        query: String
         """
         Returns the first n change requests. Must be between 1 and 100, and
         cannot be combined with last or before. Defaults to 50 when neither
@@ -39,58 +51,312 @@ extend type Query {
 
     """
     EXPERIMENTAL: Looks up a synchronized code-host change request by ID. Returns
-    null if it does not exist. Only site administrators can look up change
-    requests, and only while the change-requests-page feature flag is enabled.
+    null if it does not exist or the viewer can't access its repository (see
+    changeRequests). Only signed-in users can look up change requests, and only
+    while the bacon feature flag is enabled.
     """
     changeRequest(id: ID!): ChangeRequest
+
+    """
+    EXPERIMENTAL: Code-host capabilities for a changeset and the viewer's linked
+    account. Requires the same access as changeRequest. Capabilities are scoped
+    to this changeset, not global properties of the code host.
+    """
+    codeHostCapabilities(changeRequest: ID!): CodeHostCapabilities!
+
+    """
+    EXPERIMENTAL: Looks up a review report by ID. Any viewer who can look up
+    change requests and access the report's repository can open a report by ID,
+    not only its creator. Returns null if it does not exist or the repository
+    is not available to the viewer.
+    """
+    changeRequestReport(id: ID!): ChangeRequestReport
+
+    """
+    EXPERIMENTAL: Looks up a synchronized code-host change request by repository
+    and number. Returns null if it does not exist or the viewer can't access its
+    repository (see changeRequests). Only signed-in users can look up change
+    requests, and only while the bacon feature flag is enabled.
+    """
+    changeRequestByRepository(
+        """
+        Code-host-qualified repository name, such as github.com/owner/name.
+        Does not require the repository to be indexed by Sourcegraph.
+        """
+        repository: String!
+        """
+        The positive change request number on the code host, such as 123.
+        """
+        number: Int!
+    ): ChangeRequest
+
+    """
+    EXPERIMENTAL: Searches the code-host teams that change requests requested a
+    review from, ordered by organization and slug. The viewer only sees the teams
+    of organizations with a change request visible to them (see
+    changeRequests), including teams without current review requests. Only
+    signed-in users can search teams, and only while the bacon feature flag is
+    enabled.
+    """
+    changeRequestTeams(
+        """
+        Matches teams whose organization and slug, written as
+        organization/slug, contain the text, ignoring case. Empty matches all
+        teams.
+        """
+        query: String!
+        """
+        Whether to return only the teams that the viewer is a member of, as
+        for team review requests in ChangeRequestFilter.requestedReviewers.
+        Omit or pass null for false.
+        """
+        viewerIsMember: Boolean
+        """
+        Returns the first n teams. Must be between 1 and 100.
+        """
+        first: Int!
+    ): [CodeHostTeam!]!
+
+    """
+    EXPERIMENTAL: Looks up a code-host team that change requests requested a
+    review from, by its organization and slug, ignoring case. Returns null if
+    there is no such team or the viewer can't see it (see changeRequestTeams).
+    Names are refreshed when a change request that requests the team is
+    synchronized, so if a renamed team's previous name was taken by another
+    team, returns the most recently added one. Only signed-in users can look up
+    teams, and only while the bacon feature flag is enabled.
+    """
+    changeRequestTeam(
+        """
+        The code host's base URL, ignoring a trailing slash.
+        """
+        codeHostURL: String!
+        """
+        The login of the team's organization on the code host.
+        """
+        organization: String!
+        """
+        The team's slug.
+        """
+        slug: String!
+    ): CodeHostTeam
+
+    """
+    EXPERIMENTAL: The Semgrep connection that provides security scan results
+    for changesets, or null if Semgrep is not connected. Requires the
+    INTEGRATION_MANAGEMENT#READ permission and the bacon feature flag.
+    """
+    reviewSemgrepConnection: ReviewSemgrepConnection
+
+    """
+    EXPERIMENTAL: The rules that turn references in changeset descriptions,
+    such as issue keys, into links, ordered by key prefix. Requires a signed-in
+    user and the bacon feature flag.
+    """
+    reviewDescriptionLinkRules: [ReviewDescriptionLinkRule!]!
+
+    """
+    EXPERIMENTAL: The Slack account that the viewer linked to get notified
+    about review requests, or null if they haven't linked one. Requires a
+    signed-in user and the bacon feature flag.
+    """
+    reviewSlackAccount: ReviewSlackAccount
 }
 
 """
-Filters for synchronized change requests. All supplied filters are combined.
+Filters for synchronized change requests. All supplied filters and all
+comparator fields within a filter are combined. Omitted filters and
+comparator fields are unrestricted.
 """
 input ChangeRequestFilter {
     """
-    Include any of these states. Omit or pass an empty list for all states.
+    The change request's state.
     """
-    states: [ChangeRequestState!]
+    state: ChangeRequestStateComparator
     """
-    Whether to include only drafts or only non-drafts. Omit for both.
+    Whether the change request is a draft.
     """
-    draft: Boolean
+    draft: ChangeRequestBooleanComparator
     """
     The author. A Sourcegraph user matches linked code-host accounts or verified
     emails in the stored payload. A code-host account matches its login on that
-    code host. Currently supports GitHub. Omit for all authors.
+    code host. Currently supports GitHub, so nin matches all change requests on
+    other code hosts.
     """
-    author: ChangeRequestParticipantInput
+    author: ChangeRequestParticipantComparator
     """
-    The requested reviewer. Does not imply a state or draft filter. Omit for all
-    reviewers.
+    The reviewers from whom a review is currently requested. Does not imply a
+    state or draft filter.
 
-    A Sourcegraph user includes direct and team requests. Direct requests match
-    a linked code-host account or verified email in the stored payload. Team
-    requests require a linked GitHub account and app-synchronized membership
-    from the last 30 minutes. Membership is refreshed periodically using Review
-    GitHub App installations with Organization members: read permission.
+    A Sourcegraph user includes direct and team requests, unless via restricts
+    them to one of the two. Direct requests match a linked code-host account or
+    verified email in the stored payload. Team requests require a linked GitHub
+    account and app-synchronized membership from the last 30 minutes, so none
+    still matches team requests whose membership is stale. Membership is
+    refreshed periodically using Review GitHub App installations with
+    Organization members: read permission.
 
     A code-host account matches only direct requests for its login on that code
-    host. Currently supports GitHub.
+    host. A team matches only requests of the team itself, regardless of its
+    membership. Currently supports GitHub.
     """
-    requestedReviewer: ChangeRequestParticipantInput
+    requestedReviewers: ChangeRequestParticipantCollectionComparator
     """
-    Literal, case-insensitive substring of the repository name. Empty or omitted means unrestricted.
+    The repository name on the code host, such as owner/name.
     """
-    repository: String
+    repository: ChangeRequestStringComparator
     """
-    Exact code-host base URL, ignoring a trailing slash. Empty or omitted means unrestricted.
+    Whether the repository is archived on the code host. Omit to include
+    change requests of both archived and active repositories.
     """
-    codeHostURL: String
+    repositoryArchived: ChangeRequestBooleanComparator
+    """
+    The code-host base URL. Equality ignores a trailing slash.
+    """
+    codeHostURL: ChangeRequestStringComparator
+    """
+    When the change request was created on the code host.
+    """
+    createdAt: ChangeRequestDateComparator
+    """
+    When the change request was last updated on the code host.
+    """
+    updatedAt: ChangeRequestDateComparator
+    """
+    When the change request was merged. Excludes change requests that were not
+    merged.
+    """
+    mergedAt: ChangeRequestDateComparator
+    """
+    When the change request was closed on the code host. Excludes change
+    requests that were not closed. Code hosts such as GitHub also report a close
+    time for merged change requests.
+    """
+    closedAt: ChangeRequestDateComparator
+    """
+    The change request's ID, such as to exclude change requests that a user
+    dismissed.
+    """
+    id: ChangeRequestIDComparator
 }
 
 """
-A change request participant used in filters. Set exactly one field. A
-Sourcegraph user or code-host account without matching change requests has no
-results, never all results.
+Compares a change request's ID. Lists contain at most 500 IDs.
+"""
+input ChangeRequestIDComparator {
+    """
+    Is none of the given change requests.
+    """
+    nin: [ID!]
+}
+
+"""
+Compares a change request's state.
+"""
+input ChangeRequestStateComparator {
+    """
+    Equals the given state.
+    """
+    eq: ChangeRequestState
+    """
+    Does not equal the given state.
+    """
+    neq: ChangeRequestState
+    """
+    Is any of the given states. An empty list is unrestricted.
+    """
+    in: [ChangeRequestState!]
+    """
+    Is none of the given states.
+    """
+    nin: [ChangeRequestState!]
+}
+
+"""
+Compares a boolean. Set at most one field.
+"""
+input ChangeRequestBooleanComparator {
+    """
+    Equals the given value.
+    """
+    eq: Boolean
+    """
+    Does not equal the given value.
+    """
+    neq: Boolean
+}
+
+"""
+Compares a date. Together, gte and lt select a half-open range.
+"""
+input ChangeRequestDateComparator {
+    """
+    Is at or after the given time.
+    """
+    gte: DateTime
+    """
+    Is before the given time.
+    """
+    lt: DateTime
+}
+
+"""
+Compares a string, ignoring case. Empty values are unrestricted.
+"""
+input ChangeRequestStringComparator {
+    """
+    Equals the given value.
+    """
+    eq: String
+    """
+    Does not equal the given value.
+    """
+    neq: String
+    """
+    Contains the given value as a literal substring.
+    """
+    contains: String
+    """
+    Does not contain the given value as a literal substring.
+    """
+    notContains: String
+}
+
+"""
+Compares a single change request participant. Lists contain at most 20
+participants.
+"""
+input ChangeRequestParticipantComparator {
+    """
+    Is any of the given participants. An empty list is unrestricted.
+    """
+    in: [ChangeRequestParticipantInput!]
+    """
+    Is none of the given participants.
+    """
+    nin: [ChangeRequestParticipantInput!]
+}
+
+"""
+Compares a list of change request participants. Lists contain at most 20
+participants.
+"""
+input ChangeRequestParticipantCollectionComparator {
+    """
+    Any of the given participants is in the list. An empty list is unrestricted.
+    """
+    some: [ChangeRequestParticipantInput!]
+    """
+    None of the given participants is in the list.
+    """
+    none: [ChangeRequestParticipantInput!]
+}
+
+"""
+A change request participant used in filters. Set exactly one of user,
+codeHostAccount and team. A Sourcegraph user without linked accounts or
+verified emails matches nothing for in and some, and excludes nothing for nin
+and none.
 """
 input ChangeRequestParticipantInput {
     """
@@ -98,9 +364,64 @@ input ChangeRequestParticipantInput {
     """
     user: ID
     """
+    How the user's review must have been requested. Only supported together
+    with user in requestedReviewers. Omit to match both direct and team
+    requests.
+    """
+    via: ChangeRequestReviewRequestSource
+    """
     A code-host account, which does not need to be linked to a Sourcegraph user.
     """
     codeHostAccount: ChangeRequestCodeHostAccountInput
+    """
+    The ID of a code-host team, as returned by CodeHostTeam.id. Only supported
+    in requestedReviewers.
+    """
+    team: ID
+}
+
+"""
+How a review was requested from a user.
+"""
+enum ChangeRequestReviewRequestSource {
+    """
+    The review was requested from the user directly.
+    """
+    DIRECT
+    """
+    The review was requested from a team that the user is a member of.
+    """
+    TEAM
+}
+
+"""
+EXPERIMENTAL: A team on a code host from which a change request requests a
+review. Its organization and slug are as of the latest synchronization
+of a change request that requests a review from it.
+"""
+type CodeHostTeam {
+    """
+    The unique ID of the team. It stays the same when the team or its
+    organization is renamed, so filters can keep using it.
+    """
+    id: ID!
+    """
+    The base URL of the team's code host.
+    """
+    codeHostURL: String!
+    """
+    The login of the team's organization on the code host.
+    """
+    organization: String!
+    """
+    The team's slug, which identifies it within its organization in mentions
+    and URLs.
+    """
+    slug: String!
+    """
+    The URL of the team on the code host.
+    """
+    url: String!
 }
 
 """
@@ -160,6 +481,12 @@ type ChangeRequest {
     """
     repositoryName: String!
     """
+    Whether the change request's repository is archived, or otherwise
+    read-only, on the code host. Always false on code hosts without archived
+    repositories.
+    """
+    repositoryArchived: Boolean!
+    """
     The Sourcegraph repository mirroring the change request's repository, or
     null if it is not synchronized to Sourcegraph or the viewer cannot access it.
     Use repository.comparison(base: baseOID, head: headOID) to load its diff.
@@ -205,9 +532,14 @@ type ChangeRequest {
     """
     requestedReviewers: [Person!]!
     """
-    The code-host teams whose review is currently requested.
+    The slugs of the code-host teams whose review is currently requested.
     """
-    requestedTeams: [String!]!
+    requestedTeams: [String!]! @deprecated(reason: "Use requestedReviewerTeams, which identifies teams by ID.")
+    """
+    The code-host teams from which a review is currently requested, ordered by
+    organization and slug.
+    """
+    requestedReviewerTeams: [CodeHostTeam!]!
     """
     The change request's labels.
     """
@@ -261,10 +593,541 @@ type ChangeRequest {
     """
     fileGrouping: ChangeRequestFileGrouping
     """
+    Signals computed for the current synchronized head, such as security scan
+    results. Read-only: querying this field never schedules analysis. Empty if
+    none were computed or the repository is not available to the viewer.
+    """
+    signals: [ChangeRequestSignal!]!
+    """
+    Code-host CI for the current synchronized head. Read-only: this field
+    never contacts the code host or schedules work. Currently supports GitHub.
+    """
+    ci: ChangeRequestCI!
+    """
+    Whether the viewer is the author of this change request.
+    """
+    viewerIsAuthor: Boolean!
+    """
     The stack containing the change request, or null if it is not part of a
     stack. Currently supports GitHub stacked pull requests.
     """
     stack: ChangeRequestStack
+    """
+    The code host's overall review status as of the last synchronization, or
+    null if the code host reports none, such as a GitHub pull request without
+    approving or change-requesting reviews whose base branch does not require
+    reviews. Currently supports GitHub.
+    """
+    reviewStatus: ChangeRequestReviewStatus
+    """
+    The latest review of each reviewer who approved or requested changes, as of
+    the last synchronization, including reviewers whose review does not count
+    toward the review status. Excludes comment-only and dismissed reviews.
+    Currently supports GitHub, up to 100 reviewers.
+    """
+    reviews: [ChangeRequestReview!]!
+    """
+    EXPERIMENTAL: The viewer's review reports for this change request, for any
+    head, newest first. At most 50. Empty if the repository is not available to
+    the viewer.
+    """
+    viewerReports: [ChangeRequestReport!]!
+    """
+    EXPERIMENTAL: The viewer's Deep Search conversations about this change
+    request, most recently updated first. At most 50.
+    """
+    viewerDeepSearchConversations: [ChangeRequestDeepSearchConversation!]!
+    """
+    Compatibility read for the existing inline-comment UI, ordered by path and
+    line. Includes outdated file/line threads, with path-level permission checks.
+    New discussion consumers should use reviewThreads.
+    """
+    inlineReviewThreads: [ChangeRequestReviewThread!]!
+        @deprecated(reason: "Use the paginated reviewThreads connection for all discussions.")
+    """
+    All published discussion threads as of the last synchronization, regardless
+    of code-host comment type or whether they have a current code location.
+    Display every thread in Discussion; also display it inline when anchor is
+    present and matches the displayed diff. originalContext is historical code,
+    never a current anchor. Ordered oldest first in both pagination directions.
+    Unavailable with sub-repository permissions because general discussions
+    cannot be filtered by path. GitHub is the first synchronization adapter.
+    """
+    reviewThreads(
+        """
+        Return the first n threads (1–100). Cannot be combined with last.
+        """
+        first: Int
+        """
+        Return threads after this cursor.
+        """
+        after: String
+        """
+        Return the last n threads (1–100). Cannot be combined with first.
+        """
+        last: Int
+        """
+        Return threads before this cursor.
+        """
+        before: String
+    ): ChangeRequestReviewThreadConnection!
+    """
+    EXPERIMENTAL: Messages in the change request's chat. Chat messages are
+    stored only in Sourcegraph, not posted to the code host. Empty if the
+    repository is not available to the viewer.
+    """
+    chatMessages(
+        """
+        Returns the first n messages. Must be between 1 and 100, and cannot be
+        combined with last.
+        """
+        first: Int
+        """
+        Opaque cursor from pageInfo.endCursor. Returns messages after it.
+        """
+        after: String
+        """
+        Returns the last n messages, such as the most recent ones. Must be
+        between 1 and 100, and cannot be combined with first.
+        """
+        last: Int
+        """
+        Opaque cursor from pageInfo.startCursor. Returns messages before it.
+        """
+        before: String
+    ): ChangeRequestChatMessageConnection!
+}
+
+"""
+EXPERIMENTAL: A Deep Search conversation about a change request.
+"""
+type ChangeRequestDeepSearchConversation {
+    """
+    The token to read the conversation with.
+    """
+    readToken: String!
+    """
+    The conversation's title, or null until Deep Search names it.
+    """
+    title: String
+    """
+    The change request's head when the conversation was started.
+    """
+    headOID: GitObjectID!
+}
+
+"""
+A page of chat messages. Nodes are always oldest first, whether paging forward
+or backward.
+"""
+type ChangeRequestChatMessageConnection {
+    """
+    The messages in this page.
+    """
+    nodes: [ChangeRequestChatMessage!]!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+The last observed CI results for the change request's current synchronized
+head. Sourcegraph may not yet have observed newer commits or check updates.
+This is not a merge-readiness decision: code hosts can require checks on a
+test merge commit, reviews, or other rules.
+"""
+type ChangeRequestCI {
+    """
+    The synchronized head described by this snapshot, never results from a
+    different head. This is not a live lookup of the code host's current head.
+    """
+    headOID: GitObjectID!
+    """
+    The code host's aggregate result where available, or UNKNOWN if there is
+    no supported equivalent. GitHub includes check runs and commit statuses.
+    NO_CHECKS means a complete fetch found no checks in the adapter's scope.
+    """
+    status: ChangeRequestCIStatus!
+    """
+    Last observed checks, not individual commands within a job. Names are not
+    unique. Cached results retain their reported status as they age; syncedAt
+    indicates the age of the snapshot.
+    """
+    checks: [ChangeRequestCICheck!]!
+    """
+    Whether Sourcegraph retrieved the results, distinct from whether CI passed.
+    """
+    syncState: ChangeRequestCISyncState!
+    """
+    Last successful complete fetch for this head, or null before one succeeds.
+    """
+    syncedAt: DateTime
+    """
+    A safe explanation when syncState is ERROR. Previous same-head results may
+    remain available; syncedAt indicates their age.
+    """
+    error: String
+}
+
+"""
+A named check or commit-status context reported by a code host.
+"""
+type ChangeRequestCICheck {
+    """
+    Opaque identity scoped to the change request and head. A rerun can change it.
+    """
+    id: ID!
+    """
+    The check's display name.
+    """
+    name: String!
+    """
+    The check provider, if known.
+    """
+    provider: String
+    """
+    Normalized execution state or conclusion.
+    """
+    status: ChangeRequestCICheckStatus!
+    """
+    A link to the check on the provider, if available.
+    """
+    detailsURL: String
+    """
+    Whether the base branch's rules require this check to pass before merging.
+    """
+    required: Boolean!
+}
+
+"""
+Code-host aggregate CI state. SUCCESS follows the host's semantics, which may
+accept skipped, neutral, or allowed-failure checks. It does not guarantee that
+every check passed or that the change request is mergeable. UNKNOWN includes
+hosts without a supported aggregate result; it is never treated as success.
+"""
+enum ChangeRequestCIStatus {
+    NO_CHECKS
+    PENDING
+    SUCCESS
+    FAILED
+    UNKNOWN
+}
+
+"""
+A check's execution state or conclusion. PENDING does not imply execution
+started. BLOCKED includes manual waits and required actions. Unrecognized
+provider states and GitHub's STALE conclusion are UNKNOWN, never success.
+An aged cached result retains its reported status; see ChangeRequestCI.syncedAt.
+"""
+enum ChangeRequestCICheckStatus {
+    PENDING
+    QUEUED
+    IN_PROGRESS
+    SUCCESS
+    FAILED
+    CANCELED
+    SKIPPED
+    NEUTRAL
+    BLOCKED
+    UNKNOWN
+}
+
+"""
+Snapshot retrieval state. READY with an empty list means no checks; ERROR
+means retrieval failed, not that CI failed. UNSUPPORTED means no adapter exists.
+"""
+enum ChangeRequestCISyncState {
+    PENDING
+    READY
+    ERROR
+    UNSUPPORTED
+}
+
+"""
+EXPERIMENTAL: A message in a change request's chat.
+"""
+type ChangeRequestChatMessage {
+    """
+    The unique ID of the message.
+    """
+    id: ID!
+    """
+    The user who sent the message, or null if they were deleted.
+    """
+    author: User
+    """
+    The message text, in Markdown. Clients must sanitize it before rendering
+    it as HTML.
+    """
+    body: String!
+    """
+    The change request's head when the message was sent.
+    """
+    headOID: GitObjectID!
+    """
+    When the message was sent.
+    """
+    createdAt: DateTime!
+    """
+    When the author last edited the message, or null if they never did.
+    """
+    editedAt: DateTime
+    """
+    Whether the viewer can delete the message. Only its author can.
+    """
+    viewerCanDelete: Boolean!
+    """
+    When the viewer can no longer edit the message, or null if they can't
+    edit it because they didn't send it. Its author can edit it for 30 minutes
+    after sending it, so this may be in the past.
+    """
+    viewerCanEditUntil: DateTime
+}
+
+"""
+A discussion on a change request, as reported by its code host.
+"""
+type ChangeRequestReviewThread {
+    """
+    The unique ID of the thread. It is stable across synchronizations.
+    """
+    id: ID!
+    """
+    What the discussion is about. The kinds follow GitHub's discussion model, so
+    they may change or be removed when other code hosts are supported.
+    """
+    kind: ChangeRequestDiscussionKind!
+    """
+    The state of the review whose summary a REVIEW discussion is, or null for
+    other kinds and states that aren't known.
+    """
+    reviewState: ChangeRequestDiscussionReviewState
+    """
+    The commit that the review of a REVIEW discussion covered, or null for other
+    kinds or if it's unknown. A commit other than the change request's headOID
+    means the review predates the latest changes.
+    """
+    reviewCommitOID: GitObjectID
+    """
+    The original code excerpt and location retained by the code host, or null
+    when unavailable or not a line discussion. May survive a force push even
+    when the original commit is no longer accessible. Not a current diff anchor.
+    """
+    originalContext: ChangeRequestCommentContext
+    """
+    The path of the commented file, or empty for a changeset-wide discussion.
+    """
+    path: String!
+    """
+    The thread's location in the diff between the change request's baseOID and
+    headOID, or null if the thread is outdated or not attached to lines.
+    """
+    anchor: DiffAnchor
+    """
+    Whether the thread was resolved on the code host.
+    """
+    isResolved: Boolean!
+    """
+    Whether the commented lines changed since the thread was started.
+    """
+    isOutdated: Boolean!
+    """
+    The thread's URL on the code host.
+    """
+    url: String!
+    """
+    The thread's comments, oldest first. The first comment started the thread.
+    """
+    comments: [ChangeRequestReviewComment!]!
+}
+
+"""
+What a change request discussion is about.
+"""
+enum ChangeRequestDiscussionKind {
+    """
+    A comment on the whole change request.
+    """
+    GENERAL
+    """
+    The summary of a review.
+    """
+    REVIEW
+    """
+    Comments on a whole file.
+    """
+    FILE
+    """
+    Comments on lines of a file.
+    """
+    LINE
+}
+
+"""
+The state of a review whose summary is a discussion.
+"""
+enum ChangeRequestDiscussionReviewState {
+    """
+    The reviewer approved the change request.
+    """
+    APPROVED
+    """
+    The reviewer requested changes.
+    """
+    CHANGES_REQUESTED
+    """
+    The reviewer commented without approving or requesting changes.
+    """
+    COMMENTED
+    """
+    The review was dismissed.
+    """
+    DISMISSED
+}
+
+"""
+Historical context retained for a line discussion. Missing values are not
+reconstructed from the current file or diff.
+"""
+type ChangeRequestCommentContext {
+    """
+    The original unified diff excerpt as plain text; empty if unavailable.
+    """
+    diffHunk: String!
+    """
+    The original commit, or null if the code host no longer provides it.
+    """
+    commitOID: GitObjectID
+    """
+    The first commented line in the original diff, or null if unavailable.
+    """
+    startLine: Int
+    """
+    The last commented line in the original diff, or null if unavailable.
+    """
+    endLine: Int
+    """
+    The original diff side of startLine, or null if unavailable.
+    """
+    startSide: DiffAnchorSide
+    """
+    The original diff side of endLine, or null if unavailable.
+    """
+    endSide: DiffAnchorSide
+}
+
+"""
+A page of published discussions. Nodes have the same order in both pagination directions.
+"""
+type ChangeRequestReviewThreadConnection {
+    """
+    The discussions in this page.
+    """
+    nodes: [ChangeRequestReviewThread!]!
+    """
+    The total number of discussions.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: ConnectionPageInfo!
+}
+
+"""
+A comment of a change request review thread.
+"""
+type ChangeRequestReviewComment {
+    """
+    The unique ID of the comment.
+    """
+    id: ID!
+    """
+    The code-host user who wrote the comment, or null if the account was
+    deleted.
+    """
+    author: Person
+    """
+    The comment as raw, unsanitized code-host markup. Clients must sanitize it
+    before rendering it as HTML.
+    """
+    body: String!
+    """
+    The comment's URL on the code host.
+    """
+    url: String!
+    """
+    When the comment was created on the code host.
+    """
+    createdAt: DateTime!
+    """
+    When the comment was last updated on the code host.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+The overall review status of a change request, as reported by its code host.
+"""
+enum ChangeRequestReviewStatus {
+    """
+    The change request is approved, including any approvals its code host
+    requires.
+    """
+    APPROVED
+    """
+    A reviewer requested changes.
+    """
+    CHANGES_REQUESTED
+    """
+    The code host requires more approving reviews.
+    """
+    REVIEW_REQUIRED
+}
+
+"""
+A reviewer's latest review of a change request that approved it or requested
+changes.
+"""
+type ChangeRequestReview {
+    """
+    The code-host user who submitted the review.
+    """
+    reviewer: Person!
+    """
+    The review's verdict.
+    """
+    state: ChangeRequestReviewState!
+    """
+    The review's summary text as raw, unsanitized code-host markup, or empty
+    if the reviewer wrote none. Excludes inline comments. Clients must sanitize
+    it before rendering it as HTML.
+    """
+    body: String!
+    """
+    The commit that was reviewed, or null if it is unknown. A commit other than
+    the change request's headOID means the review predates the latest changes.
+    """
+    commitOID: GitObjectID
+    """
+    When the review was submitted.
+    """
+    submittedAt: DateTime!
+}
+
+"""
+The verdict of a change-request review.
+"""
+enum ChangeRequestReviewState {
+    """
+    The reviewer approved the change request.
+    """
+    APPROVED
+    """
+    The reviewer requested changes.
+    """
+    CHANGES_REQUESTED
 }
 
 """
@@ -359,6 +1222,264 @@ enum ChangeRequestFileCategory {
 }
 
 """
+A result computed for a change request's head.
+"""
+interface ChangeRequestSignal {
+    """
+    The head the signal was computed for.
+    """
+    headOID: GitObjectID!
+    """
+    When the signal was last computed.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+A security scan service's results for a change request's head.
+"""
+type ChangeRequestSecurityScanSignal implements ChangeRequestSignal {
+    """
+    The head the signal was computed for.
+    """
+    headOID: GitObjectID!
+    """
+    When the signal was last computed.
+    """
+    updatedAt: DateTime!
+    """
+    The scan service's name, such as Semgrep.
+    """
+    provider: String!
+    """
+    The state of the head's scan.
+    """
+    status: ChangeRequestSecurityScanStatus!
+    """
+    Why Sourcegraph couldn't get results, for the ERROR status.
+    """
+    error: String
+    """
+    A link to the scan on the scan service, or null if there is no scan.
+    """
+    scanURL: String
+    """
+    Findings that still need attention, most severe first. Empty unless the
+    status is COMPLETED. Filtered by the viewer's current permissions.
+    """
+    findings: [ChangeRequestSecurityFinding!]!
+    """
+    Whether the scan service reported more findings than are listed.
+    """
+    findingsTruncated: Boolean!
+}
+
+"""
+The state of a change request head's security scan.
+"""
+enum ChangeRequestSecurityScanStatus {
+    """
+    The scan service has not finished scanning the head. Sourcegraph checks
+    again every few minutes for up to 6 hours.
+    """
+    PENDING
+    """
+    The scan completed.
+    """
+    COMPLETED
+    """
+    The scan did not complete.
+    """
+    FAILED
+    """
+    The scan service does not scan the repository, or no scan of the head
+    finished within 6 hours.
+    """
+    NOT_SCANNED
+    """
+    Sourcegraph couldn't get results from the scan service. Sourcegraph retries
+    every few minutes for up to 6 hours.
+    """
+    ERROR
+}
+
+"""
+A security scan finding.
+"""
+type ChangeRequestSecurityFinding {
+    """
+    What the finding is about.
+    """
+    kind: ChangeRequestSecurityFindingKind!
+    """
+    The finding's severity.
+    """
+    severity: ChangeRequestSecurityFindingSeverity!
+    """
+    The rule that produced the finding.
+    """
+    rule: String!
+    """
+    A link to the rule's documentation, if available.
+    """
+    ruleURL: String
+    """
+    The scan service's explanation.
+    """
+    message: String!
+    """
+    The file path in the scanned head.
+    """
+    path: String!
+    """
+    The first line of the finding, starting at 1.
+    """
+    line: Int!
+    """
+    The last line of the finding, starting at 1.
+    """
+    endLine: Int!
+}
+
+"""
+The category of a security finding.
+"""
+enum ChangeRequestSecurityFindingKind {
+    """
+    A vulnerability or weakness in the code.
+    """
+    CODE
+    """
+    A vulnerable dependency.
+    """
+    SUPPLY_CHAIN
+    """
+    A hardcoded secret.
+    """
+    SECRETS
+}
+
+"""
+The severity of a security finding.
+"""
+enum ChangeRequestSecurityFindingSeverity {
+    CRITICAL
+    HIGH
+    MEDIUM
+    LOW
+    INFO
+}
+
+"""
+EXPERIMENTAL: The Semgrep deployment that provides security scan results for
+changesets.
+"""
+type ReviewSemgrepConnection {
+    """
+    The Semgrep URL.
+    """
+    url: String!
+    """
+    The name of the Semgrep deployment (organization) the token belongs to.
+    """
+    deploymentName: String!
+    """
+    The URL slug of the Semgrep deployment.
+    """
+    deploymentSlug: String!
+    """
+    When Semgrep was first connected.
+    """
+    createdAt: DateTime!
+    """
+    When the connection was last replaced.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+Input for connecting Semgrep.
+"""
+input ConnectReviewSemgrepInput {
+    """
+    A Semgrep API token. Sourcegraph validates it, stores it encrypted, and
+    never returns it.
+    """
+    token: String!
+    """
+    The Semgrep URL. Defaults to https://semgrep.dev.
+    """
+    url: String
+}
+
+"""
+EXPERIMENTAL: A Slack account that a user linked to get notified about review
+requests.
+"""
+type ReviewSlackAccount {
+    """
+    The Slack user's name when the account was linked.
+    """
+    userName: String!
+    """
+    The Slack workspace's name when the account was linked.
+    """
+    workspaceName: String!
+    """
+    When the account was linked.
+    """
+    linkedAt: DateTime!
+}
+
+"""
+EXPERIMENTAL: A rule that turns references in changeset descriptions, such as
+issue keys, into links. A reference is the key prefix followed by an
+identifier, such as SRC-123 for the key prefix SRC-. References in code and
+existing links are not linked.
+"""
+type ReviewDescriptionLinkRule {
+    """
+    The unique ID of the rule.
+    """
+    id: ID!
+    """
+    The case-sensitive text that starts a reference, such as SRC-.
+    """
+    keyPrefix: String!
+    """
+    The absolute HTTP(S) URL that a reference links to, with <num> replaced by
+    the reference's identifier.
+    """
+    urlTemplate: String!
+    """
+    Whether identifiers may contain ASCII letters. Otherwise, they consist of
+    digits only.
+    """
+    alphanumeric: Boolean!
+}
+
+"""
+Input for creating a description link rule.
+"""
+input CreateReviewDescriptionLinkRuleInput {
+    """
+    The case-sensitive text that starts a reference, such as SRC-. It must not
+    contain whitespace, and no other rule may have the same key prefix.
+    """
+    keyPrefix: String!
+    """
+    The absolute HTTP(S) URL that a reference links to. It must contain <num>,
+    which is replaced by the reference's identifier.
+    """
+    urlTemplate: String!
+    """
+    Whether identifiers may contain ASCII letters. Otherwise, they consist of
+    digits only.
+    """
+    alphanumeric: Boolean!
+}
+
+"""
 The state of a change request.
 """
 enum ChangeRequestState {
@@ -382,10 +1503,512 @@ enum ChangeRequestState {
 
 extend type Mutation {
     """
+    EXPERIMENTAL: Updates a changeset's description as the viewer's linked
+    code-host account. Checks the live description against expectedBody before
+    writing. The code host enforces permissions. Conflict detection is best
+    effort: a concurrent edit on the host between the check and write can be overwritten.
+    """
+    updateChangeRequestDescription(input: UpdateChangeRequestDescriptionInput!): ChangeRequest!
+    """
+    EXPERIMENTAL: Merges one changeset as the viewer's linked code-host account.
+    Rechecks readiness and atomically requires the displayed head to match.
+    Requires the same access as changeRequest. Does not bypass code-host rules.
+    """
+    mergeChangeRequest(input: MergeChangeRequestInput!): ChangeRequest!
+    """
+    EXPERIMENTAL: Marks one draft changeset ready for review as the viewer's
+    linked code-host account. Succeeds without a change if it is already ready
+    for review. Requires the same access as changeRequest; the code host
+    enforces permissions. Currently supports GitHub.
+    """
+    markChangeRequestReadyForReview(input: MarkChangeRequestReadyForReviewInput!): ChangeRequest!
+    """
+    EXPERIMENTAL: Moves one file to a review category for all viewers. Only
+    the author may edit; the synchronized base and head must still match.
+    """
+    moveChangeRequestFile(input: MoveChangeRequestFileInput!): ChangeRequestFileGrouping!
+    """
+    EXPERIMENTAL: Reports whether the viewer is looking at, reviewing, and
+    typing a chat message about a change request in one browser session, and
+    returns the users looking at it or who looked at it in the last 4 hours:
+    the viewer first, then those looking at it, and the rest most recent first.
+    Clients report active about every 15 seconds while the page is visible, or
+    every 5 seconds while others are looking at it, and inactive when it is
+    hidden or closed. A session stops counting 45 seconds after its last active
+    report.
+    """
+    reportChangeRequestPresence(input: ReportChangeRequestPresenceInput!): [ChangeRequestViewer!]!
+    """
+    EXPERIMENTAL: Requests a review report of the change request's current
+    synchronized head, shaped by the viewer's prompt. Generation is
+    asynchronous: the report starts QUEUED, and its document fills in as the
+    agent works. Poll changeRequestReport for progress.
+    """
+    createChangeRequestReport(input: CreateChangeRequestReportInput!): ChangeRequestReport!
+    """
+    EXPERIMENTAL: Sends a message to the change request's chat as the viewer.
+    The message is stored only in Sourcegraph, not posted to the code host.
+    """
+    sendChangeRequestChatMessage(input: SendChangeRequestChatMessageInput!): ChangeRequestChatMessage!
+    """
+    EXPERIMENTAL: Deletes one of the viewer's own chat messages.
+    """
+    deleteChangeRequestChatMessage(input: DeleteChangeRequestChatMessageInput!): EmptyResponse!
+    """
+    EXPERIMENTAL: Replaces the text of one of the viewer's own chat messages,
+    which is possible for 30 minutes after sending it. Mentions added by
+    editing don't notify anyone.
+    """
+    editChangeRequestChatMessage(input: EditChangeRequestChatMessageInput!): ChangeRequestChatMessage!
+    """
     EXPERIMENTAL: Submits a review for a code-host change request. The initial
     implementation supports GitHub pull requests only.
     """
     submitChangeRequestReview(input: SubmitChangeRequestReviewInput!): SubmitChangeRequestReviewPayload!
+    """
+    EXPERIMENTAL: Starts a thread of inline comments on a change request's
+    diff as the viewer's linked code-host account. The comment is posted
+    immediately. Currently supports GitHub.
+    """
+    addChangeRequestReviewThread(input: AddChangeRequestReviewThreadInput!): ChangeRequestReviewCommentPayload!
+    """
+    EXPERIMENTAL: Replies to a thread of inline comments as the viewer's linked
+    code-host account. Currently supports GitHub.
+    """
+    replyToChangeRequestReviewThread(input: ReplyToChangeRequestReviewThreadInput!): ChangeRequestReviewCommentPayload!
+    """
+    EXPERIMENTAL: Deletes a comment of a change request review thread as the
+    viewer's linked code-host account, if the code host allows it. Currently
+    supports GitHub.
+    """
+    deleteChangeRequestReviewComment(
+        input: DeleteChangeRequestReviewCommentInput!
+    ): DeleteChangeRequestReviewCommentPayload!
+    """
+    EXPERIMENTAL: Connects Semgrep to show security scan results on
+    changesets, replacing any existing connection. Requires the
+    INTEGRATION_MANAGEMENT#WRITE permission and the bacon feature flag.
+    """
+    connectReviewSemgrep(input: ConnectReviewSemgrepInput!): ReviewSemgrepConnection!
+    """
+    EXPERIMENTAL: Disconnects Semgrep. Sourcegraph stops requesting scan
+    results; results already shown on changesets remain. Requires the
+    INTEGRATION_MANAGEMENT#WRITE permission and the bacon feature flag.
+    """
+    disconnectReviewSemgrep: EmptyResponse!
+    """
+    EXPERIMENTAL: Creates a rule that turns references in changeset
+    descriptions into links. Requires the INTEGRATION_MANAGEMENT#WRITE
+    permission and the bacon feature flag.
+    """
+    createReviewDescriptionLinkRule(input: CreateReviewDescriptionLinkRuleInput!): ReviewDescriptionLinkRule!
+    """
+    EXPERIMENTAL: Deletes a description link rule. Requires the
+    INTEGRATION_MANAGEMENT#WRITE permission and the bacon feature flag.
+    """
+    deleteReviewDescriptionLinkRule(id: ID!): EmptyResponse!
+
+    """
+    EXPERIMENTAL: Sends a direct message with a link to link the viewer's Slack
+    account. The Sourcegraph Slack app sends it to the account in a connected
+    Slack workspace whose email address is a verified email address of the
+    viewer. Opening the link signed in as the viewer and passing its token to
+    linkReviewSlackAccount links the account. The link expires after 15
+    minutes. Requires a signed-in user and the bacon feature flag.
+    """
+    requestReviewSlackAccountLink: EmptyResponse!
+
+    """
+    EXPERIMENTAL: Links the Slack account that received the token from
+    requestReviewSlackAccountLink to the viewer, replacing the viewer's
+    previously linked account. Only the viewer who requested the token can use
+    it. The Sourcegraph Slack app then sends the account a direct message when
+    a changeset requests a review from the viewer's linked code-host account.
+    Requires a signed-in user and the bacon feature flag.
+    """
+    linkReviewSlackAccount(token: String!): ReviewSlackAccount!
+
+    """
+    EXPERIMENTAL: Unlinks the viewer's Slack account, if they linked one.
+    Requires a signed-in user and the bacon feature flag.
+    """
+    unlinkReviewSlackAccount: EmptyResponse!
+}
+
+"""
+Code-host actions available to the viewer for a specific changeset.
+"""
+type CodeHostCapabilities {
+    """
+    Whether Sourcegraph implements description editing for this code host.
+    Does not inspect credentials or contact the host. The mutation enforces
+    permissions and code-host restrictions when saving.
+    """
+    editDescription: ChangeRequestActionSupport!
+    """
+    Checks live merge readiness for the reviewed head with the viewer's linked
+    account. Unsupported hosts return no methods and an explanation directing
+    the viewer to the code host. Only queried capabilities contact the host.
+    """
+    mergeOptions(expectedHeadOID: GitObjectID!): ChangeRequestMergeOptions!
+}
+
+"""
+Static implementation support for a code-host action, not viewer permission.
+"""
+type ChangeRequestActionSupport {
+    """
+    Whether Sourcegraph implements this action for the changeset's code host.
+    """
+    supported: Boolean!
+}
+
+"""
+The exact Markdown to save, including an empty string to clear the description.
+"""
+input UpdateChangeRequestDescriptionInput {
+    """
+    The changeset to edit.
+    """
+    changeRequest: ID!
+    """
+    The new description, without Markdown rendering or whitespace normalization.
+    """
+    body: String!
+    """
+    The description the viewer started editing, used to detect stale edits.
+    """
+    expectedBody: String!
+}
+
+"""
+Live merge methods available to the viewer for a specific changeset head.
+"""
+type ChangeRequestMergeOptions {
+    """
+    The host's current merge readiness. A failed lookup returns a GraphQL error,
+    not BLOCKED. READY is advisory; merging rechecks readiness and the head.
+    """
+    state: ChangeRequestMergeReadiness!
+    """
+    Allowed methods, in preferred order. Empty when merging is blocked.
+    """
+    methods: [ChangeRequestMergeMethod!]!
+    """
+    Why merging is blocked, or an empty string when it is available.
+    """
+    reason: String!
+}
+
+"""
+Merge readiness, distinct from individual CI check results.
+"""
+enum ChangeRequestMergeReadiness {
+    """
+    The viewer can attempt a supported merge method.
+    """
+    READY
+    """
+    A known condition or code-host rule prevents merging.
+    """
+    BLOCKED
+    """
+    The code host is still calculating readiness.
+    """
+    CHECKING
+    """
+    Merge on the code host; in-app merging is unsupported.
+    """
+    UNSUPPORTED
+}
+
+"""
+An available code-host-specific merge option. Clients must not infer semantics
+from the ID or assume all code hosts offer the same strategies.
+"""
+type ChangeRequestMergeMethod {
+    """
+    Opaque method identifier to send to mergeChangeRequest.
+    """
+    id: String!
+    """
+    User-facing description of this method's behavior on the code host.
+    """
+    label: String!
+}
+
+"""
+A request to merge exactly the displayed head of one changeset.
+"""
+input MergeChangeRequestInput {
+    """
+    The changeset to merge.
+    """
+    changeRequest: ID!
+    """
+    The head commit the viewer reviewed. Must still match on the code host.
+    """
+    expectedHeadOID: GitObjectID!
+    """
+    The ID of one of the methods returned by codeHostCapabilities.mergeOptions.
+    """
+    method: String!
+}
+
+"""
+A request to mark one draft changeset ready for review.
+"""
+input MarkChangeRequestReadyForReviewInput {
+    """
+    The changeset to mark ready for review.
+    """
+    changeRequest: ID!
+}
+
+"""
+A presence report for one browser session of a change request page.
+"""
+input ReportChangeRequestPresenceInput {
+    """
+    The change request being looked at.
+    """
+    changeRequest: ID!
+    """
+    A client-generated identifier of the browser session, such as one per tab,
+    so that a user stays present while any of their sessions is active. At
+    most 64 characters.
+    """
+    session: String!
+    """
+    Whether the session is looking at the change request. False removes the
+    session immediately.
+    """
+    active: Boolean!
+    """
+    Whether the session is writing a review of the change request. Only an
+    active session can be reviewing.
+    """
+    reviewing: Boolean = false
+    """
+    Whether the session is typing a chat message about the change request.
+    Only an active session can be typing.
+    """
+    typing: Boolean = false
+}
+
+"""
+A user who is looking at, or recently looked at, a change request.
+"""
+type ChangeRequestViewer {
+    """
+    The user.
+    """
+    user: User!
+    """
+    Whether any of the user's sessions is looking at the change request now.
+    """
+    active: Boolean!
+    """
+    Whether any of the user's sessions is writing a review of the change
+    request now.
+    """
+    reviewing: Boolean!
+    """
+    Whether any of the user's sessions is typing a chat message about the
+    change request now.
+    """
+    typing: Boolean!
+    """
+    When the user last looked at the change request.
+    """
+    lastViewedAt: DateTime!
+}
+
+"""
+A request for a review report of a change request's current head.
+"""
+input CreateChangeRequestReportInput {
+    """
+    The change request to report on.
+    """
+    changeRequest: ID!
+    """
+    What the report should cover and how, in the viewer's words. Must not be
+    blank; at most 4,000 characters.
+    """
+    prompt: String!
+    """
+    How much investigation the agent may do.
+    """
+    effort: ChangeRequestReportEffort!
+}
+
+"""
+A message to send to a change request's chat.
+"""
+input SendChangeRequestChatMessageInput {
+    """
+    The change request whose chat to send the message to.
+    """
+    changeRequest: ID!
+    """
+    The message text, in Markdown. Must not be blank; at most 4,000 characters.
+    Surrounding whitespace is removed.
+    """
+    body: String!
+}
+
+"""
+A chat message to edit.
+"""
+input EditChangeRequestChatMessageInput {
+    """
+    The message to edit. It must have been sent by the viewer in the last 30
+    minutes.
+    """
+    message: ID!
+    """
+    The new message text, in Markdown. Must not be blank; at most 4,000
+    characters. Surrounding whitespace is removed.
+    """
+    body: String!
+}
+
+"""
+A chat message to delete.
+"""
+input DeleteChangeRequestChatMessageInput {
+    """
+    The message to delete. It must have been sent by the viewer.
+    """
+    message: ID!
+}
+
+"""
+How much investigation a report's agent may do. More effort takes longer and
+reads more context.
+"""
+enum ChangeRequestReportEffort {
+    """
+    Reads only the diff. Fastest.
+    """
+    QUICK
+    """
+    Reads the diff and surrounding files.
+    """
+    STANDARD
+    """
+    Investigates further, with a larger budget.
+    """
+    DEEP
+}
+
+"""
+The lifecycle of a review report.
+"""
+enum ChangeRequestReportState {
+    """
+    Waiting for a worker.
+    """
+    QUEUED
+    """
+    The agent is working; the document may be partially filled in.
+    """
+    PROCESSING
+    """
+    Generation ended with a document. See partial.
+    """
+    COMPLETED
+    """
+    Generation ended without a usable document. See failureMessage.
+    """
+    FAILED
+}
+
+"""
+EXPERIMENTAL: A review report: a structured document an agent wrote about one
+revision of a change request, following a viewer's prompt.
+"""
+type ChangeRequestReport {
+    """
+    The unique ID of the report.
+    """
+    id: ID!
+    """
+    The prompt the report was requested with.
+    """
+    prompt: String!
+    """
+    The effort the report was requested with.
+    """
+    effort: ChangeRequestReportEffort!
+    """
+    Generation state.
+    """
+    state: ChangeRequestReportState!
+    """
+    Whether a COMPLETED report ended before the agent finished, for example
+    because it used up its budget. The document contains what it produced.
+    """
+    partial: Boolean!
+    """
+    Why generation failed, or null unless FAILED.
+    """
+    failureMessage: String
+    """
+    The merge base the report compares against, or null before generation
+    resolved it. Lines on the base side of the document refer to this revision.
+    """
+    diffBaseOID: GitObjectID
+    """
+    The change request head the report describes. Lines on the head side of the
+    document refer to this revision.
+    """
+    headOID: GitObjectID!
+    """
+    The report document as JSON, or null until the agent has produced an
+    outline. Its format is versioned by its version field; see the client's
+    report spec for the shape. Updated while PROCESSING.
+    """
+    document: JSONValue
+    """
+    The user who requested the report, or null if they were deleted.
+    """
+    creator: User
+    """
+    When the report was requested.
+    """
+    createdAt: DateTime!
+    """
+    When the report or its document last changed.
+    """
+    updatedAt: DateTime!
+}
+
+"""
+An author-requested category change for one file in a synchronized revision.
+"""
+input MoveChangeRequestFileInput {
+    """
+    The changeset to edit.
+    """
+    changeRequest: ID!
+    """
+    The synchronized base commit shown to the author (not the merge base).
+    """
+    expectedBaseOID: GitObjectID!
+    """
+    The synchronized head commit shown to the author.
+    """
+    expectedHeadOID: GitObjectID!
+    """
+    The changed file path.
+    """
+    path: String!
+    """
+    The destination category.
+    """
+    category: ChangeRequestFileCategory!
 }
 
 """
@@ -413,6 +2036,140 @@ input SubmitChangeRequestReviewInput {
     REQUEST_CHANGES actions.
     """
     body: String
+    """
+    Threads of inline comments to start with the review. Their lines refer to
+    the diff of expectedHeadOID. The code host posts the review and its
+    threads together, or none of them.
+    """
+    threads: [ChangeRequestReviewDraftThread!]
+}
+
+"""
+A thread of inline comments that is started as part of a review.
+"""
+input ChangeRequestReviewDraftThread {
+    """
+    The path of the commented file in the diff.
+    """
+    path: String!
+    """
+    The side containing the first line.
+    """
+    startSide: DiffAnchorSide!
+    """
+    The first line, inclusive, in the file on startSide.
+    """
+    startLine: Int!
+    """
+    The side containing the last line.
+    """
+    endSide: DiffAnchorSide!
+    """
+    The last line, inclusive, in the file on endSide.
+    """
+    endLine: Int!
+    """
+    The comment as code-host markup.
+    """
+    body: String!
+}
+
+"""
+Input for starting a change request review thread.
+"""
+input AddChangeRequestReviewThreadInput {
+    """
+    The change request to comment on.
+    """
+    changeRequest: ID!
+    """
+    The head commit of the diff the lines refer to. It must be the change
+    request's current head on the code host.
+    """
+    expectedHeadOID: GitObjectID!
+    """
+    The path of the commented file in the diff.
+    """
+    path: String!
+    """
+    The side containing the first line.
+    """
+    startSide: DiffAnchorSide!
+    """
+    The first line, inclusive, in the file on startSide.
+    """
+    startLine: Int!
+    """
+    The side containing the last line.
+    """
+    endSide: DiffAnchorSide!
+    """
+    The last line, inclusive, in the file on endSide.
+    """
+    endLine: Int!
+    """
+    The comment as code-host markup.
+    """
+    body: String!
+}
+
+"""
+Input for replying to a change request review thread.
+"""
+input ReplyToChangeRequestReviewThreadInput {
+    """
+    The thread to reply to.
+    """
+    thread: ID!
+    """
+    The comment as code-host markup.
+    """
+    body: String!
+}
+
+"""
+Input for deleting a change request review comment.
+"""
+input DeleteChangeRequestReviewCommentInput {
+    """
+    The comment to delete.
+    """
+    comment: ID!
+}
+
+"""
+The result of deleting a change request review comment.
+"""
+type DeleteChangeRequestReviewCommentPayload {
+    """
+    The outcome of deleting the comment. Deleting a comment that no longer
+    exists succeeds. The comment disappears from the change request's
+    reviewThreads after the next synchronization.
+    """
+    status: SubmitChangeRequestReviewStatus!
+}
+
+"""
+The result of posting a change request review comment.
+"""
+type ChangeRequestReviewCommentPayload {
+    """
+    The outcome of posting the comment.
+    """
+    status: SubmitChangeRequestReviewStatus!
+    """
+    The latest head commit when status is HEAD_CHANGED.
+    """
+    currentHeadOID: GitObjectID
+    """
+    The ID of the thread containing the comment when status is SUCCESS.
+    """
+    threadID: ID
+    """
+    The posted comment when status is SUCCESS. It appears in the change
+    request's reviewThreads after the next synchronization.
+    """
+    comment: ChangeRequestReviewComment
 }
 
 """
@@ -436,6 +2193,13 @@ type SubmitChangeRequestReviewPayload {
     The latest head commit when status is HEAD_CHANGED.
     """
     currentHeadOID: GitObjectID
+    """
+    The reviewed change request when status is SUCCESS, with the submitted
+    approval or change request and the code host's resulting review status
+    already reflected, ahead of the next synchronization. Null otherwise, or if
+    the change request isn't synchronized.
+    """
+    changeRequest: ChangeRequest
 }
 
 """

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS user_repo_permissions_unrestricted_unique_idx;

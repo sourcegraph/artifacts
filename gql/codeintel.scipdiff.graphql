@@ -1,0 +1,144 @@
+extend type Query {
+    """
+    Compares indexed declarations between two commits in a repository. Both
+    revisions are resolved once and compared directly, without a merge base.
+    Files without index coverage at both exact commits are reported in skippedFiles
+    and can still be displayed using their text diff. Other errors fail the query.
+    """
+    scipDiff(
+        "The repository name, for example github.com/sourcegraph/sourcegraph."
+        repository: String!
+        "The commit or revision before the change."
+        before: String!
+        "The commit or revision after the change."
+        after: String!
+        "Use only indexes of the specified provenance (PRECISE or SYNTACTIC). When omitted or null, prefer precise coverage for each changed file at both exact commits, falling back to syntactic indexes for that file if coverage is incomplete. Files are compared in separate provenance groups; moves and associations across groups are not detected. Syntactic results associate lines by source name rather than SCIP identity. SEARCH_BASED is not supported."
+        provenance: CodeGraphDataProvenance
+        "Ignore whitespace within lines like git diff -w when reporting declaration modifications and changed lines."
+        ignoreWhitespace: Boolean = false
+    ): SCIPDiff!
+}
+
+"A declaration-level comparison of two Git snapshots."
+type SCIPDiff {
+    "The index kinds used for covered files, in PRECISE then SYNTACTIC order. Empty when no changed files were compared, even if indexes were attempted. Includes kinds whose covered files produced no declaration changes."
+    provenances: [CodeGraphDataProvenance!]!
+    "The number of changed files compared with index coverage at both commits."
+    indexedFileCount: Int!
+    "Changed file paths omitted from SCIP annotations because either commit has no exact-commit index coverage for the path, sorted lexicographically."
+    skippedFiles: [String!]!
+    "The resolved commit before the change."
+    beforeCommit: String!
+    "The resolved commit after the change."
+    afterCommit: String!
+    "Declaration changes, sorted by destination (or removed) path, then symbol."
+    changes: [SCIPDiffSymbolChange!]!
+    "Edited lines associated with each changed declaration."
+    associationGroups: [SCIPDiffAssociationGroup!]!
+}
+
+"The kind of declaration change."
+enum SCIPDiffChangeKind {
+    "A new declaration."
+    ADDED
+    "A deleted declaration."
+    REMOVED
+    "A declaration with edited source."
+    MODIFIED
+    "A declaration moved between files, possibly with edits."
+    MOVED
+    "A declaration renamed, possibly with other edits."
+    RENAMED
+}
+
+"A change to a declaration, which may span multiple ranges."
+type SCIPDiffSymbolChange {
+    "The index kind used for this change. Both sides use the same kind."
+    provenance: CodeGraphDataProvenance!
+    "The classification of this change."
+    kind: SCIPDiffChangeKind!
+    "The destination SCIP symbol, or the original symbol for removals."
+    symbol: String!
+    "The original SCIP symbol for moves and renames."
+    previousSymbol: String
+    "The repository-relative path before the change, absent for additions."
+    beforePath: String
+    "The repository-relative path after the change, absent for removals."
+    afterPath: String
+    "The declaration's enclosing source ranges before the change."
+    beforeRanges: [SCIPDiffRange!]!
+    "The declaration's enclosing source ranges after the change."
+    afterRanges: [SCIPDiffRange!]!
+    "Deleted and inserted lines within the declaration."
+    changedLines: SCIPDiffChangedLines!
+}
+
+"A source range with zero-based lines and UTF-8 byte columns. The end is exclusive."
+type SCIPDiffRange {
+    "The start line."
+    startLine: Int!
+    "The start byte column."
+    startColumn: Int!
+    "The end line."
+    endLine: Int!
+    "The end byte column."
+    endColumn: Int!
+}
+
+"Deleted and inserted lines in source order. The arrays do not imply a pairing."
+type SCIPDiffChangedLines {
+    "Deleted lines."
+    before: [SCIPDiffChangedLine!]!
+    "Inserted lines."
+    after: [SCIPDiffChangedLine!]!
+}
+
+"An edited line clipped to its declaration, including its newline when present."
+type SCIPDiffChangedLine {
+    "The source range of the edited line."
+    range: SCIPDiffRange!
+    "Symbol occurrences overlapping the edited line."
+    symbols: [SCIPDiffSymbolOccurrence!]!
+}
+
+"A SCIP occurrence on an edited line."
+type SCIPDiffSymbolOccurrence {
+    "The SCIP symbol."
+    symbol: String!
+    "The source spelling at the occurrence."
+    name: String!
+    "The occurrence's complete source range."
+    range: SCIPDiffRange!
+    "Whether this occurrence defines the symbol."
+    isDefinition: Boolean!
+}
+
+"Edited lines related to one declaration change, including its own edited lines."
+type SCIPDiffAssociationGroup {
+    "The zero-based index of the associated declaration in SCIPDiff.changes."
+    change: Int!
+    "The declaration's original source name, when present."
+    beforeName: String
+    "The declaration's destination source name, when present."
+    afterName: String
+    "References to related edited lines. A line can appear in multiple groups."
+    lines: [SCIPDiffLineReference!]!
+}
+
+"One side of a SCIP diff."
+enum SCIPDiffSide {
+    "The original snapshot."
+    BEFORE
+    "The destination snapshot."
+    AFTER
+}
+
+"A reference into a change's edited-line array, rather than a source line number."
+type SCIPDiffLineReference {
+    "The zero-based index in SCIPDiff.changes."
+    change: Int!
+    "Which changed-line array contains the line."
+    side: SCIPDiffSide!
+    "The zero-based index in the selected changedLines array."
+    line: Int!
+}

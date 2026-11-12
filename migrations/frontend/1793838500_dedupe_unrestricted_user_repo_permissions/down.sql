@@ -1,0 +1,2 @@
+-- Deleted duplicate rows are not restored: they marked the same repository as
+-- unrestricted as the row that was kept.

@@ -1,0 +1,3 @@
+name: index_user_notification_key_prefixes
+parents: [1792691683, 1793887241]
+createIndexConcurrently: true

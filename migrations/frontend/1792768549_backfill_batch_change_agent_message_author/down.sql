@@ -1,0 +1,2 @@
+-- Nothing to undo: backfilled authors are indistinguishable from recorded
+-- ones, and readers ignore the key when they do not know it.
